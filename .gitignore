@@ -1,0 +1,13 @@
+# Build artifacts
+.build/
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+xcuserdata/
+
+# macOS
+.DS_Store
+
+# Local planning, evidence, and agent state
+/.planning/
+/.claude/
