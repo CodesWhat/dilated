@@ -1,0 +1,168 @@
+import Foundation
+
+public enum HoldSource: String, Codable, Sendable { case manual, cli, lease, runner, url }
+public struct Hold: Codable, Equatable, Identifiable, Sendable {
+  public var id: UUID
+  public var source: HoldSource
+  public var label: String
+  public var createdAt: Date
+  public var expiry: Date?
+  public var displayAwake: Bool
+  public var lowPowerOverride: Bool
+  public var batteryOverride: Bool?
+}
+public struct PowerState: Codable, Equatable, Sendable {
+  public var onBattery: Bool
+  public var batteryPercent: Int?
+  public var lowPowerMode: Bool
+  public init(onBattery: Bool = false, batteryPercent: Int? = nil, lowPowerMode: Bool = false) {
+    self.onBattery = onBattery
+    self.batteryPercent = batteryPercent
+    self.lowPowerMode = lowPowerMode
+  }
+}
+public struct EngineSnapshot: Codable, Sendable {
+  public var holds: [Hold]
+  public var automationPaused: Bool
+  public init(holds: [Hold] = [], automationPaused: Bool = false) {
+    self.holds = holds
+    self.automationPaused = automationPaused
+  }
+}
+public enum WakeError: String, Error, Codable, Sendable, LocalizedError {
+  case automationPaused, holdNotFound, notRenewable, lowPowerMode, lowBattery, invalidDuration,
+    notTimed
+  public var errorDescription: String? {
+    switch self {
+    case .automationPaused: "Automation is paused. Choose Resume automation in Dilated."
+    case .holdNotFound: "That hold has ended or doesn't exist."
+    case .notRenewable: "Only agent leases and command holds can be renewed."
+    case .lowPowerMode: "Stopped: Low Power Mode. Use an explicit override to continue."
+    case .lowBattery: "Stopped: battery is below the configured floor."
+    case .invalidDuration: "Duration must be a positive, finite amount of time."
+    case .notTimed: "An indefinite hold can't be extended."
+    }
+  }
+}
+public struct DesiredState: Equatable, Sendable {
+  public var systemAwake = false
+  public var displayAwake = false
+}
+public struct WakeEngine: Sendable {
+  public private(set) var holds: [Hold] = []
+  public private(set) var automationPaused = false
+  public private(set) var attention: String?
+  public private(set) var power = PowerState()
+  public var batteryFloor: Int?
+  public var desiredState: DesiredState {
+    DesiredState(systemAwake: !holds.isEmpty, displayAwake: holds.contains { $0.displayAwake })
+  }
+  public var snapshot: EngineSnapshot {
+    EngineSnapshot(holds: holds, automationPaused: automationPaused)
+  }
+
+  public init(
+    snapshot: EngineSnapshot = EngineSnapshot(), now: Date = Date(),
+    power: PowerState = PowerState(), batteryFloor: Int? = nil
+  ) {
+    self.batteryFloor = batteryFloor
+    self.power = power
+    automationPaused = snapshot.automationPaused
+    holds = snapshot.holds.filter {
+      guard let expiry = $0.expiry, expiry > now else { return false }
+      return $0.source != .lease && $0.source != .runner
+        && (!automationPaused || $0.source == .manual)
+    }
+    updatePower(power, now: now)
+  }
+
+  @discardableResult public mutating func start(
+    source: HoldSource, label: String, duration: TimeInterval? = nil,
+    displayAwake: Bool = false, lowPowerOverride: Bool = false, batteryOverride: Bool = false,
+    now: Date = Date()
+  ) throws -> Hold {
+    tick(now: now)
+    if automationPaused && source != .manual { throw WakeError.automationPaused }
+    if let duration { try Self.validate(duration) }
+    if (source == .lease || source == .runner) && duration == nil {
+      throw WakeError.invalidDuration
+    }
+    try checkSafety(lowPowerOverride: lowPowerOverride, batteryOverride: batteryOverride)
+    let hold = Hold(
+      id: UUID(), source: source, label: String(label.prefix(200)), createdAt: now,
+      expiry: duration.map { now.addingTimeInterval($0) }, displayAwake: displayAwake,
+      lowPowerOverride: lowPowerOverride, batteryOverride: batteryOverride ? true : nil)
+    holds.append(hold)
+    attention = nil
+    return hold
+  }
+
+  public mutating func stop(id: UUID) { holds.removeAll { $0.id == id } }
+  public mutating func stopAll() {
+    holds.removeAll()
+    automationPaused = true
+    attention = "Automation paused until you choose Resume automation."
+  }
+  public mutating func resumeAutomation() {
+    automationPaused = false
+    attention = nil
+  }
+  public mutating func quit() { holds.removeAll() }
+  public mutating func tick(now: Date = Date()) {
+    holds.removeAll { $0.expiry.map { $0 <= now } ?? false }
+  }
+  public mutating func updatePower(_ power: PowerState, now: Date = Date()) {
+    self.power = power
+    tick(now: now)
+    let before = holds.count
+    let lowBattery = batteryBlocked
+    holds.removeAll { hold in
+      (power.lowPowerMode && !hold.lowPowerOverride) || (lowBattery && hold.batteryOverride != true)
+    }
+    if holds.count != before {
+      attention =
+        batteryBlocked
+        ? "Stopped: battery \(power.batteryPercent ?? 0)%."
+        : WakeError.lowPowerMode.localizedDescription
+    }
+  }
+  public mutating func renew(id: UUID, duration: TimeInterval, now: Date = Date()) throws {
+    tick(now: now)
+    if automationPaused { throw WakeError.automationPaused }
+    try Self.validate(duration)
+    guard let index = holds.firstIndex(where: { $0.id == id }) else { throw WakeError.holdNotFound }
+    guard holds[index].source == .lease || holds[index].source == .runner else {
+      throw WakeError.notRenewable
+    }
+    try checkSafety(
+      lowPowerOverride: holds[index].lowPowerOverride,
+      batteryOverride: holds[index].batteryOverride == true)
+    holds[index].expiry = now.addingTimeInterval(duration)
+  }
+  public mutating func extend(id: UUID, by duration: TimeInterval, now: Date = Date()) throws {
+    tick(now: now)
+    try Self.validate(duration)
+    guard let index = holds.firstIndex(where: { $0.id == id }) else { throw WakeError.holdNotFound }
+    guard let expiry = holds[index].expiry else { throw WakeError.notTimed }
+    holds[index].expiry = expiry.addingTimeInterval(duration)
+  }
+  public mutating func setDisplayAwake(id: UUID, enabled: Bool) {
+    guard let index = holds.firstIndex(where: { $0.id == id }) else { return }
+    holds[index].displayAwake = enabled
+  }
+  private var batteryBlocked: Bool {
+    guard power.onBattery, let percent = power.batteryPercent, let floor = batteryFloor else {
+      return false
+    }
+    return percent < floor
+  }
+  private func checkSafety(lowPowerOverride: Bool, batteryOverride: Bool = false) throws {
+    if batteryBlocked && !batteryOverride { throw WakeError.lowBattery }
+    if power.lowPowerMode && !lowPowerOverride { throw WakeError.lowPowerMode }
+  }
+  private static func validate(_ duration: TimeInterval) throws {
+    guard duration.isFinite && duration > 0 && duration <= 315_576_000 else {
+      throw WakeError.invalidDuration
+    }
+  }
+}
