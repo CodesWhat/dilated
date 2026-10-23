@@ -10,6 +10,7 @@ public struct Hold: Codable, Equatable, Identifiable, Sendable {
   public var displayAwake: Bool
   public var lowPowerOverride: Bool
   public var batteryOverride: Bool?
+  public var closedLid: Bool?
 }
 public struct PowerState: Codable, Equatable, Sendable {
   public var onBattery: Bool
@@ -47,6 +48,7 @@ public enum WakeError: String, Error, Codable, Sendable, LocalizedError {
 public struct DesiredState: Equatable, Sendable {
   public var systemAwake = false
   public var displayAwake = false
+  public var closedLid = false
 }
 public struct WakeEngine: Sendable {
   public private(set) var holds: [Hold] = []
@@ -55,7 +57,9 @@ public struct WakeEngine: Sendable {
   public private(set) var power = PowerState()
   public var batteryFloor: Int?
   public var desiredState: DesiredState {
-    DesiredState(systemAwake: !holds.isEmpty, displayAwake: holds.contains { $0.displayAwake })
+    DesiredState(
+      systemAwake: !holds.isEmpty, displayAwake: holds.contains { $0.displayAwake },
+      closedLid: holds.contains { $0.closedLid == true })
   }
   public var snapshot: EngineSnapshot {
     EngineSnapshot(holds: holds, automationPaused: automationPaused)
@@ -72,6 +76,10 @@ public struct WakeEngine: Sendable {
       guard let expiry = $0.expiry, expiry > now else { return false }
       return $0.source != .lease && $0.source != .runner
         && (!automationPaused || $0.source == .manual)
+    }.map {
+      var hold = $0
+      hold.closedLid = nil
+      return hold
     }
     updatePower(power, now: now)
   }
@@ -79,7 +87,7 @@ public struct WakeEngine: Sendable {
   @discardableResult public mutating func start(
     source: HoldSource, label: String, duration: TimeInterval? = nil,
     displayAwake: Bool = false, lowPowerOverride: Bool = false, batteryOverride: Bool = false,
-    now: Date = Date()
+    closedLid: Bool = false, now: Date = Date()
   ) throws -> Hold {
     tick(now: now)
     if automationPaused && source != .manual { throw WakeError.automationPaused }
@@ -91,7 +99,8 @@ public struct WakeEngine: Sendable {
     let hold = Hold(
       id: UUID(), source: source, label: String(label.prefix(200)), createdAt: now,
       expiry: duration.map { now.addingTimeInterval($0) }, displayAwake: displayAwake,
-      lowPowerOverride: lowPowerOverride, batteryOverride: batteryOverride ? true : nil)
+      lowPowerOverride: lowPowerOverride, batteryOverride: batteryOverride ? true : nil,
+      closedLid: closedLid ? true : nil)
     holds.append(hold)
     attention = nil
     return hold
@@ -149,6 +158,13 @@ public struct WakeEngine: Sendable {
   public mutating func setDisplayAwake(id: UUID, enabled: Bool) {
     guard let index = holds.firstIndex(where: { $0.id == id }) else { return }
     holds[index].displayAwake = enabled
+  }
+  public mutating func setClosedLid(id: UUID, enabled: Bool) {
+    guard let index = holds.firstIndex(where: { $0.id == id }) else { return }
+    holds[index].closedLid = enabled ? true : nil
+  }
+  public mutating func clearClosedLidRequests() {
+    for index in holds.indices { holds[index].closedLid = nil }
   }
   private var batteryBlocked: Bool {
     guard power.onBattery, let percent = power.batteryPercent, let floor = batteryFloor else {
