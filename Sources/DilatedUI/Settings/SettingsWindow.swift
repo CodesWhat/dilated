@@ -122,8 +122,10 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
   @FocusState private var focusedPage: SettingsPage?
   @State private var presets = ""
   @State private var loginRefresh = 0
+  @State private var cliRefresh = 0
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   private let loginItem = LoginItem()
+  private let cliInstallation = CommandLineInstallation()
 
   var body: some View {
     HStack(spacing: 0) {
@@ -455,7 +457,10 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
           title: "Command line tool",
           detail: "Install into ~/.local/bin. Add that directory to your PATH if needed."
         ) {
-          Button("Install command line tool", action: installCLI)
+          Button(
+            cliInstallation.isInstalled ? "Remove command line tool" : "Install command line tool",
+            action: changeCLIInstallation
+          ).id(cliRefresh)
         }
         if model.engine.automationPaused {
           SettingsRow(
@@ -478,31 +483,13 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
       .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
   }
-  private func installCLI() {
-    guard let executable = Bundle.main.executableURL else { return }
-    let source = executable.deletingLastPathComponent().appendingPathComponent("dilated")
-    let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(
-      ".local/bin")
-    let link = directory.appendingPathComponent("dilated")
+  private func changeCLIInstallation() {
     do {
-      guard FileManager.default.isExecutableFile(atPath: source.path) else {
-        throw InputError("The command line tool isn't available in this copy of Dilated.")
-      }
-      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-      if let existing = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path),
-        existing == source.path
-      {
-        model.message = "The command line tool is already installed."
-        return
-      }
-      guard !FileManager.default.fileExists(atPath: link.path),
-        (try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) == nil
-      else {
-        throw InputError("A different command already exists at \(link.path).")
-      }
-      try FileManager.default.createSymbolicLink(at: link, withDestinationURL: source)
-      model.message = "Installed the command line tool at \(link.path)."
+      model.message =
+        try cliInstallation.isInstalled
+        ? cliInstallation.remove() : cliInstallation.install()
     } catch { model.message = error.localizedDescription }
+    cliRefresh += 1
   }
   private var advanced: some View {
     SettingsGroup(eyebrow: "DIAGNOSTICS") {

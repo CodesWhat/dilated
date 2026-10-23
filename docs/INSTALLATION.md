@@ -28,6 +28,9 @@ establish that the privileged service can be registered.
 Settings → Automation → Install command line tool creates
 `~/.local/bin/dilated`, pointing at the CLI in the current app bundle. The
 installer refuses to replace another file or a link owned by another app.
+Once installed, the same button becomes Remove command line tool. Removal
+unlinks only the command pointing into this copy of the app, including a broken
+link to that exact path. It preserves the bundled CLI and unrelated commands.
 Keep `~/.local/bin` on PATH. The bundled CLI also works directly, for example
 `/Applications/Dilated.app/Contents/MacOS/dilated status --json`.
 
@@ -86,11 +89,12 @@ Remove the helper while the signed app still exists in Applications:
    is `dilated helper remove --json`. It first clears closed-lid requests,
    verifies normal sleep and awaits service unregistration. If it fails, leave
    the app installed and use the reported error or helper repair flow.
-3. Choose Quit Dilated. This ends app-managed holds and discards saved timers.
+3. In Automation settings, choose Remove command line tool if this copy installed
+   the link. A link to another location is left unchanged.
+4. Choose Quit Dilated. This ends app-managed holds and discards saved timers.
    A standalone `dilated run` command continues independently until its command
    finishes.
-4. Remove `~/.local/bin/dilated` only if it is the symlink into the app being
-   removed. Preserve unrelated files and links. Move Dilated.app to Trash.
+5. Move Dilated.app to Trash.
 
 Normal removal preserves preferences in
 `~/Library/Application Support/Dilated`. Removing those preferences is a

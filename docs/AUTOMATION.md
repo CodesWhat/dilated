@@ -8,6 +8,8 @@ ID; labels are descriptive and do not merge ownership.
 Use Install command line tool in Settings → Automation to link the bundled
 command into `~/.local/bin`. Keep that directory on your PATH. You can also run
 `build/Dilated.app/Contents/MacOS/dilated` directly from a local build.
+The button changes to Remove command line tool when this copy owns the link.
+Removal preserves other commands and the executable inside the app bundle.
 
 | Command | Behavior |
 |---|---|
