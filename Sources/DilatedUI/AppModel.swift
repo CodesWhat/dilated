@@ -164,12 +164,22 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
 
   public func begin() {
+    let handoff = PackageHandoffStore(directory: endpoint.stateDirectory)
+    let prepared = try? handoff.requirePrepared(app: Bundle.main.bundleURL)
+    let restoreHelper = prepared?.intent == .update && prepared?.helperWasApproved == true
+    do { try handoff.clear() } catch {
+      message = "Couldn't clear package preparation: \(error.localizedDescription)"
+    }
     commit()
     if settings.startAtLaunch { automaticStart(label: "At launch") }
-    if helperInstallation.status == .enabled {
+    if helperInstallation.status == .enabled || restoreHelper {
       Task { [weak self] in
         guard let self else { return }
-        await self.helperInstallation.reconcileAfterLaunch(controller: self.closedLid)
+        if restoreHelper, self.helperInstallation.status == .notRegistered {
+          await self.helperInstallation.nextStep(controller: self.closedLid)
+        } else {
+          await self.helperInstallation.reconcileAfterLaunch(controller: self.closedLid)
+        }
         if let error = self.helperInstallation.lastError { self.message = error }
       }
     }
@@ -374,6 +384,65 @@ public struct AppSettings: Codable, Equatable, Sendable {
       return false
     }
   }
+  public func prepareForPackage(
+    _ intent: PackageIntent, app: URL = Bundle.main.bundleURL,
+    removeLoginItem: (() throws -> Void)? = nil,
+    removeCommandLine: (() throws -> Void)? = nil
+  ) async -> Bool {
+    guard !stopped, !preparingToQuit, !updater.blocksNewWork, updateActivity == .idle else {
+      message = "Turn off closed-lid and finish helper changes before preparing the package."
+      onChange?()
+      return false
+    }
+    preparingToQuit = true
+    defer { preparingToQuit = false }
+    let handoff = PackageHandoffStore(directory: endpoint.stateDirectory)
+    do {
+      try handoff.clear()
+      try await synchronizeClosedLid()
+      helperInstallation.refreshStatus()
+      let helperWasApproved = helperInstallation.status == .enabled
+      try await helperInstallation.remove(controller: closedLid)
+      if intent == .uninstall {
+        if let removeLoginItem {
+          try removeLoginItem()
+        } else {
+          let service = SystemLoginItemService()
+          if service.status == .enabled || service.status == .requiresApproval {
+            try service.unregister()
+          }
+        }
+        if let removeCommandLine {
+          try removeCommandLine()
+        } else {
+          let cli = CommandLineInstallation(
+            source: app.appendingPathComponent("Contents/MacOS/dilated"))
+          if cli.isInstalled { _ = try cli.remove() }
+        }
+      }
+      var prepared = WakeEngine(
+        snapshot: engine.snapshot, power: readPower(), batteryFloor: engine.batteryFloor)
+      if intent == .uninstall { prepared.quit() }
+      try store.save(prepared.snapshot)
+      try handoff.save(
+        .init(
+          intent: intent, appPath: app.resolvingSymlinksInPath().path, preparedAt: Date(),
+          helperWasApproved: intent == .update && helperWasApproved))
+      savedForUpdate = true
+      shutdown()
+      message =
+        intent == .update
+        ? "Prepared for update. Unexpired timers will keep their original deadlines."
+        : "Prepared for removal. Helper, login item and owned command line link are removed."
+      return true
+    } catch {
+      try? handoff.clear()
+      message =
+        "Couldn't prepare the package. Dilated is staying open: \(error.localizedDescription)"
+      onChange?()
+      return false
+    }
+  }
   public func toggle() { engine.holds.isEmpty ? startDefault() : stopAll() }
   public func refreshPower() {
     engine.updatePower(readPower())
@@ -397,6 +466,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
     if updater.blocksNewWork, ![.status, .stopAll, .release].contains(request.action) {
       return ControlResponse(
         ok: false, message: "Dilated is installing an update.", code: "unavailable")
+    }
+    if request.action == .prepareUpdate || request.action == .prepareUninstall {
+      let ready = await prepareForPackage(request.action == .prepareUpdate ? .update : .uninstall)
+      return ControlResponse(
+        ok: ready, message: message, code: ready ? nil : "packageFailure",
+        helperInstallation: helperInstallation.statusCode,
+        appPID: ready ? ProcessInfo.processInfo.processIdentifier : nil)
     }
     if [.helperStatus, .helperSetup, .helperRemove].contains(request.action) {
       return await controlHelper(request.action)

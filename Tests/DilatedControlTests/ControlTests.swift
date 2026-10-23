@@ -5,6 +5,17 @@ import Testing
 @testable import DilatedControl
 
 struct ControlTests {
+  @Test func packageCommandsHaveExplicitIntentAndRejectHoldOptions() {
+    #expect((try? CLIInput.parse(["prepare-update", "--json"]))?.request?.action == .prepareUpdate)
+    #expect((try? CLIInput.parse(["prepare-uninstall"]))?.request?.action == .prepareUninstall)
+    #expect((try? CLIInput.parse(["package-check"]))?.packageCheck == true)
+    for arguments in [
+      ["prepare-update", "--lid"], ["prepare-uninstall", "--for", "1h"],
+      ["package-check", "--json"],
+    ] {
+      #expect(throws: (any Error).self) { try CLIInput.parse(arguments) }
+    }
+  }
   @Test func helperCommandsAreExplicitAppOperations() throws {
     for (command, action) in [
       ("status", ControlAction.helperStatus), ("setup", .helperSetup), ("remove", .helperRemove),

@@ -1,3 +1,4 @@
+import DilatedControl
 import DilatedCore
 import Foundation
 import ServiceManagement
@@ -6,6 +7,86 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct ClosedLidControllerTests {
+  @Test func pendingApprovalCanBeRemovedWithoutConnectingToAnUnapprovedDaemon() async throws {
+    let fixture = await ControllerFixture()
+    let service = InstallationFixture(power: fixture.power)
+    service.status = .requiresApproval
+    let installation = HelperInstallation(
+      service: service,
+      readPower: {
+        .init(effectiveDisabled: false, storedDisabled: false)
+      })
+    try await installation.remove(controller: fixture.controller())
+    #expect(service.status == .notRegistered)
+    #expect(fixture.transport.actions.isEmpty)
+  }
+
+  @Test func pendingApprovalCannotBeRemovedWithUnknownOrEnabledPowerState() async throws {
+    let fixture = await ControllerFixture()
+    let service = InstallationFixture(power: fixture.power)
+    service.status = .requiresApproval
+    let installation = HelperInstallation(
+      service: service,
+      readPower: {
+        .init(effectiveDisabled: true, storedDisabled: true)
+      })
+    await #expect(throws: (any Error).self) {
+      try await installation.remove(controller: fixture.controller())
+    }
+    #expect(service.operations.isEmpty)
+    #expect(fixture.transport.actions.isEmpty)
+  }
+
+  @Test func packageUpdateDoesNotRestoreAnApprovalRevokedSinceLaunch() async throws {
+    let fixture = await ControllerFixture()
+    let service = InstallationFixture(power: fixture.power)
+    let installation = HelperInstallation(
+      service: service,
+      readPower: {
+        .init(effectiveDisabled: false, storedDisabled: false)
+      })
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      closedLid: fixture.controller(), helperInstallation: installation)
+    defer { model.shutdown() }
+    service.status = .requiresApproval
+    #expect(await model.prepareForPackage(.update))
+    let handoff = try PackageHandoffStore(directory: directory).requirePrepared(
+      app: Bundle.main.bundleURL)
+    #expect(!handoff.helperWasApproved)
+  }
+  @Test func packageUpdateRestoresOnlyAPreviouslyApprovedHelperOnNextLaunch() async throws {
+    let fixture = await ControllerFixture()
+    let service = InstallationFixture(power: fixture.power)
+    service.registrationStatus = .enabled
+    let installation = HelperInstallation(
+      service: service,
+      readPower: {
+        .init(effectiveDisabled: false, storedDisabled: false)
+      })
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      closedLid: fixture.controller(), helperInstallation: installation)
+    defer { model.shutdown() }
+    #expect(await model.prepareForPackage(.update))
+    #expect(service.status == .notRegistered)
+    let restored = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      closedLid: fixture.controller(), helperInstallation: installation)
+    defer { restored.shutdown() }
+    restored.begin()
+    let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+    while service.status != .enabled && ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(service.status == .enabled)
+    #expect(!restored.closedLid.active)
+    #expect(!restored.engine.desiredState.closedLid)
+  }
   @Test func failedRemovalNeverReturnsSuccessfulControlAcknowledgement() async throws {
     let fixture = await ControllerFixture()
     let service = InstallationFixture(power: fixture.power)
@@ -467,6 +548,7 @@ import Testing
 
 @MainActor private final class InProcessHelperTransport: HelperTransporting {
   var onDisconnect: (() -> Void)?
+  var actions: [HelperAction] = []
   var delayEnableReply = false
   private let service: ClosedLidService
   private let owner = UUID()
@@ -474,6 +556,7 @@ import Testing
   private var waiting: CheckedContinuation<Void, Never>?
   init(service: ClosedLidService) { self.service = service }
   func send(_ request: HelperRequest) async throws -> HelperReply {
+    actions.append(request.action)
     let response = await service.handle(request, owner: owner)
     if request.action == .enable && delayEnableReply {
       return await withCheckedContinuation { continuation in

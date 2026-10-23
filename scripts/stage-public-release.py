@@ -127,6 +127,54 @@ def validate_feed_build(feed, build):
         raise RuntimeError('The advertised download must be the newest build in the signed feed')
 
 
+def cask_text(manifest):
+    version = manifest.get('version')
+    digest = manifest.get('dmgSHA256')
+    if not isinstance(version, str) or not re.fullmatch(r'\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.[1-9]\d*)?', version):
+        raise ValueError('Invalid cask version')
+    if not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest):
+        raise ValueError('Invalid cask DMG checksum')
+    return f'''cask "dilated" do
+  version "{version}"
+  sha256 "{digest}"
+
+  url "https://github.com/CodesWhat/dilated/releases/download/v#{{version}}/Dilated-#{{version}}-macos-arm64.dmg"
+  name "Dilated"
+  desc "Keep your Mac awake, with reasons"
+  homepage "https://dilated.codeswhat.com/"
+  auto_updates true
+  depends_on arch: :arm64
+  depends_on macos: ">= :tahoe"
+
+  app "Dilated.app"
+  binary "#{{appdir}}/Dilated.app/Contents/MacOS/dilated"
+
+  uninstall_preflight do
+    system_command appdir.join("Dilated.app/Contents/MacOS/dilated"),
+                   args: ["package-check"], timeout: 10
+    helper = system_command "/bin/launchctl",
+                            args: ["print", "system/com.codeswhat.dilated.helper"],
+                            must_succeed: false, timeout: 3
+    unless helper.exit_status == 113 && helper.stderr.include?("Could not find service")
+      raise "Dilated's helper is still registered or its state is unknown. Repeat package preparation."
+    end
+    process = system_command "/usr/bin/pgrep", args: ["-x", "dilated-helper"],
+                             must_succeed: false, timeout: 3
+    unless process.exit_status == 1
+      raise "Dilated's helper is still running or its state is unknown. Wait before retrying."
+    end
+  end
+
+  caveats <<~EOS
+    Before upgrading, run dilated prepare-update, then brew upgrade --cask dilated.
+    Reopen Dilated after the upgrade. Timers keep their original deadlines.
+    Before removing, run dilated prepare-uninstall, then brew uninstall --cask dilated.
+    Preparation expires after ten minutes. Normal uninstall preserves preferences.
+  EOS
+end
+'''
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('release_directory', type=Path)
@@ -184,6 +232,9 @@ def main():
     (releases / f'{source_archive.name}.sha256').write_text(f'{source_digest}  {source_archive.name}\n')
     public_manifest = {**manifest, 'sourceArchive': source_archive.name, 'sourceSHA256': source_digest,
                        'freshInstallVerified': True, 'acceptanceVerified': True}
+    cask = cask_text(manifest).encode()
+    (releases / 'dilated.rb').write_bytes(cask)
+    public_manifest.update(cask='dilated.rb', caskSHA256=hashlib.sha256(cask).hexdigest())
     (releases / 'release-manifest.json').write_text(json.dumps(public_manifest, indent=2) + '\n')
     (output / 'releases/latest.json').write_text(json.dumps(latest_metadata(manifest), indent=2) + '\n')
     with tempfile.TemporaryDirectory(prefix='dilated-appcast-') as temporary:

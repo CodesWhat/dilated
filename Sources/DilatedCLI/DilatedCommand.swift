@@ -12,6 +12,31 @@ import Foundation
         print(help)
         return
       }
+      if input.packageCheck {
+        let executable =
+          (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0]))
+          .resolvingSymlinksInPath()
+        let app = executable.deletingLastPathComponent().deletingLastPathComponent()
+          .deletingLastPathComponent()
+        guard app.pathExtension == "app" else {
+          throw InputError("Use the command line tool inside the installed Dilated app.")
+        }
+        guard
+          NSRunningApplication.runningApplications(withBundleIdentifier: "com.codeswhat.dilated")
+            .isEmpty
+        else {
+          throw InputError(
+            "Dilated is still running. Use prepare-update or prepare-uninstall first.")
+        }
+        _ = try PackageHandoffStore(directory: SocketEndpoint.current.stateDirectory)
+          .requirePrepared(app: app)
+        guard NativeClosedLidPower.readback().confirmedDisabled else {
+          throw InputError(
+            "macOS hasn't confirmed sleep-disable is off. Repair the helper before continuing.")
+        }
+        print("Package preparation verified.")
+        return
+      }
       if !input.command.isEmpty { exit(try await run(input)) }
       guard let request = input.request else { throw InputError("Missing command.") }
       let endpoint = SocketEndpoint.current
@@ -23,10 +48,15 @@ import Foundation
         try await launchApp(endpoint: endpoint)
         response = try LocalSocketClient.send(request, to: endpoint)
       }
+      if response.ok, request.action == .prepareUpdate || request.action == .prepareUninstall {
+        try await finishPackagePreparation(pid: response.appPID)
+      }
       if input.json {
         print(String(decoding: try WireJSON.encode(response), as: UTF8.self))
       } else if response.ok {
-        if [.helperStatus, .helperSetup, .helperRemove].contains(request.action) {
+        if [.helperStatus, .helperSetup, .helperRemove, .prepareUpdate, .prepareUninstall].contains(
+          request.action)
+        {
           print(response.message ?? "Helper operation completed.")
         } else if let id = response.id {
           print(id.uuidString)
@@ -52,6 +82,26 @@ import Foundation
     } catch {
       writeError(error.localizedDescription)
       exit(1)
+    }
+  }
+
+  @MainActor private static func finishPackagePreparation(pid: Int32?) async throws {
+    guard let pid else {
+      throw InputError("Dilated didn't identify the prepared app. Update both app and CLI.")
+    }
+    guard let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else { return }
+    guard app.bundleIdentifier == "com.codeswhat.dilated" else {
+      throw InputError("The prepared app process changed. Package preparation must be repeated.")
+    }
+    guard app.terminate() else {
+      throw InputError("Dilated prepared its state but couldn't quit. Quit it before continuing.")
+    }
+    let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+    while !app.isTerminated, ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(100))
+    }
+    guard app.isTerminated else {
+      throw InputError("Dilated hasn't finished quitting. The package operation must wait.")
     }
   }
 
@@ -210,12 +260,17 @@ import Foundation
            dilated release --id ID
            dilated run [--label NAME] [--lid] -- command arguments
            dilated helper status|setup|remove [--json]
+           dilated prepare-update|prepare-uninstall [--json]
+           dilated package-check
 
     Starts allow display sleep unless --display-awake is supplied.
     --override-low-power explicitly allows a new hold in Low Power Mode.
     --lid requires the app's approved helper and its closed-lid safety limits.
     helper setup opens macOS approval when needed. Move the app to Applications first.
-    helper remove verifies normal sleep before unregistering the helper.
+    helper remove verifies sleep-disable is off before unregistering the helper.
+    prepare-update removes the helper and quits while preserving only unexpired timers.
+    prepare-uninstall removes the helper, login item and owned CLI link, then discards holds and quits.
+    Reopen Dilated after upgrading. Package preparation expires after ten minutes.
     Renewals preserve an active lid request but can't re-enable a stopped one.
     A new hold prints its unique ID. Pass it to hold --id to renew, or release.
     Stop pauses CLI/URL starts and renewals until Resume automation in the app.

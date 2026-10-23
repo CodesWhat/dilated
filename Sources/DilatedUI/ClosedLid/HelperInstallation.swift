@@ -160,6 +160,21 @@ import ServiceManagement
       refreshStatus()
     }
     refreshStatus()
+    if status == .requiresApproval {
+      guard readPower().confirmedDisabled else {
+        throw HelperClientError.rejected(
+          "macOS hasn't confirmed sleep-disable is off. Approve or repair the helper before removal."
+        )
+      }
+      controller.invalidate()
+      try await service.unregister()
+      guard readPower().confirmedDisabled else {
+        throw HelperClientError.rejected(
+          "The helper was removed, but macOS hasn't confirmed sleep-disable is off. Repair the helper before removing Dilated."
+        )
+      }
+      return
+    }
     if status == .notRegistered {
       guard readPower().confirmedDisabled else {
         throw HelperClientError.rejected(

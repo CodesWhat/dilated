@@ -87,6 +87,23 @@ request or connection error, and `run` returns its child command's status. With
 `code`/`message`; timestamps are Unix seconds. A false `ok` is a failure even when
 the response also includes diagnostic state.
 
+## Package preparation
+
+`dilated prepare-update [--json]` prepares an external package upgrade and quits
+the app, keeping only unexpired timed holds at their original deadlines.
+`dilated prepare-uninstall [--json]` removes the helper, login item and owned CLI
+link, discards saved holds and quits. Both require closed-lid to be off and
+helper changes to be finished. They remain available while automation is paused
+and do not resume it. Errors keep the app open and prevent package preparation.
+
+The CLI requests termination only from the app process that acknowledged the
+preparation. Homebrew's read-only `dilated package-check` rejects a running app,
+missing/expired preparation or unconfirmed off power readings. The cask also
+requires the helper job and process to be absent. Preparation lasts ten minutes
+and is cleared at the next app start. Reopen Dilated after upgrading. See
+[installation](INSTALLATION.md#updates) for the full sequence and remaining
+real-package checks.
+
 ## Automation links
 
 Links are enabled by default and can be disabled in Settings → Automation.

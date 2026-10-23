@@ -62,6 +62,10 @@ A version/identity mismatch is an error, not permission to keep using an old
 helper. After a crash, reboot or safety stop, closed-lid needs explicit
 enablement again.
 
+A helper waiting for approval can be unregistered without approving it first
+when both sleep-disable readings are off. Removal checks those readings again
+after unregistration. Enabled or unknown readings require helper recovery first.
+
 Closed-lid defaults are a 20% battery floor and an eight-hour closed-lid battery
 limit. Battery, thermal, Low Power Mode and optional AC-only guards remain
 effective in the daemon if the app stops responding. Their actual hardware
@@ -79,9 +83,32 @@ Stop's automation pause remains in effect. Helper replacement invalidates the
 previous lease; an ordinary relaunch does not re-enable closed-lid.
 
 Manual Quit ends app-managed holds and discards saved timers. Quitting and
-replacing the app therefore does not provide timer-preserving update behavior.
-The Homebrew cask and its upgrade lifecycle are still pending. It must not ship
-with a generic Quit step that silently discards timers during an upgrade.
+replacing the app therefore does not preserve timers for an update.
+
+The Homebrew handoff is implemented locally and still needs an actual packaged
+Homebrew upgrade/removal check. No cask has been published. Homebrew does not
+expose upgrade versus uninstall to its preflight hook, so Dilated requires an
+explicit preparation command instead of a generic Quit step:
+
+1. For an upgrade, run `dilated prepare-update`. It requires closed-lid to be
+   off, unregisters the helper, saves only unexpired timers with their original
+   deadlines and quits the app. Launch-at-login and the owned CLI link are kept.
+2. Run the Homebrew upgrade, then reopen Dilated. Timers are restored subject to
+   their deadlines and current guards. Reopening within the ten-minute handoff
+   window also reinstalls a previously approved helper, leaving closed-lid off.
+   A helper that was never approved is not installed automatically.
+3. For removal, run `dilated prepare-uninstall` before Homebrew uninstall. This
+   removes the helper, login item and owned CLI link, discards holds and quits.
+   Preferences remain available for a later reinstall.
+
+Preparation requires closed-lid and helper changes to have finished. A failure
+keeps the app open and blocks the package operation. Preparation expires after
+ten minutes and is invalidated when the app starts again. The cask checks the
+preparation, absence of the app, confirmed off power readings, absence of the
+helper job and absence of its process before allowing replacement or removal.
+Unknown states block it. Run preparation again if the window expires or you
+reopen Dilated before the package operation. `dilated package-check` is the
+read-only CLI part of this preflight; it does not start the app.
 
 ## Remove Dilated
 
@@ -125,3 +152,5 @@ acceptance record tied to the exact version, build, source revision, ZIP checksu
 and DMG checksum. Required checks must have a passed status and machine, macOS
 and evidence fields. Test fixtures and mock results are not hardware evidence.
 Keep failed and unavailable checks open rather than substituting them.
+Accepted release staging also generates `dilated.rb` with the exact version and
+DMG digest as a versioned release asset. It does not publish the Homebrew tap.

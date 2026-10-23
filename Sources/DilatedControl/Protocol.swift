@@ -4,6 +4,7 @@ import Foundation
 public enum ControlAction: String, Codable, Sendable {
   case status, start, lease, runner, renew, release, stopAll, toggle
   case helperStatus, helperSetup, helperRemove
+  case prepareUpdate, prepareUninstall
 }
 public struct ControlRequest: Codable, Sendable {
   public var action: ControlAction
@@ -51,9 +52,11 @@ public struct ControlResponse: Codable, Sendable {
   public var code: String?
   public var helper: HelperState?
   public var helperInstallation: String?
+  public var appPID: Int32?
   public init(
     ok: Bool, id: UUID? = nil, snapshot: EngineSnapshot? = nil, message: String? = nil,
-    code: String? = nil, helper: HelperState? = nil, helperInstallation: String? = nil
+    code: String? = nil, helper: HelperState? = nil, helperInstallation: String? = nil,
+    appPID: Int32? = nil
   ) {
     self.ok = ok
     self.id = id
@@ -62,6 +65,7 @@ public struct ControlResponse: Codable, Sendable {
     self.code = code
     self.helper = helper
     self.helperInstallation = helperInstallation
+    self.appPID = appPID
   }
 }
 public enum ControlRouter {
@@ -75,7 +79,7 @@ public enum ControlRouter {
       engine.tick(now: now)
       var id: UUID?
       switch request.action {
-      case .helperStatus, .helperSetup, .helperRemove:
+      case .helperStatus, .helperSetup, .helperRemove, .prepareUpdate, .prepareUninstall:
         throw InputError("Helper management requires the Dilated app.")
       case .status: break
       case .stopAll: engine.stopAll()
@@ -131,10 +135,23 @@ public struct CLIInput {
   public var command: [String] = []
   public var json = false
   public var help = false
+  public var packageCheck = false
 
   public static func parse(_ arguments: [String]) throws -> CLIInput {
     guard let verb = arguments.first, !["--help", "-h", "help"].contains(verb) else {
       return CLIInput(help: true)
+    }
+    if verb == "package-check" {
+      guard arguments.count == 1 else { throw InputError("Use dilated package-check.") }
+      return CLIInput(packageCheck: true)
+    }
+    if ["prepare-update", "prepare-uninstall"].contains(verb) {
+      guard arguments.count == 1 || (arguments.count == 2 && arguments[1] == "--json") else {
+        throw InputError("Use dilated prepare-update|prepare-uninstall [--json].")
+      }
+      return CLIInput(
+        request: .init(action: verb == "prepare-update" ? .prepareUpdate : .prepareUninstall),
+        json: arguments.count == 2)
     }
     if verb == "helper" {
       let actions: [String: ControlAction] = [
