@@ -234,6 +234,125 @@ import Testing
     #expect(installation.status == .requiresApproval)
   }
 
+  @Test func replacementRecoversFromTheServiceRegistrationRace() async throws {
+    let fixture = await ControllerFixture()
+    let controller = fixture.controller()
+    defer { controller.invalidate() }
+    let service = InstallationFixture(power: fixture.power)
+    service.registerErrors = [NSError(domain: SMAppServiceErrorDomain, code: 1)]
+    let installation = HelperInstallation(service: service)
+    await installation.nextStep(controller: controller)
+    #expect(installation.lastError == nil)
+    #expect(installation.status == .requiresApproval)
+    #expect(service.openedApproval)
+    #expect(
+      service.operations == ["reset-confirmed", "unregister-completed", "register", "register"])
+    #expect(!controller.hasLease)
+    #expect(!installation.busy)
+  }
+
+  @Test func persistentReplacementRegistrationFailureIsBoundedAndVisible() async throws {
+    let fixture = await ControllerFixture()
+    let controller = fixture.controller()
+    defer { controller.invalidate() }
+    let service = InstallationFixture(power: fixture.power)
+    service.registerErrors = Array(
+      repeating: NSError(domain: SMAppServiceErrorDomain, code: 1), count: 10)
+    let installation = HelperInstallation(service: service)
+    await installation.nextStep(controller: controller)
+    #expect(installation.lastError != nil)
+    #expect(installation.status == .notRegistered)
+    #expect(service.operations.filter { $0 == "register" }.count == 5)
+    #expect(!service.openedApproval)
+    #expect(!installation.busy)
+    #expect(!controller.hasLease)
+    #expect(await fixture.power.readback().confirmedDisabled)
+  }
+
+  @Test func initialSetupAndOtherRegistrationFailuresAreNotRetried() async throws {
+    for (initialStatus, error) in [
+      (SMAppService.Status.notRegistered, NSError(domain: SMAppServiceErrorDomain, code: 1)),
+      (.enabled, NSError(domain: SMAppServiceErrorDomain, code: 4)),
+      (.enabled, NSError(domain: NSPOSIXErrorDomain, code: 1)),
+    ] {
+      let fixture = await ControllerFixture()
+      let controller = fixture.controller()
+      defer { controller.invalidate() }
+      let service = InstallationFixture(power: fixture.power)
+      service.status = initialStatus
+      service.registerErrors = [error]
+      let installation = HelperInstallation(service: service)
+      await installation.nextStep(controller: controller)
+      #expect(installation.lastError != nil)
+      #expect(service.operations.filter { $0 == "register" }.count == 1)
+      #expect(!service.openedApproval)
+      #expect(!installation.busy)
+    }
+  }
+
+  @Test func setupWaitsUntilTheRegisteredHelperCompletesItsStartupReset() async throws {
+    let fixture = await ControllerFixture(start: false)
+    let controller = fixture.controller()
+    defer {
+      controller.onChange = nil
+      controller.invalidate()
+    }
+    let service = InstallationFixture(power: fixture.power)
+    service.status = .notRegistered
+    service.registrationStatus = .enabled
+    let installation = HelperInstallation(service: service)
+    let firstStatus = AsyncStream<Void>.makeStream()
+    controller.onChange = {
+      if controller.state?.phase == .starting {
+        firstStatus.continuation.yield(())
+        firstStatus.continuation.finish()
+      }
+    }
+    let setup = Task { await installation.nextStep(controller: controller) }
+    for await _ in firstStatus.stream { break }
+    #expect(installation.busy)
+    #expect(controller.state?.ready == false)
+    await fixture.service.start()
+    await setup.value
+    #expect(installation.lastError == nil)
+    #expect(installation.status == .enabled)
+    #expect(controller.state?.ready == true)
+    #expect(controller.state?.readback.confirmedDisabled == true)
+    #expect(!controller.hasLease)
+  }
+
+  @Test func aRegisteredHelperThatFailsStartupIsReportedAsAnError() async throws {
+    let fixture = await ControllerFixture(start: false)
+    await fixture.power.denyReset()
+    await fixture.service.start()
+    let controller = fixture.controller()
+    defer { controller.invalidate() }
+    let service = InstallationFixture(power: fixture.power)
+    service.status = .notRegistered
+    service.registrationStatus = .enabled
+    let installation = HelperInstallation(service: service)
+    await installation.nextStep(controller: controller)
+    #expect(installation.lastError != nil)
+    #expect(controller.state?.ready == false)
+    #expect(!installation.busy)
+    #expect(!controller.hasLease)
+  }
+
+  @Test func setupReportsAnUnfinishedStartupResetAfterItsDeadline() async throws {
+    let fixture = await ControllerFixture(start: false)
+    let controller = fixture.controller()
+    defer { controller.invalidate() }
+    let service = InstallationFixture(power: fixture.power)
+    service.status = .notRegistered
+    service.registrationStatus = .enabled
+    let installation = HelperInstallation(service: service)
+    await installation.nextStep(controller: controller)
+    #expect(installation.lastError?.contains("startup reset") == true)
+    #expect(!installation.busy)
+    #expect(!controller.hasLease)
+    #expect(controller.state?.ready == false)
+  }
+
   @Test func failedResetKeepsQuitBlockedAndStopCannotClaimSuccess() async throws {
     let fixture = await ControllerFixture()
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -332,13 +451,13 @@ import Testing
   let power: ControllerPower
   let service: ClosedLidService
   let transport: InProcessHelperTransport
-  init() async {
+  init(start: Bool = true) async {
     inputs = ControllerInputs()
     power = ControllerPower()
     let readings = inputs
     service = ClosedLidService(
       power: power, environment: { readings.read() }, clock: { 0 }, buildIdentity: "test-build")
-    await service.start()
+    if start { await service.start() }
     transport = InProcessHelperTransport(service: service)
   }
   func controller() -> ClosedLidController {
@@ -418,12 +537,15 @@ private actor ControllerPower: ClosedLidPowerControlling {
   var status = SMAppService.Status.enabled
   var operations: [String] = []
   var openedApproval = false
+  var registerErrors: [NSError] = []
+  var registrationStatus = SMAppService.Status.requiresApproval
   private let power: ControllerPower
   init(power: ControllerPower) { self.power = power }
   func register() throws {
     #expect(status == .notRegistered)
     operations.append("register")
-    status = .requiresApproval
+    if !registerErrors.isEmpty { throw registerErrors.removeFirst() }
+    status = registrationStatus
   }
   func unregister() async throws {
     let state = await power.readback()

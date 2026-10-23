@@ -96,15 +96,16 @@ import ServiceManagement
       refreshStatus()
     }
     do {
-      if status == .enabled {
+      let replacing = status == .enabled
+      if replacing {
         try await controller.disable()
         controller.invalidate()
         try await service.unregister()
       }
-      try service.register()
+      try await register(replacing: replacing)
       refreshStatus()
       if status == .requiresApproval { service.openApproval() }
-      if status == .enabled { try await controller.refresh() }
+      if status == .enabled { try await waitUntilReady(controller: controller) }
     } catch {
       refreshStatus()
       if status == .requiresApproval {
@@ -112,6 +113,42 @@ import ServiceManagement
       } else {
         lastError = error.localizedDescription
       }
+    }
+  }
+
+  private func register(replacing: Bool) async throws {
+    for attempt in 0..<5 {
+      try Task.checkCancellation()
+      do {
+        try service.register()
+        return
+      } catch {
+        let failure = error as NSError
+        guard replacing, attempt < 4, service.status == .notRegistered,
+          failure.domain == SMAppServiceErrorDomain,
+          failure.code == Int(POSIXErrorCode.EPERM.rawValue)
+        else { throw error }
+        // macOS can report completion before its unregister bookkeeping has settled.
+        try await Task.sleep(for: .milliseconds(500))
+      }
+    }
+  }
+
+  private func waitUntilReady(controller: ClosedLidController) async throws {
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while true {
+      try await controller.refresh()
+      guard let state = controller.state else { throw HelperClientError.invalidReply }
+      if state.ready { return }
+      guard state.phase == .starting || state.phase == .disabling else {
+        throw HelperClientError.rejected(
+          state.message ?? "The helper couldn't complete its startup reset.")
+      }
+      guard ContinuousClock.now < deadline else {
+        throw HelperClientError.rejected(
+          "The helper didn't finish its startup reset. Try setup again.")
+      }
+      try await Task.sleep(for: .milliseconds(100))
     }
   }
 

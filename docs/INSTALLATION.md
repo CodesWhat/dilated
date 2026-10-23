@@ -55,6 +55,9 @@ command's successful exit by itself does not prove the helper is ready or off.
 
 `dilated helper setup` uses the same setup/repair flow as Settings and may open
 macOS approval. A changed helper is disabled, unregistered and re-registered.
+Repair allows a bounded retry for macOS's transient registration failure after
+unregistration. Once registered, setup waits for the helper's startup reset to
+finish. A reset failure or readiness timeout remains an error.
 A version/identity mismatch is an error, not permission to keep using an old
 helper. After a crash, reboot or safety stop, closed-lid needs explicit
 enablement again.
