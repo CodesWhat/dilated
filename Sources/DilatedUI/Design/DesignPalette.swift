@@ -2,37 +2,31 @@
 import AppKit
 import SwiftUI
 
-/// The redesign colours (handoff 2026-10-20, tokens.json). Every colour is light/dark adaptive, so a view never checks the colour scheme.
-/// `DesignPalette.bg` is a SwiftUI `Color`; `DesignPalette.NS.bg` is the same colour as an `NSColor` for AppKit code.
-/// With Increase Contrast on, the hairlines and secondary inks step up to meet the 3:1 line / 4.5:1 text guidance.
+/// Gas Station uses yellow, red and warm paper grounds, with adaptive ink for dark appearance.
 enum DesignPalette {
   // MARK: Adaptive colours
 
   enum NS {
-    static let bg = pair(light: 0xF3F3F5, dark: 0x1F1F21)
-    static let surface = pair(light: 0xFFFFFF, dark: 0x2A2A2C)
-    static let ink = pair(light: 0x1D1D1F, dark: 0xF2F2F2)
+    static let bg = pair(light: 0xF8F5EA, dark: 0x211F1A)
+    static let surface = pair(light: 0xFFFCF3, dark: 0x2D2922)
+    static let ink = pair(light: 0x29251C, dark: 0xFFF9E8)
     static let ink2 = pair(
-      light: 0x5C5C61, dark: 0xB0B0B5, contrastLight: 0x3A3A3E, contrastDark: 0xD8D8DC)
+      light: 0x645D4B, dark: 0xC5BBA5, contrastLight: 0x3A352A, contrastDark: 0xE5DDCC)
     static let ink3 = pair(
-      light: 0x6B6B70, dark: 0x9A9A9F, contrastLight: 0x45454A, contrastDark: 0xC8C8CC)
+      light: 0x6E6550, dark: 0xAEA38B, contrastLight: 0x454032, contrastDark: 0xD8CFBA)
     static let hair = pair(
       light: (0, 0, 0, 0.12), dark: (1, 1, 1, 0.14), contrastLight: (0, 0, 0, 0.45),
       contrastDark: (1, 1, 1, 0.5))
     static let hair2 = pair(
       light: (0, 0, 0, 0.07), dark: (1, 1, 1, 0.08), contrastLight: (0, 0, 0, 0.3),
       contrastDark: (1, 1, 1, 0.34))
-    // The website's --lime (#D3E58B): the accent is a fill, never a text colour. Dark ink on it holds ~13:1, but it is only ~1.4:1
-    // against white, so a lime shape that has to be seen on a light surface takes a 1px accentMark edge or is drawn in accentMark.
-    // accentText and focus are the darker lime for text and the ring.
-    static let accent = pair(light: 0xBFD5F2, dark: 0xBFD5F2)
-    static let accentSoft = pair(
-      light: (0xBF, 0xD5, 0xF2, 0.45), dark: (0xBF, 0xD5, 0xF2, 0.16), bytes: true)
+    static let accent = pair(light: 0xFFDF24, dark: 0xFFDF24)
+    static let accentSoft = pair(light: 0xFFF2A0, dark: 0x493E12)
     /// Non-text accent: edges, small dots, thin bars and strokes. 3:1 or better on every surface it sits on.
-    static let accentMark = pair(light: 0x315D8C, dark: 0xBFD5F2)
-    static let onAccent = pair(light: 0x1D1D1F, dark: 0x1F1F21)
-    static let accentText = pair(light: 0x315D8C, dark: 0xA8C8F2)
-    static let focus = pair(light: 0x315D8C, dark: 0xA8C8F2)
+    static let accentMark = pair(light: 0xB91C27, dark: 0xFFDF24)
+    static let onAccent = pair(light: 0x272218, dark: 0x272218)
+    static let accentText = pair(light: 0xB91C27, dark: 0xFFDF24)
+    static let focus = pair(light: 0xB91C27, dark: 0xFFDF24)
     /// The secondary (--accent-2). Reserved for the lips, the streak flame and warnings.
     static let orange = pair(light: 0xE37512, dark: 0xF19A4B)
     static let success = pair(light: 0x537F5D, dark: 0x6FA57C)
@@ -52,15 +46,10 @@ enum DesignPalette {
     static let track = pair(light: 0xD9D9DE, dark: 0x3C3C40)
     static let key = pair(light: 0xFFFFFF, dark: 0x38383B)
     static let scrim = pair(light: (0, 0, 0, 0.3), dark: (0, 0, 0, 0.5))
-    /// The opaque ground under the sidebar tint (the last layer of `--side`).
-    static let sideBase = pair(light: 0xE8E8EC, dark: 0x19191B)
-    /// The two translucent stops of the `--side` 165deg gradient.
-    static let sideTop = pair(light: (168, 186, 204, 0.42), dark: (70, 92, 112, 0.38), bytes: true)
-    static let sideBottom = pair(
-      light: (214, 206, 198, 0.42), dark: (92, 80, 70, 0.38), bytes: true)
-    /// Small secondary text on the sidebar wash. `ink2` light is 4.48:1 at the gradient's top end, so this steps just darker to hold 4.5:1.
-    static let sideInk = pair(
-      light: 0x58585C, dark: 0xB0B0B5, contrastLight: 0x3A3A3E, contrastDark: 0xD8D8DC)
+    static let sideBase = pair(light: 0xFFDF24, dark: 0xFFDF24)
+    static let sideInk = pair(light: 0x29251C, dark: 0x29251C)
+    static let sideSelection = pair(light: 0xB91C27, dark: 0xB91C27)
+
   }
 
   static let bg = Color(nsColor: NS.bg)
@@ -69,6 +58,7 @@ enum DesignPalette {
   static let ink2 = Color(nsColor: NS.ink2)
   static let ink3 = Color(nsColor: NS.ink3)
   static let sideInk = Color(nsColor: NS.sideInk)
+  static let sideSelection = Color(nsColor: NS.sideSelection)
   static let hair = Color(nsColor: NS.hair)
   static let hair2 = Color(nsColor: NS.hair2)
   static let accent = Color(nsColor: NS.accent)
@@ -150,19 +140,10 @@ extension NSAppearance {
   var isDarkAqua: Bool { bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
 }
 
-/// The frosted sidebar ground (`--side`): a 165deg wash of two translucent tints. `solid` lays it over the opaque base, for Reduce
-/// Transparency and offscreen renders where glass cannot draw; otherwise the window's glass shows through the tint.
 struct DesignSidebarBackground: View {
   var solid: Bool
 
   var body: some View {
-    ZStack {
-      if solid { Color(nsColor: DesignPalette.NS.sideBase) }
-      LinearGradient(
-        colors: [
-          Color(nsColor: DesignPalette.NS.sideTop), Color(nsColor: DesignPalette.NS.sideBottom),
-        ],
-        startPoint: UnitPoint(x: 0.37, y: 0), endPoint: UnitPoint(x: 0.63, y: 1))
-    }
+    Color(nsColor: DesignPalette.NS.sideBase)
   }
 }

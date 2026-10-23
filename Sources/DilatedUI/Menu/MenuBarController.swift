@@ -7,6 +7,7 @@ import AppKit
   private let openSettings: () -> Void
   private var wasAwake = false
   private var began = ProcessInfo.processInfo.systemUptime
+  private var eyeMotionBegan = ProcessInfo.processInfo.systemUptime
   private var burst: Timer?
   private var microMotion: Timer?
   private var cache: [String: NSImage] = [:]
@@ -69,18 +70,34 @@ import AppKit
     }
     updateImage()
     let expiry = model.engine.holds.compactMap(\.expiry).max()
-    statusItem.button?.title =
+    let countdown =
       model.settings.countdown && awake
       ? " "
         + (model.engine.holds.contains { $0.expiry == nil }
           ? "∞" : expiry.map { AppModel.remaining(until: $0, now: model.now) } ?? "") : ""
+    let title = NSMutableAttributedString(string: "")
+    if model.attention != nil {
+      title.append(
+        NSAttributedString(
+          string: " !",
+          attributes: [
+            .foregroundColor: DesignPalette.NS.orange,
+            .font: NSFont.systemFont(ofSize: 12, weight: .bold),
+          ]))
+    }
+    title.append(NSAttributedString(string: countdown))
+    statusItem.button?.attributedTitle = title
     statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
     statusItem.button?.alphaValue = !awake && model.settings.lowOpacityIdle ? 0.5 : 1
-    statusItem.button?.toolTip =
+    let description =
       "Dilated: \(model.statusText)" + (model.closedLid.active ? ". Closed-lid armed." : "")
+      + (model.attention.map { ". \($0)" } ?? "")
+    statusItem.button?.toolTip = description
+    statusItem.button?.setAccessibilityLabel(description)
   }
   private func animateBurst() {
     burst?.invalidate()
+    eyeMotionBegan = ProcessInfo.processInfo.systemUptime
     let end = ProcessInfo.processInfo.systemUptime + 2
     let timer = Timer(timeInterval: 0.125, repeats: true) { [weak self] timer in
       guard let self else {
@@ -90,6 +107,7 @@ import AppKit
       MainActor.assumeIsolated {
         guard ProcessInfo.processInfo.systemUptime < end else {
           self.burst?.invalidate()
+          self.updateImage()
           return
         }
         self.updateImage()
@@ -102,10 +120,11 @@ import AppKit
   private func updateImage() {
     let glyph = model.settings.glyph
     let frame = glyph.frame(
-      awake: !model.engine.holds.isEmpty, elapsed: ProcessInfo.processInfo.systemUptime - began,
+      awake: !model.engine.holds.isEmpty,
+      elapsed: ProcessInfo.processInfo.systemUptime - (glyph == .bugEyes ? eyeMotionBegan : began),
       motion: model.settings.motion,
       reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
-    let mark = model.attention != nil ? "attention" : model.closedLid.active ? "armed" : ""
+    let mark = model.closedLid.active ? "armed" : ""
     let key = glyph.rawValue + frame + mark
     guard key != lastFrame else { return }
     if cache[key] == nil, let base = glyph.image(frame: frame) {
@@ -115,15 +134,10 @@ import AppKit
         let image = NSImage(size: base.size, flipped: false) { rect in
           base.draw(in: rect)
           NSColor.black.setFill()
-          if mark == "attention" {
-            NSBezierPath(ovalIn: NSRect(x: rect.width - 4, y: rect.height - 4, width: 3, height: 3))
-              .fill()
-          } else {
-            NSBezierPath(
-              roundedRect: NSRect(x: 5, y: 0, width: rect.width - 10, height: 1), xRadius: 0.5,
-              yRadius: 0.5
-            ).fill()
-          }
+          NSBezierPath(
+            roundedRect: NSRect(x: 5, y: 0, width: rect.width - 10, height: 1), xRadius: 0.5,
+            yRadius: 0.5
+          ).fill()
           return true
         }
         image.isTemplate = true

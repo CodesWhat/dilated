@@ -110,7 +110,7 @@ public struct WakeEngine: Sendable {
   public mutating func stopAll() {
     holds.removeAll()
     automationPaused = true
-    attention = "Automation paused until you choose Resume automation."
+    attention = nil
   }
   public mutating func resumeAutomation() {
     automationPaused = false

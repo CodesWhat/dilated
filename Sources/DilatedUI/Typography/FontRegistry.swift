@@ -3,17 +3,18 @@ import AppKit
 import CoreText
 import OSLog
 
-/// Registers the bundled Instrument Serif, Instrument Sans and JetBrains Mono for this process. A failure is logged
+/// Registers the bundled Barlow, Barlow Condensed and JetBrains Mono for this process. A failure is logged
 /// once and the type falls back to the system fonts.
 @MainActor
 enum FontRegistry {
   nonisolated static let directory = "Fonts"
-  nonisolated static let serifName = "InstrumentSerif-Regular"
+  nonisolated static let displayName = "BarlowCondensed-ExtraBold"
+  nonisolated static let wordmarkName = "BarlowCondensed-ExtraBoldItalic"
   nonisolated static let sansNames = [
-    "InstrumentSans-Regular", "InstrumentSans-Medium", "InstrumentSans-SemiBold",
+    "Barlow-Regular", "Barlow-Medium", "Barlow-SemiBold",
   ]
   nonisolated static let monoName = "JetBrainsMono-Medium"
-  nonisolated static let families = ["Instrument Serif", "Instrument Sans", "JetBrains Mono"]
+  nonisolated static let families = ["Barlow Condensed", "Barlow", "JetBrains Mono"]
 
   private nonisolated static let lock = NSLock()
   private nonisolated(unsafe) static var result: [String]?

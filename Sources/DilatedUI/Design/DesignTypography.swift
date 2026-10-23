@@ -2,14 +2,10 @@
 import AppKit
 import SwiftUI
 
-/// The redesign type scale. Instrument Serif for headlines and display words, Instrument Sans for everything else, JetBrains
-/// Mono for eyebrows and readouts. The fonts are bundled and registered at launch (`FontRegistry`); when a family did not
-/// register, each helper falls back to the system serif, sans or monospaced design so text never disappears.
+/// Barlow Condensed headlines, Barlow text, and monospaced labels for the Gas Station identity.
 @MainActor
 enum DesignFont {
-  /// Page headline, serif.
   static let headline: CGFloat = 28
-  /// Card display words and modal page titles, serif. The scale allows 20 to 24.
   static let display: CGFloat = 22
   static let body: CGFloat = 13
   static let detail: CGFloat = 12
@@ -28,13 +24,18 @@ enum DesignFont {
     (FontRegistry.registered ?? FontRegistry.registerBundledFonts()).contains(family)
   }
 
-  static func serif(_ size: CGFloat) -> Font {
-    installed("Instrument Serif")
-      ? .custom(FontRegistry.serifName, size: size) : .system(size: size, design: .serif)
+  static func heading(_ size: CGFloat) -> Font {
+    installed("Barlow Condensed")
+      ? .custom(FontRegistry.displayName, size: size) : .system(size: size, weight: .heavy)
+  }
+
+  static func wordmark(_ size: CGFloat) -> Font {
+    installed("Barlow Condensed")
+      ? .custom(FontRegistry.wordmarkName, size: size) : .system(size: size, weight: .heavy)
   }
 
   static func sans(_ size: CGFloat, _ weight: Weight = .regular) -> Font {
-    guard installed("Instrument Sans") else {
+    guard installed("Barlow") else {
       return .system(
         size: size, weight: weight == .regular ? .regular : weight == .medium ? .medium : .semibold)
     }

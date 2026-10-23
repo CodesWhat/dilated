@@ -129,40 +129,57 @@ import SwiftUI
   var close: () -> Void
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text("DILATED").font(.system(size: 10, weight: .semibold, design: .monospaced))
-        .foregroundStyle(.secondary)
-      Text(model.statusText).font(.system(size: 16, weight: .semibold)).fixedSize(
+      HStack(spacing: 10) {
+        if let eyes = Glyph.bugEyes.image(frame: Glyph.bugEyes.stillFrame) {
+          Image(nsImage: eyes).resizable().interpolation(.none)
+            .frame(width: 28, height: 26).accessibilityHidden(true)
+        }
+        Text("dilated").font(DesignFont.wordmark(28))
+        Spacer()
+      }
+      .foregroundStyle(DesignPalette.sideSelection)
+      .padding(.horizontal, 14).padding(.vertical, 6)
+      .background(DesignPalette.accent)
+      .padding(.horizontal, -14).padding(.top, -14).padding(.bottom, 4)
+      Text(model.statusText).font(DesignFont.heading(24)).fixedSize(
         horizontal: false, vertical: true)
       if model.closedLid.active {
-        Text("Closed-lid armed").font(.system(size: 11, weight: .medium))
+        Text("Closed-lid armed").font(DesignFont.sans(11, .medium))
+      }
+      if model.engine.automationPaused {
+        Text("Automation paused until you choose Resume automation.")
+          .font(DesignFont.sans(11)).foregroundStyle(DesignPalette.ink2)
+          .fixedSize(horizontal: false, vertical: true)
       }
       if let attention = model.attention {
-        Text(attention).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(
+        Text(attention).font(DesignFont.sans(11)).foregroundStyle(DesignPalette.ink2).fixedSize(
           horizontal: false, vertical: true)
       }
       ForEach(Array(model.engine.holds.prefix(6))) { hold in
         HStack(alignment: .top) {
           VStack(alignment: .leading, spacing: 2) {
-            Text(hold.label).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+            Text(hold.label).font(DesignFont.sans(12)).fixedSize(horizontal: false, vertical: true)
             Text(
               hold.expiry.map { AppModel.remaining(until: $0, now: model.now) + " left" }
                 ?? "Indefinite"
             )
-            .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+            .font(DesignFont.mono(10)).foregroundStyle(DesignPalette.ink2)
           }
           Spacer()
           Button("Stop") {
             close()
             model.stop(id: hold.id)
-          }.buttonStyle(.borderless).font(.system(size: 11))
+          }.buttonStyle(.borderless).font(DesignFont.sans(11))
             .accessibilityLabel("Stop \(hold.label)")
         }
       }
       if model.engine.holds.count > 6 {
         Text("\(model.engine.holds.count - 6) more reasons in Settings").font(.caption)
-          .foregroundStyle(.secondary)
+          .foregroundStyle(DesignPalette.ink2)
       }
     }
     .padding(14).frame(width: 340, alignment: .leading)
+    .foregroundStyle(DesignPalette.ink).background(DesignPalette.surface).tint(
+      SettingsTheme.control)
   }
 }

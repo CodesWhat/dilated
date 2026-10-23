@@ -2,9 +2,8 @@
 import AppKit
 import SwiftUI
 
-/// Colours and type for the Settings window. The lime accent replaces the system blue for tint, switches and selection.
+/// Colours, type and spacing for Dilated's control panel.
 enum SettingsTheme {
-  /// Tint for switches, buttons, pickers and selection: the accent-mark green in light (#4A6A12, 3:1 or better on white), lime in dark.
   static let controlNS = DesignPalette.NS.accentMark
   static let control = Color(nsColor: controlNS)
 
@@ -20,7 +19,7 @@ enum SettingsTheme {
 enum SettingsFont {
   static let minimum: CGFloat = 10
   static let sansName = FontRegistry.sansNames[0]
-  static let serifName = FontRegistry.serifName
+  static let displayName = FontRegistry.displayName
   static let monoName = FontRegistry.monoName
 
   static let wordmark: CGFloat = 28
@@ -34,7 +33,7 @@ enum SettingsFont {
   static let all: [CGFloat] = [wordmark, title, headerDescription, body, detail, eyebrow, footer]
 
   static func sans(_ size: CGFloat) -> Font { .custom(sansName, size: max(size, minimum)) }
-  static func serif(_ size: CGFloat) -> Font { .custom(serifName, size: max(size, minimum)) }
+  static func heading(_ size: CGFloat) -> Font { .custom(displayName, size: max(size, minimum)) }
   static func mono(_ size: CGFloat) -> Font { .custom(monoName, size: max(size, minimum)) }
 }
 
@@ -51,8 +50,10 @@ struct SettingsRow<Controls: View>: View {
       Text(title).font(SettingsFont.sans(SettingsFont.body)).fixedSize(
         horizontal: false, vertical: true)
       if let detail, !detail.isEmpty {
-        Text(detail).font(SettingsFont.sans(SettingsFont.detail)).foregroundStyle(.secondary)
-          .fixedSize(horizontal: false, vertical: true)
+        Text(detail).font(SettingsFont.sans(SettingsFont.detail)).foregroundStyle(
+          DesignPalette.ink2
+        )
+        .fixedSize(horizontal: false, vertical: true)
       }
     }
   }
@@ -87,39 +88,40 @@ struct SettingsNote: View {
   }
 }
 
-/// An inset group: a JetBrains Mono eyebrow over a rounded card of rows split by inset hairlines. This is the Tahoe
-/// `Form(.grouped)` look built directly, because the system form pads every row to about 54 pt and spaces groups out
-/// until General no longer fits in 900×620 without scrolling.
+/// Labelled control rows with the printed rules and square corners of the Gas Station pack.
 struct SettingsGroup<Content: View>: View {
   let eyebrow: String
   var footer: String?
   @ViewBuilder var content: () -> Content
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text(eyebrow).font(SettingsFont.mono(SettingsFont.eyebrow)).tracking(1).foregroundStyle(
-        .secondary
-      )
-      .padding(.horizontal, 12).accessibilityAddTraits(.isHeader)
+    VStack(alignment: .leading, spacing: 0) {
+      Text(eyebrow).font(SettingsFont.mono(SettingsFont.eyebrow)).tracking(1)
+        .foregroundStyle(DesignPalette.accentText)
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DesignPalette.accentSoft).accessibilityAddTraits(.isHeader)
+      Rectangle().fill(DesignPalette.hair).frame(height: 1)
       Group(subviews: content()) { rows in
         VStack(spacing: 0) {
           ForEach(rows.indices, id: \.self) { index in
             if index > 0 {
-              Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 0.5).padding(.leading, 12)
+              Rectangle().fill(DesignPalette.hair2).frame(height: 1).padding(.horizontal, 12)
             }
-            rows[index].padding(.horizontal, 12).padding(.vertical, 4)
+            rows[index].padding(.horizontal, 12).padding(.vertical, 8)
           }
         }
       }
-      .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
-      .overlay(
-        RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
-      )
+      .background(DesignPalette.surface)
       if let footer {
-        Text(footer).font(SettingsFont.sans(SettingsFont.detail)).foregroundStyle(.secondary)
-          .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 12)
+        Text(footer).font(SettingsFont.sans(SettingsFont.detail)).foregroundStyle(
+          DesignPalette.ink2
+        )
+        .fixedSize(horizontal: false, vertical: true).padding(12)
       }
     }
+    .background(DesignPalette.surface).clipShape(RoundedRectangle(cornerRadius: 4))
+    .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(DesignPalette.hair, lineWidth: 1))
   }
 }
 

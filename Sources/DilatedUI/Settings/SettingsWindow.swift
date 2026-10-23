@@ -126,20 +126,51 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
 
   var body: some View {
     HStack(spacing: 0) {
-      VStack(alignment: .leading, spacing: 18) {
-        Text("Dilated").font(DesignFont.serif(32)).padding(.horizontal, 22).padding(.top, 44)
-        List(SettingsPage.allCases, selection: $page) { item in
-          Label(item.rawValue, systemImage: item.symbol).tag(item).padding(.vertical, 4)
-        }.listStyle(.sidebar).scrollContentBackground(.hidden)
-        Text("KEEP YOUR WORK AWAKE").designEyebrow().padding(.horizontal, 22).padding(.bottom, 22)
+      VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 3) {
+          if let eyes = Glyph.bugEyes.image(frame: Glyph.bugEyes.stillFrame) {
+            Image(nsImage: eyes).resizable().interpolation(.none)
+              .frame(width: 44, height: 41).accessibilityHidden(true)
+          }
+          Text("dilated").font(DesignFont.wordmark(46))
+        }
+        .foregroundStyle(DesignPalette.sideSelection)
+        .padding(.horizontal, 22).padding(.top, 40)
+        ScrollView {
+          VStack(spacing: 4) {
+            ForEach(SettingsPage.allCases) { item in
+              Button {
+                page = item
+              } label: {
+                HStack(spacing: 10) {
+                  Image(systemName: item.symbol).frame(width: 18)
+                  Text(item.rawValue).font(DesignFont.sans(13, .semibold))
+                  Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .foregroundStyle(page == item ? Color.white : DesignPalette.sideInk)
+                .background(
+                  page == item ? DesignPalette.sideSelection : .clear,
+                  in: RoundedRectangle(cornerRadius: 4)
+                )
+                .contentShape(Rectangle())
+              }
+              .buttonStyle(.plain).help(item.detail)
+              .accessibilityAddTraits(page == item ? .isSelected : [])
+            }
+          }.padding(.horizontal, 12)
+        }
+        Text("KEEP YOUR WORK AWAKE")
+          .font(DesignFont.mono(10)).tracking(0.5).foregroundStyle(DesignPalette.sideInk)
+          .padding(.horizontal, 22).padding(.bottom, 22)
       }
       .frame(width: SettingsTheme.sidebarWidth).background(DesignSidebarBackground(solid: solid))
       Divider()
       ScrollView {
         VStack(alignment: .leading, spacing: 22) {
           if !model.settings.onboardingComplete { welcome }
-          Text((page ?? .overview).rawValue).font(DesignFont.serif(30))
-          Text((page ?? .overview).detail).foregroundStyle(.secondary).padding(.top, -14)
+          Text((page ?? .overview).rawValue.uppercased()).font(DesignFont.heading(34))
+          Text((page ?? .overview).detail).foregroundStyle(DesignPalette.ink2).padding(.top, -14)
           if let attention = model.attention {
             Text(attention).fixedSize(horizontal: false, vertical: true).padding(12)
               .frame(maxWidth: .infinity, alignment: .leading).background(
@@ -156,7 +187,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
   }
   private var welcome: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Text("Meet your awake button").font(DesignFont.serif(24))
+      Text("Meet your awake button").font(DesignFont.heading(28))
       Text(
         "Click the eyes in the menu bar to open Dilated. Right-click to start or stop. Pick your look in Menu Bar, or change clicks in General."
       )
@@ -166,7 +197,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         close()
       }.buttonStyle(.borderedProminent)
     }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(
-      DesignPalette.accentSoft, in: RoundedRectangle(cornerRadius: 14))
+      DesignPalette.accentSoft, in: RoundedRectangle(cornerRadius: 4))
   }
   @ViewBuilder private var pageContent: some View {
     switch page ?? .overview {

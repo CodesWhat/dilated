@@ -17,7 +17,7 @@ public enum Glyph: String, Codable, CaseIterable, Sendable {
   }
   public var frames: [String] {
     switch self {
-    case .bugEyes: ["off", "on0", "on1"]
+    case .bugEyes: ["off", "on0", "on1", "look-left", "look-right"]
     case .can: ["off", "wake0", "wake1", "wake2", "on", "blink"]
     case .spiralEyes: ["off", "on0", "on1", "on2", "on3"]
     case .catCans: ["off", "on"]
@@ -51,8 +51,10 @@ public enum Glyph: String, Codable, CaseIterable, Sendable {
       if elapsed < 0.45 { return "wake\(min(2, Int(elapsed / 0.15)))" }
       return elapsed > 4 && elapsed.truncatingRemainder(dividingBy: 8) < 0.25 ? "blink" : "on"
     case .bugEyes:
-      return elapsed.truncatingRemainder(dividingBy: motion == .subtle ? 10 : 5) < 0.35
-        ? "on1" : "on0"
+      let phase = elapsed.truncatingRemainder(dividingBy: motion == .subtle ? 10 : 5)
+      if (0.25..<0.75).contains(phase) { return "look-left" }
+      if (1..<1.5).contains(phase) { return "look-right" }
+      return stillFrame
     case .spiralEyes:
       let phase = elapsed.truncatingRemainder(dividingBy: motion == .subtle ? 12 : 6)
       return phase < 2 ? "on\(Int(phase * 8) % 4)" : stillFrame

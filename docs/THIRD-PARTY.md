@@ -30,7 +30,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Instrument Sans, Instrument Serif and JetBrains Mono are distributed under the
+Barlow, Barlow Condensed and JetBrains Mono are distributed under the
 SIL Open Font License. Their notices are bundled alongside the font files in
 `Sources/DilatedUI/Resources/Fonts/` and copied into the app's resource bundle.
 
