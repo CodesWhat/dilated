@@ -119,6 +119,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
   var solid = false
   var close: () -> Void = {}
   @State private var page: SettingsPage? = .overview
+  @FocusState private var focusedPage: SettingsPage?
   @State private var presets = ""
   @State private var loginRefresh = 0
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -141,6 +142,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
             ForEach(SettingsPage.allCases) { item in
               Button {
                 page = item
+                focusedPage = item
               } label: {
                 HStack(spacing: 10) {
                   Image(systemName: item.symbol).frame(width: 18)
@@ -156,9 +158,18 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
                 .contentShape(Rectangle())
               }
               .buttonStyle(.plain).help(item.detail)
+              .focused($focusedPage, equals: item)
               .accessibilityAddTraits(page == item ? .isSelected : [])
             }
           }.padding(.horizontal, 12)
+            .onMoveCommand { direction in
+              guard direction == .up || direction == .down else { return }
+              let pages = SettingsPage.allCases
+              let index = pages.firstIndex(of: focusedPage ?? page ?? .overview) ?? 0
+              let next = pages[max(0, min(pages.count - 1, index + (direction == .down ? 1 : -1)))]
+              page = next
+              focusedPage = next
+            }
         }
         Text("KEEP YOUR WORK AWAKE")
           .font(DesignFont.mono(10)).tracking(0.5).foregroundStyle(DesignPalette.sideInk)
