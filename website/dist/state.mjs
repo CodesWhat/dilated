@@ -1,5 +1,5 @@
 export const directions = {
-  counter: { name: 'Counter pack', font: 'barlow' },
+  'gas-station': { name: 'Gas Station', font: 'barlow' },
   night: { name: 'Night shift', font: 'fraunces' },
   field: { name: 'Field notes', font: 'instrument' },
 };
@@ -7,7 +7,7 @@ export const fonts = ['barlow', 'fraunces', 'instrument'];
 
 export function readPreferences(search, saved = {}) {
   const params = new URLSearchParams(search);
-  const concept = Object.hasOwn(directions, params.get('concept')) ? params.get('concept') : 'counter';
+  const concept = Object.hasOwn(directions, params.get('concept')) ? params.get('concept') : 'gas-station';
   const requested = params.get('font') || saved[concept];
   return { concept, font: fonts.includes(requested) ? requested : directions[concept].font };
 }

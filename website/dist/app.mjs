@@ -28,7 +28,7 @@ function applyPreferences(updateUrl = true) {
   document.querySelectorAll('[data-direction]').forEach(button => { button.setAttribute('aria-pressed', String(button.dataset.direction === current.concept)); });
   document.querySelector('#font-choice').value = current.font;
   document.title = `Dilated · ${directions[current.concept].name}`;
-  document.querySelector('meta[name="theme-color"]').content = { counter: '#ffdf24', night: '#101f26', field: '#f4f0e6' }[current.concept];
+  document.querySelector('meta[name="theme-color"]').content = { 'gas-station': '#ffdf24', night: '#101f26', field: '#f4f0e6' }[current.concept];
   if (updateUrl) {
     const url = new URL(location.href);
     url.searchParams.set('concept', current.concept);

@@ -17,6 +17,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin_dir/DilatedApp" "$app/Contents/MacOS/DilatedApp"
 cp "$bin_dir/dilated" "$app/Contents/MacOS/dilated"
 cp packaging/Info.plist "$app/Contents/Info.plist"
+cp packaging/Dilated.icns "$app/Contents/Resources/Dilated.icns"
 cp LICENSE "$app/Contents/Resources/LICENSE"
 cp docs/THIRD-PARTY.md "$app/Contents/Resources/THIRD-PARTY.md"
 for bundle in "$bin_dir"/Dilated_DilatedUI.bundle; do

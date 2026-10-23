@@ -6,7 +6,7 @@ const state = await import('../dist/state.mjs').catch(() => ({}));
 test('a shared link selects its direction and font, rejecting unknown values', () => {
   assert.equal(typeof state.readPreferences, 'function');
   assert.deepEqual(state.readPreferences('?concept=night&font=fraunces'), { concept: 'night', font: 'fraunces' });
-  assert.deepEqual(state.readPreferences('?concept=unknown&font=unknown'), { concept: 'counter', font: 'barlow' });
+  assert.deepEqual(state.readPreferences('?concept=unknown&font=unknown'), { concept: 'gas-station', font: 'barlow' });
 });
 
 test('font defaults belong to each direction and a saved font may override them', () => {
