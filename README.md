@@ -2,10 +2,12 @@
 
 Keeps your Mac awake. A native macOS 26 menu bar app for Apple Silicon.
 
-The M1 preview includes timed and indefinite awake holds, display-sleep controls,
+The local preview includes timed and indefinite awake holds, display-sleep controls,
 battery and Low Power Mode guards, four animated menu bar glyphs, Settings,
 a global shortcut, URL automation, and a CLI with renewable agent holds.
-Closed-lid support and automatic agent setup are planned for later milestones.
+Closed-lid controls and their privileged helper are implemented, with hardware
+recovery and release acceptance still pending. There is no public release yet.
+Automatic agent setup and condition-based triggers remain later work.
 
 Build the local app with `bash scripts/build-app.sh`, then open
 `build/Dilated.app`. This is a development build, not a notarized release. The
@@ -21,5 +23,6 @@ The package app product and internal executable are named `DilatedApp` to avoid
 a case-only collision with the `dilated` CLI on macOS filesystems. The app shown
 to users is Dilated.
 
-See [automation](docs/AUTOMATION.md), [architecture](docs/ARCHITECTURE.md), and
+See [installation and removal](docs/INSTALLATION.md),
+[automation](docs/AUTOMATION.md), [architecture](docs/ARCHITECTURE.md), and
 [third-party notices](docs/THIRD-PARTY.md). Dilated is free software under MIT.

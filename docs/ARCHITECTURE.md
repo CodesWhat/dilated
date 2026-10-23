@@ -30,7 +30,35 @@ unexpired timed holds are restored; agent leases and runner IDs aren't replayed
 as work after a crash. Explicit Quit clears saved holds. Broken state is reported
 and automation starts paused. Settings decode missing keys with safe defaults.
 
-The helper, closed-lid backend, Sparkle/release packaging, triggers, AppleScript
-and App Intents are later phases. No M1 runtime, build or test depends on
-`.planning/`. The private roadmap owns phase tracking; shipped documentation and
-CI use tracked files only.
+`DilatedHelper` is a signed SMAppService LaunchDaemon. The app and helper apply
+OS code-signing requirements to their XPC peers. The app also checks protocol
+version and the running helper's code-directory hash against the helper packaged
+in its own bundle. A helper generation change invalidates the old lease.
+
+Closed-lid mode uses fixed-argument `pmset` operations through a serialized,
+bounded driver. Both stored and effective sleep-disable readings must confirm the
+requested state. The daemon resets the flag before becoming ready and retries a
+failed reset. Its independent watchdog checks a continuous-clock lease, battery,
+power source, thermal state and Low Power Mode. Main-actor heartbeats renew a
+lease of at most 90 seconds; an app hang cannot renew it through a detached task.
+Clearing sleep-disable precedes an explicit Sleep request. These mechanisms are
+implemented, but real lid, crash, reboot and power-transition acceptance remains
+open. Unit tests do not establish hardware recovery.
+
+`AppUpdater` isolates the pinned Sparkle driver. Checks and installation defer
+while closed-lid protection, helper replacement or recovery is in progress.
+Before a planned update, the app confirms closed-lid is off and saves only
+unexpired timed holds with their original deadlines. Intentional Quit clears all
+app holds instead. Helper replacement disables protection and awaits service
+unregistration before re-registering. Closed-lid is never restored from saved
+timers. Local candidate builds disable updates; release builds require the
+configured HTTPS feed, EdDSA public key, signed feed and pre-extraction validation.
+
+Packaging scripts verify signed/notarized app and DMG files. Public staging also
+requires acceptance records for the exact source, build and artifact checksums,
+including macOS 26/27 and a second Mac. Publication remains gated on that evidence.
+See [installation and removal](INSTALLATION.md) for the supported lifecycle and
+current limits. Triggers, AppleScript and App Intents remain later phases.
+
+No runtime, build or test depends on `.planning/`. The private roadmap owns phase
+tracking; shipped documentation and CI use tracked files only.
