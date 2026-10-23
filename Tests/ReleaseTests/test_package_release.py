@@ -1,9 +1,11 @@
+import hashlib
 import importlib.util
 import pathlib
 import plistlib
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zipfile
 
@@ -57,7 +59,7 @@ class ReleaseGuardsTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "darwin", "Signed bundle integration requires macOS")
     def test_packager_builds_into_its_own_output_with_canonical_metadata_and_helper(self):
         output = self.root / 'bundle output'
-        release.build_app(SCRIPT.parents[1], output, '-')
+        release.build_app(SCRIPT.parents[1], output, '-', enable_updates=True)
         app = output / 'Dilated.app'
         with (app / 'Contents/Info.plist').open('rb') as file:
             info = plistlib.load(file)
@@ -73,6 +75,7 @@ class ReleaseGuardsTests(unittest.TestCase):
         self.assertEqual(info['SUFeedURL'], 'https://dilated.codeswhat.com/updates/appcast.xml')
         self.assertTrue(info['SURequireSignedFeed'])
         self.assertTrue(info['SUVerifyUpdateBeforeExtraction'])
+        self.assertTrue(info['DilatedUpdatesEnabled'])
         linked = subprocess.check_output(['otool', '-L', str(app / 'Contents/MacOS/DilatedApp')], text=True)
         self.assertIn('@rpath/Sparkle.framework', linked)
         for binary in ['dilated', 'dilated-helper']:
@@ -87,6 +90,34 @@ class ReleaseGuardsTests(unittest.TestCase):
         import json
         self.assertEqual(json.loads(probe)['protocolVersion'], 1)
         subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
+        import os
+        state = self.root / 'launch-state'
+        state.mkdir()
+        (state / 'settings.json').write_text('{"onboardingComplete":true}')
+        environment = dict(os.environ, DILATED_STATE_DIR=str(state))
+        process = subprocess.Popen([str(app / 'Contents/MacOS/DilatedApp')], env=environment,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        try:
+            deadline = time.monotonic() + 8
+            while time.monotonic() < deadline and process.poll() is None:
+                result = subprocess.run([str(app / 'Contents/MacOS/dilated'), 'status', '--json'],
+                                        env=environment, capture_output=True, text=True, timeout=4)
+                if result.returncode == 0:
+                    self.assertTrue(json.loads(result.stdout)['ok'])
+                    break
+                time.sleep(0.1)
+            else:
+                error = process.stderr.read() if process.poll() is not None else 'App did not start its control connection'
+                self.fail(error)
+        finally:
+            if process.poll() is None:
+                process.terminate()
+            process.communicate(timeout=5)
+            digest = hashlib.sha256(str(state).encode()).hexdigest()[:16]
+            socket_directory = pathlib.Path(f'/tmp/com.codeswhat.dilated-{os.getuid()}-{digest}')
+            if socket_directory.exists():
+                (socket_directory / 'control.sock').unlink(missing_ok=True)
+                socket_directory.rmdir()
         release.verify_requirement(app, 'identifier "com.codeswhat.dilated"')
         with self.assertRaises(RuntimeError):
             release.verify_requirement(app, 'identifier "com.codeswhat.other"')

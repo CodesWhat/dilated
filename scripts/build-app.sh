@@ -22,12 +22,17 @@ cp packaging/Info.plist "$app/Contents/Info.plist"
 python3 - "$app/Contents/Info.plist" <<'PY'
 from pathlib import Path
 import plistlib
+import os
 import subprocess
 import sys
 destination = Path(sys.argv[1])
 info = plistlib.loads(destination.read_bytes())
 info.update(plistlib.loads(Path('packaging/Version.plist').read_bytes()))
 info['DilatedSourceRevision'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+updates = os.environ.get('DILATED_ENABLE_UPDATES', '0')
+if updates not in ('0', '1'):
+    raise SystemExit('DILATED_ENABLE_UPDATES must be 0 or 1')
+info['DilatedUpdatesEnabled'] = updates == '1'
 destination.write_bytes(plistlib.dumps(info))
 PY
 cp packaging/Dilated.icns "$app/Contents/Resources/Dilated.icns"
@@ -43,19 +48,23 @@ for bundle in "$bin_dir"/Dilated_DilatedUI.bundle; do
 done
 sign_as="${DILATED_SIGN_IDENTITY:--}"
 timestamp="--timestamp"
-if [[ "$sign_as" == "-" ]]; then timestamp="--timestamp=none"; fi
+sign_options=(--options runtime)
+if [[ "$sign_as" == "-" ]]; then
+    timestamp="--timestamp=none"
+    sign_options=(--options 0)
+fi
 framework="$app/Contents/Frameworks/Sparkle.framework"
 for nested in "$framework/Versions/B/XPCServices/Downloader.xpc" \
     "$framework/Versions/B/XPCServices/Installer.xpc" \
     "$framework/Versions/B/Autoupdate" "$framework/Versions/B/Updater.app"; do
-    codesign --force --options runtime "$timestamp" --preserve-metadata=entitlements --sign "$sign_as" "$nested"
+    codesign --force "${sign_options[@]}" "$timestamp" --preserve-metadata=entitlements --sign "$sign_as" "$nested"
 done
-codesign --force --options runtime "$timestamp" --sign "$sign_as" "$framework"
+codesign --force "${sign_options[@]}" "$timestamp" --sign "$sign_as" "$framework"
 for nested in "$app/Contents/Resources/"*.bundle; do
-    codesign --force --options runtime "$timestamp" --sign "$sign_as" "$nested"
+    codesign --force "${sign_options[@]}" "$timestamp" --sign "$sign_as" "$nested"
 done
-codesign --force --options runtime "$timestamp" --sign "$sign_as" "$app/Contents/MacOS/dilated"
-codesign --force --identifier com.codeswhat.dilated.helper --options runtime "$timestamp" --sign "$sign_as" "$app/Contents/MacOS/dilated-helper"
-codesign --force --options runtime "$timestamp" --sign "$sign_as" "$app"
+codesign --force "${sign_options[@]}" "$timestamp" --sign "$sign_as" "$app/Contents/MacOS/dilated"
+codesign --force --identifier com.codeswhat.dilated.helper "${sign_options[@]}" "$timestamp" --sign "$sign_as" "$app/Contents/MacOS/dilated-helper"
+codesign --force "${sign_options[@]}" "$timestamp" --sign "$sign_as" "$app"
 codesign --verify --deep --strict "$app"
 echo "$app"

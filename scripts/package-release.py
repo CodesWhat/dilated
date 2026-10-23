@@ -189,11 +189,12 @@ def create_disk_image(app, image, identity):
     return image
 
 
-def build_app(root, output, identity):
+def build_app(root, output, identity, enable_updates=False):
     output.mkdir(parents=True, exist_ok=True)
     environment = os.environ.copy()
     environment['DILATED_BUILD_DIR'] = str(output)
     environment['DILATED_SIGN_IDENTITY'] = identity
+    environment['DILATED_ENABLE_UPDATES'] = '1' if enable_updates else '0'
     with (output / 'build.log').open('w') as log:
         subprocess.run(['bash', 'scripts/build-app.sh', 'release'], cwd=root, env=environment,
                        stdout=log, stderr=subprocess.STDOUT, check=True, timeout=1200)
@@ -216,7 +217,7 @@ def main():
     output = create_output(args.output_dir.resolve(), f'{version}-{source[:12]}' if args.candidate else version)
     app = output / 'Dilated.app'
     print(f'Building {version} from {source}', flush=True)
-    build_app(root, output, args.identity)
+    build_app(root, output, args.identity, enable_updates=not args.candidate)
     validate_helper_bundle(app)
     with (app / 'Contents/Info.plist').open('rb') as file:
         info = plistlib.load(file)
@@ -256,6 +257,7 @@ def main():
     (output / f'{filename}.sha256').write_text(f'{digest}  {filename}\n')
     manifest = {'version': version, 'build': metadata['CFBundleVersion'],
                 'candidate': args.candidate, 'tag': None if args.candidate else f'v{version}',
+                'updatesEnabled': info.get('DilatedUpdatesEnabled') is True,
                 'sourceRevision': source, 'architecture': 'arm64', 'minimumMacOS': '26.0',
                 'archive': filename, 'archiveSHA256': digest, 'archiveBytes': archive.stat().st_size,
                 'notarizationID': submission_id, 'notarizationStatus': status['status'],
