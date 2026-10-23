@@ -128,12 +128,12 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
   var body: some View {
     HStack(spacing: 0) {
       VStack(alignment: .leading, spacing: 20) {
-        VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: 10) {
           if let eyes = Glyph.bugEyes.image(frame: Glyph.bugEyes.stillFrame) {
             Image(nsImage: eyes).resizable().interpolation(.none)
-              .frame(width: 44, height: 41).accessibilityHidden(true)
+              .frame(width: 36, height: 34).accessibilityHidden(true)
           }
-          Text("dilated").font(DesignFont.wordmark(46))
+          Text("dilated").font(DesignFont.wordmark(38)).fixedSize()
         }
         .foregroundStyle(DesignPalette.sideSelection)
         .padding(.horizontal, 22).padding(.top, 40)
