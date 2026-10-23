@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en" data-concept="counter" data-font="barlow">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Dilated keeps your Mac awake while work finishes. Three design studies from CodesWhat, featuring the pixel eyes.">
+  <meta name="theme-color" content="#ffdf24">
+  <title>Dilated · Stay up for the good bit.</title>
+  <link rel="icon" href="./assets/icon-counter.svg" type="image/svg+xml" id="favicon">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <div class="study-bar" aria-label="Design study controls">
+    <a class="study-label" href="#">DILATED <span>DESIGN STUDIES / 01—03</span></a>
+    <div class="directions" role="group" aria-label="Website direction">
+      <button type="button" data-direction="counter" aria-pressed="true"><span>01</span> Counter pack</button>
+      <button type="button" data-direction="night" aria-pressed="false"><span>02</span> Night shift</button>
+      <button type="button" data-direction="field" aria-pressed="false"><span>03</span> Field notes</button>
+    </div>
+    <label class="font-control">TYPEFACE <select id="font-choice" aria-label="Display typeface"><option value="barlow">Barlow Condensed</option><option value="fraunces">Fraunces</option><option value="instrument">Instrument Serif</option></select></label>
+  </div>
+  <header class="masthead page-width">
+    <a class="brand" href="#" aria-label="Dilated home"><svg aria-hidden="true" viewBox="0 0 16 10"><use href="./assets/symbols.svg#eyes"/></svg><span>dilated</span></a>
+    <nav aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#icon-studies">The eyes</a><a class="nav-source" href="#availability">The preview <span aria-hidden="true">↗</span></a></nav>
+  </header>
+  <main id="main">
+    <article class="direction counter" data-panel="counter" aria-labelledby="counter-title">
+      <section class="counter-hero page-width">
+        <div class="counter-copy">
+          <p class="eyebrow"><span class="square-dot"></span> AWAKE AID FOR YOUR MAC</p>
+          <h1 id="counter-title">NOT<br>DONE<br><span>YET.</span></h1>
+          <div class="counter-bottom"><p>The render. The download. The agent having a moment. Keep your Mac up until the job is done.</p><a class="button solid" href="#how-it-works">Meet Dilated <span aria-hidden="true">↓</span></a></div>
+        </div>
+        <div class="package-stage" aria-label="Dilated package design: keep awake, for as long as it takes">
+          <div class="retail-pack">
+            <div class="pack-top"><span>FOR MAC</span><span>NO. 001</span></div>
+            <div class="pack-wordmark">dilated<span>●</span></div>
+            <div class="pack-red">KEEP AWAKE</div>
+            <svg class="pack-eyes" aria-hidden="true" viewBox="0 0 16 10"><use href="./assets/symbols.svg#eyes"/></svg>
+            <div class="pack-caption">FOR AS LONG<br>AS IT TAKES.</div>
+            <div class="pack-facts"><span>0 mg<br><b>CAFFEINE</b></span><span>100%<br><b>YOUR CALL</b></span><span>∞<br><b>OR A TIMER</b></span></div>
+            <div class="pack-bottom">ONE SMALL MENU BAR APP <span>↗</span></div>
+          </div>
+          <span class="shelf-caption">STOCKED IN YOUR MENU BAR. NO TRIP TO THE COUNTER.</span>
+        </div>
+      </section>
+      <div class="retail-strip"><span>NO NODDING OFF.</span><svg aria-hidden="true" viewBox="0 0 16 10"><use href="./assets/symbols.svg#eyes"/></svg><span>NO BIG DEAL.</span><svg aria-hidden="true" viewBox="0 0 16 10"><use href="./assets/symbols.svg#eyes"/></svg><span>NO NODDING OFF.</span></div>
+      <section class="counter-details page-width" id="counter-details">
+        <div class="section-intro"><p class="eyebrow">DIRECTIONS FOR USE</p><h2>One click.<br>Eyes open.</h2><p>Choose a little longer, a specific time, or until you say stop. Your display can sleep while your Mac keeps working.</p></div>
+        <div class="demo-mount" data-demo-mount></div>
+        <div class="facts-label"><h3>Awake facts</h3><div><strong>Active ingredient</strong><span>You deciding when your Mac sleeps.</span></div><div><strong>Useful for</strong><span>Builds, uploads, downloads, and long-running commands.</span></div><div><strong>When you're done</strong><span>Stop clears the holds and pauses automation until you resume it.</span></div><div><strong>Small print</strong><span>Battery and Low Power Mode guards included. Closed-lid mode is planned.</span></div></div>
+      </section>
+    </article>
+
+    <article class="direction night" data-panel="night" aria-labelledby="night-title" hidden>
+      <section class="night-hero page-width">
+        <div class="night-hero-top"><p class="eyebrow"><span class="live-dot"></span> THE NIGHT SHIFT / ON YOUR TERMS</p><span class="night-coordinates">MACOS 26+ · APPLE SILICON</span></div>
+        <h1 id="night-title">Let it <em>finish.</em></h1>
+        <div class="night-subline"><p>A small pair of eyes for the work<br>that's still going.</p><a class="button outline" href="#how-it-works">Take the late shift <span aria-hidden="true">↓</span></a></div>
+        <div class="night-scene">
+          <div class="scene-menubar"><span>Finder <i>File</i> <i>Edit</i> <i>View</i></span><span class="scene-icons"><svg aria-hidden="true" viewBox="0 0 16 10"><use href="./assets/symbols.svg#eyes"/></svg><span>◉ &nbsp; ▰ &nbsp; 23:41</span></span></div>
+          <div class="night-grid" aria-hidden="true"></div>
+          <div class="night-stamp"><span class="eyebrow">CURRENT ASSIGNMENT</span><svg class="night-eyes" aria-hidden="true" viewBox="0 0 16 10"><use href="./assets/symbols.svg#eyes"/></svg><span>STILL HERE.</span></div>
+          <div class="scene-label"><span class="live-dot"></span> THE DISPLAY CAN REST. THE WORK CAN CONTINUE.</div>
+          <div class="night-demo demo-mount" data-demo-mount></div>
+        </div>
+      </section>
+      <section class="shift-ledger page-width"><div class="shift-heading"><p class="eyebrow">THE HANDOVER</p><h2>Stay up.<br>Step away.</h2><p>Dilated sits in your menu bar and keeps your Mac awake. It tells you what's keeping it up, and lets you stop the lot.</p></div><div class="shift-rows"><div><span>01 / A LITTLE LONGER</span><p>Set a timer. Pick an end time.<br>Or leave it open-ended.</p></div><div><span>02 / WHILE IT WORKS</span><p>Give a command its own hold.<br>Keep concurrent work separate.</p></div><div><span>03 / YOUR CALL</span><p>Stop means stop. Automation stays<br>paused until you resume it.</p></div></div></section>
+    </article>
+
+    <article class="direction field" data-panel="field" aria-labelledby="field-title" hidden>
+      <section class="field-hero page-width">
+        <div class="field-running"><span>THE SMALL SOFTWARE DEPARTMENT</span><span>SPECIMEN 001 / DILATED</span><span>EST. WHENEVER YOU NEED IT</span></div>
+        <div class="field-title-row"><h1 id="field-title">Work is still<br><em>happening.</em></h1><p>A field guide to keeping<br>your Mac awake.<br><span>BY CODESWHAT</span></p></div>
+        <div class="specimen"><div class="specimen-ticks" aria-hidden="true"></div><span class="specimen-label">FIG. 01<br>OCULI DILATI</span><svg class="specimen-eyes" aria-hidden="true" viewBox="0 0 16 10"><use href="./assets/symbols.svg#eyes"/></svg><div class="specimen-note">Remarkably good<br>at doing very little.<span>↗</span></div><span class="specimen-scale">16 PIXELS / UNREASONABLE ATTENTIVENESS</span></div>
+        <div class="field-caption"><p>A pair of eyes in your menu bar. A timer when you need one. A Mac that stays awake while the work finishes.</p><a class="text-link" href="#how-it-works">Examine the specimen <span aria-hidden="true">↘</span></a></div>
+      </section>
+      <section class="field-notes page-width"><div class="margin-note"><p class="eyebrow">OBSERVATIONS</p><span>01—03</span><p>Small utility.<br>Clear boundaries.<br>Some personality.</p></div><div class="field-notes-copy"><h2>Present, until<br>you say otherwise.</h2><p>Keep your Mac awake for fifteen minutes, until five, or indefinitely. Let the display sleep. Give each long-running job its own reason to stay up.</p><p>When you press Stop, every hold ends and automation waits for your explicit go-ahead. A restart doesn't undo that decision.</p><div class="demo-mount" data-demo-mount></div></div></section>
+    </article>
+
+    <section class="common-section page-width" id="how-it-works">
+      <div class="section-line"><p class="eyebrow">A SMALL TOOL, WITH A FEW GOOD MANNERS.</p><span>01 / THE WORK</span></div>
+      <div class="work-layout"><h2>Keep the job<br>on its feet.</h2><div class="work-copy"><p>From the menu bar or the command line, Dilated gives the work a reason to stay awake.</p><div class="command-example"><div><span>TERMINAL</span><button type="button" id="copy-command" aria-label="Copy example command">Copy ↗</button></div><code><span>$</span> dilated run -- make test</code><p>Awake while it runs.<br>Done when the command is done.</p></div><details class="command-guide"><summary>Command line notes <span aria-hidden="true">+</span></summary><div><p>The M1 development app includes a CLI. Install it from Settings → Automation.</p><dl><dt><code>dilated on --for 90m</code></dt><dd>A timed hold. The display may sleep.</dd><dt><code>dilated run -- make test</code></dt><dd>Keep awake while the command runs. Preserve its exit status.</dd><dt><code>dilated off</code></dt><dd>End all app holds and pause automation until you choose Resume automation in the app.</dd></dl><p>Agent workflows can create, renew, and release their own holds. Automatic hook setup is planned.</p></div></details></div></div>
+      <div class="manners"><div><span>01</span><h3>The screen can sleep.</h3><p>Keeping your Mac awake doesn't have to keep the display on.</p></div><div><span>02</span><h3>Stop is a full stop.</h3><p>Clears every hold. Automation waits until you explicitly resume it.</p></div><div><span>03</span><h3>Power gets a say.</h3><p>Battery and Low Power Mode guards help put a limit on late nights.</p></div></div>
+    </section>
+
+    <section class="icon-lab page-width" id="icon-studies">
+      <div class="section-line"><p class="eyebrow">SAME EYES. DIFFERENT UNIFORMS.</p><span>02 / ICON STUDIES</span></div>
+      <div class="icon-lab-header"><h2>A face for<br>the late shift.</h2><p>Our 16-pixel eyes, in three app-icon treatments. Pick one to try it in the browser tab.</p></div>
+      <div class="icon-options" role="group" aria-label="App icon treatment">
+        <button type="button" class="icon-option" data-icon="counter" aria-pressed="true"><span class="icon-stage"><img src="./assets/icon-counter.svg" alt="Red pixel eyes on a yellow app icon" width="200" height="200"></span><span class="icon-description"><span>01 / COUNTER PACK</span><b>Wide awake.</b><span class="icon-pick">Selected ↗</span></span></button>
+        <button type="button" class="icon-option" data-icon="night" aria-pressed="false"><span class="icon-stage"><img src="./assets/icon-night.svg" alt="Lime pixel eyes on an ink blue app icon" width="200" height="200"></span><span class="icon-description"><span>02 / NIGHT SHIFT</span><b>On watch.</b><span class="icon-pick">Try this icon ↗</span></span></button>
+        <button type="button" class="icon-option" data-icon="paper" aria-pressed="false"><span class="icon-stage"><img src="./assets/icon-paper.svg" alt="Ink pixel eyes on a warm paper app icon with orange registration marks" width="200" height="200"></span><span class="icon-description"><span>03 / FIELD NOTES</span><b>Paying attention.</b><span class="icon-pick">Try this icon ↗</span></span></button>
+      </div>
+      <div class="icon-footnote"><p>Original pixel artwork. Built to have a little life at menu-bar size.</p><a class="text-link" id="download-icon" href="./assets/icon-counter.svg" download="dilated-counter.svg">Save this icon as SVG <span aria-hidden="true">↓</span></a></div>
+    </section>
+
+    <section class="availability page-width" id="availability"><svg aria-hidden="true" viewBox="0 0 16 10"><use href="./assets/symbols.svg#eyes"/></svg><p class="eyebrow">SMALL APP. STILL TAKING SHAPE.</p><h2>See you in<br>the menu bar.</h2><p>Dilated is a free Mac app in development.<br>The first preview works locally. A public download is still to come.</p><a class="button solid" href="https://github.com/CodesWhat/dilated">Private preview repository <span aria-hidden="true">↗</span></a><p class="availability-access">Repository access is limited during development.</p><p class="availability-spec">MACOS 26+ · APPLE SILICON · MIT LICENSE</p></section>
+  </main>
+  <footer class="page-width"><a class="footer-brand" href="#">dilated</a><p>Made by <a href="https://codeswhat.com">CodesWhat</a>.<br>For work that hasn't quite clocked out.</p><div><a href="https://github.com/CodesWhat/dilated">Private preview repo ↗</a><a href="https://mouthtype.app">Mouthtype ↗</a></div><span>DESIGN STUDIES / OCT 2026</span></footer>
+  <div class="toast" role="status" aria-live="polite" id="toast"></div>
+
+  <template id="awake-demo">
+    <div class="awake-demo" data-awake="false"><div class="demo-caption"><span>INTERACTIVE PREVIEW</span><svg aria-hidden="true" viewBox="0 0 16 10"><use href="./assets/symbols.svg#eyes"/></svg></div><div class="demo-status"><span class="status-indicator"></span><span data-status>Ready when you are.</span><span class="demo-clock" data-clock>30:00</span></div><div class="demo-main"><svg class="demo-eyes" aria-hidden="true" viewBox="0 0 16 10"><use href="./assets/symbols.svg#eyes"/></svg><div><h3 data-demo-title>A little longer?</h3><p data-demo-description>Let the display sleep. Keep the work going.</p></div></div><div class="demo-actions"><label>FOR <select data-duration aria-label="Preview awake duration"><option value="15">15 minutes</option><option value="30" selected>30 minutes</option><option value="60">1 hour</option></select></label><button type="button" data-start>Keep awake <span aria-hidden="true">↗</span></button></div><p class="demo-note">A working illustration. This page doesn't change your Mac's sleep settings.</p></div>
+  </template>
+</body>
+</html>
