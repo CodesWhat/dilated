@@ -75,6 +75,9 @@ class ReleaseGuardsTests(unittest.TestCase):
         import json
         self.assertEqual(json.loads(probe)['protocolVersion'], 1)
         subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
+        release.verify_requirement(app, 'identifier "com.codeswhat.dilated"')
+        with self.assertRaises(RuntimeError):
+            release.verify_requirement(app, 'identifier "com.codeswhat.other"')
 
     def test_a_mispackaged_helper_cannot_reach_notarization(self):
         app = self.root / 'Dilated.app'

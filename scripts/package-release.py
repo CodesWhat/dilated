@@ -70,12 +70,16 @@ def validate_helper_bundle(app):
     return executable
 
 
+def verify_requirement(executable, requirement):
+    run(['codesign', '--verify', '--strict', '-R', '=' + requirement, str(executable)])
+
+
 def verify_app(app, output, label):
     helper = validate_helper_bundle(app)
     run(['codesign', '--verify', '--deep', '--strict', str(app)])
     for executable, identifier in ((app, 'com.codeswhat.dilated'), (helper, 'com.codeswhat.dilated.helper')):
         requirement = f'identifier "{identifier}" and anchor apple generic and certificate leaf[subject.OU] = "3524374A2S"'
-        run(['codesign', '--verify', '--strict', '-R', requirement, str(executable)])
+        verify_requirement(executable, requirement)
     run(['xcrun', 'stapler', 'validate', str(app)], log=output / f'{label}-staple.log')
     run(['spctl', '--assess', '--type', 'execute', '--verbose=2', str(app)], log=output / f'{label}-gatekeeper.log')
 
