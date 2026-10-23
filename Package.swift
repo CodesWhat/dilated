@@ -9,6 +9,7 @@ let package = Package(
     .library(name: "DilatedControl", targets: ["DilatedControl"]),
     .executable(name: "DilatedApp", targets: ["Dilated"]),
     .executable(name: "dilated", targets: ["DilatedCLI"]),
+    .executable(name: "dilated-helper", targets: ["DilatedHelper"]),
   ],
   targets: [
     .target(name: "DilatedCore"),
@@ -18,6 +19,7 @@ let package = Package(
       resources: [.copy("Resources/MenuBar"), .copy("Resources/Fonts")]),
     .executableTarget(name: "Dilated", dependencies: ["DilatedUI"]),
     .executableTarget(name: "DilatedCLI", dependencies: ["DilatedCore", "DilatedControl"]),
+    .executableTarget(name: "DilatedHelper", dependencies: ["DilatedCore"]),
     .testTarget(name: "DilatedCoreTests", dependencies: ["DilatedCore"]),
     .testTarget(name: "DilatedControlTests", dependencies: ["DilatedControl"]),
     .testTarget(name: "DilatedUITests", dependencies: ["DilatedUI"]),

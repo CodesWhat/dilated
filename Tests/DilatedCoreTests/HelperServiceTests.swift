@@ -151,6 +151,16 @@ struct HelperServiceTests {
     #expect(calls == [false])
   }
 
+  @Test func helperBuildIdentityComesFromTheSignedExecutable() throws {
+    let file = URL(fileURLWithPath: "/usr/bin/true")
+    let first = try HelperCodeIdentity.executable(at: file)
+    #expect(!first.isEmpty)
+    #expect(first == (try HelperCodeIdentity.executable(at: file)))
+    #expect(throws: (any Error).self) {
+      try HelperCodeIdentity.executable(at: URL(fileURLWithPath: "/missing-dilated-helper"))
+    }
+  }
+
   private func makeService(_ power: TestHelperPower, _ inputs: HelperInputs) -> ClosedLidService {
     ClosedLidService(
       power: power, environment: { inputs.environment() }, clock: { inputs.now() },

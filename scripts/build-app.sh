@@ -13,9 +13,11 @@ if pgrep -f "$app/Contents/MacOS/DilatedApp" >/dev/null; then
     exit 1
 fi
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Library/LaunchDaemons"
 cp "$bin_dir/DilatedApp" "$app/Contents/MacOS/DilatedApp"
 cp "$bin_dir/dilated" "$app/Contents/MacOS/dilated"
+cp "$bin_dir/dilated-helper" "$app/Contents/MacOS/dilated-helper"
+cp packaging/com.codeswhat.dilated.helper.plist "$app/Contents/Library/LaunchDaemons/"
 cp packaging/Info.plist "$app/Contents/Info.plist"
 cp packaging/Dilated.icns "$app/Contents/Resources/Dilated.icns"
 cp LICENSE "$app/Contents/Resources/LICENSE"
@@ -25,10 +27,13 @@ for bundle in "$bin_dir"/Dilated_DilatedUI.bundle; do
     ditto "$bundle" "$app/Contents/Resources/$(basename "$bundle")"
 done
 sign_as="${DILATED_SIGN_IDENTITY:--}"
+timestamp="--timestamp"
+if [[ "$sign_as" == "-" ]]; then timestamp="--timestamp=none"; fi
 for nested in "$app/Contents/Resources/"*.bundle; do
-    codesign --force --options runtime --timestamp=none --sign "$sign_as" "$nested"
+    codesign --force --options runtime "$timestamp" --sign "$sign_as" "$nested"
 done
-codesign --force --options runtime --timestamp=none --sign "$sign_as" "$app/Contents/MacOS/dilated"
-codesign --force --options runtime --timestamp=none --sign "$sign_as" "$app"
+codesign --force --options runtime "$timestamp" --sign "$sign_as" "$app/Contents/MacOS/dilated"
+codesign --force --identifier com.codeswhat.dilated.helper --options runtime "$timestamp" --sign "$sign_as" "$app/Contents/MacOS/dilated-helper"
+codesign --force --options runtime "$timestamp" --sign "$sign_as" "$app"
 codesign --verify --deep --strict "$app"
 echo "$app"
