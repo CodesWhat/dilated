@@ -75,6 +75,19 @@ import SwiftUI
         action("Allow display sleep for \(hold.label)", state: !hold.displayAwake) {
           model.setDisplayAwake(id: hold.id, enabled: !hold.displayAwake)
         })
+      let lid = action("Work with lid closed for \(hold.label)", state: hold.closedLid == true) {
+        Task {
+          do { try await model.setClosedLid(id: hold.id, enabled: hold.closedLid != true) } catch {
+            model.message = error.localizedDescription
+            model.onChange?()
+          }
+        }
+      }
+      lid.isEnabled = !model.closedLid.busy && !model.helperInstallation.busy
+      menu.addItem(lid)
+    }
+    if model.closedLid.active || model.closedLid.state?.readback.effectiveDisabled == true {
+      menu.addItem(action("Sleep now") { Task { await model.sleepNow() } })
     }
     menu.addItem(.separator())
     menu.addItem(action("Settings…", key: ",", body: openSettings))
@@ -120,6 +133,9 @@ import SwiftUI
         .foregroundStyle(.secondary)
       Text(model.statusText).font(.system(size: 16, weight: .semibold)).fixedSize(
         horizontal: false, vertical: true)
+      if model.closedLid.active {
+        Text("Closed-lid armed").font(.system(size: 11, weight: .medium))
+      }
       if let attention = model.attention {
         Text(attention).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(
           horizontal: false, vertical: true)

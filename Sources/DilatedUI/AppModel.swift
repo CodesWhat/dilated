@@ -20,6 +20,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public var dockMode = "whileWindowOpen"
   public var urlAutomation = true
   public var onboardingComplete = false
+  public var closedLidBatteryFloor = 20
+  public var closedLidBatteryMinutes = 480
+  public var closedLidACOnly = false
+  public var closedLidBatteryWarningAccepted = false
+  public var closedLidURLAutomation = false
+  public var closedLidWarningSound = false
   public var presets = [15, 30, 60, 120, 240, 480]
   public init() {}
   public init(from decoder: any Decoder) throws {
@@ -44,9 +50,26 @@ public struct AppSettings: Codable, Equatable, Sendable {
     urlAutomation = try values.decodeIfPresent(Bool.self, forKey: .urlAutomation) ?? urlAutomation
     onboardingComplete =
       try values.decodeIfPresent(Bool.self, forKey: .onboardingComplete) ?? onboardingComplete
+    closedLidBatteryFloor =
+      try values.decodeIfPresent(Int.self, forKey: .closedLidBatteryFloor) ?? closedLidBatteryFloor
+    closedLidBatteryMinutes =
+      try values.decodeIfPresent(Int.self, forKey: .closedLidBatteryMinutes)
+      ?? closedLidBatteryMinutes
+    closedLidACOnly =
+      try values.decodeIfPresent(Bool.self, forKey: .closedLidACOnly) ?? closedLidACOnly
+    closedLidBatteryWarningAccepted =
+      try values.decodeIfPresent(Bool.self, forKey: .closedLidBatteryWarningAccepted)
+      ?? closedLidBatteryWarningAccepted
+    closedLidURLAutomation =
+      try values.decodeIfPresent(Bool.self, forKey: .closedLidURLAutomation)
+      ?? closedLidURLAutomation
+    closedLidWarningSound =
+      try values.decodeIfPresent(Bool.self, forKey: .closedLidWarningSound) ?? closedLidWarningSound
     presets = try values.decodeIfPresent([Int].self, forKey: .presets) ?? presets
     defaultMinutes = min(10080, max(0, defaultMinutes))
     batteryFloor = batteryFloor == 0 ? 0 : min(100, max(10, batteryFloor))
+    closedLidBatteryFloor = min(100, max(10, closedLidBatteryFloor))
+    closedLidBatteryMinutes = min(1440, max(1, closedLidBatteryMinutes))
     presets = Array(Set(presets.filter { (1...10080).contains($0) })).sorted().prefix(10).map { $0 }
     if presets.isEmpty { presets = AppSettings().presets }
   }
@@ -59,6 +82,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
       do {
         try JSONEncoder().encode(settings).write(to: settingsFile, options: .atomic)
         engine.batteryFloor = settings.batteryFloor > 0 ? settings.batteryFloor : nil
+        if oldValue.closedLidBatteryFloor != settings.closedLidBatteryFloor
+          || oldValue.closedLidBatteryMinutes != settings.closedLidBatteryMinutes
+          || oldValue.closedLidACOnly != settings.closedLidACOnly
+          || oldValue.overrideLowPower != settings.overrideLowPower
+        {
+          engine.clearClosedLidRequests()
+        }
         refreshPower()
       } catch { message = "Couldn't save settings: \(error.localizedDescription)" }
       onChange?()
@@ -68,6 +98,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public private(set) var now = Date()
   @ObservationIgnored public var onChange: (() -> Void)?
   @ObservationIgnored public var onBatteryOverrideNeeded: ((TimeInterval?) -> Void)?
+  @ObservationIgnored public var onClosedLidBatteryWarning: (() -> Bool)?
+  public let closedLid: ClosedLidController
+  public let helperInstallation = HelperInstallation()
   @ObservationIgnored public let endpoint: SocketEndpoint
   @ObservationIgnored private let store: StateStore
   @ObservationIgnored private let readPower: () -> PowerState
@@ -75,6 +108,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored private var timer: Timer?
   @ObservationIgnored private var lastAssertionRefresh = Date.distantPast
   @ObservationIgnored private var stopped = false
+  @ObservationIgnored private var preparingToQuit = false
+  @ObservationIgnored private var lidChange: Task<Void, any Error>?
   private var settingsFile: URL { endpoint.stateDirectory.appendingPathComponent("settings.json") }
   public var attention: String? { message ?? engine.attention }
   public var statusText: String {
@@ -87,12 +122,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
   public init(
     endpoint: SocketEndpoint = .current, power: @escaping () -> PowerState = SystemPower.read,
-    assertions: any AssertionControlling = NativeAssertions()
+    assertions: any AssertionControlling = NativeAssertions(), closedLid: ClosedLidController? = nil
   ) {
     self.endpoint = endpoint
     self.store = StateStore(directory: endpoint.stateDirectory)
     self.readPower = power
     self.assertions = assertions
+    self.closedLid = closedLid ?? ClosedLidController()
     var loadMessage: String?
     var loadedSettings = AppSettings()
     let file = endpoint.stateDirectory.appendingPathComponent("settings.json")
@@ -111,11 +147,22 @@ public struct AppSettings: Codable, Equatable, Sendable {
       snapshot: snapshot, power: power(),
       batteryFloor: loadedSettings.batteryFloor > 0 ? loadedSettings.batteryFloor : nil)
     message = loadMessage
+    self.closedLid.onChange = { [weak self] in self?.onChange?() }
+    self.closedLid.onEnded = { [weak self] reason in
+      guard let self, !self.stopped else { return }
+      self.engine.clearClosedLidRequests()
+      self.message = reason
+      if self.settings.closedLidWarningSound { NSSound.beep() }
+      self.commit()
+    }
   }
 
   public func begin() {
     commit()
     if settings.startAtLaunch { automaticStart(label: "At launch") }
+    if helperInstallation.status == .enabled {
+      Task { [weak self] in try? await self?.closedLid.refresh() }
+    }
   }
   public func startDefault() {
     start(duration: settings.defaultMinutes > 0 ? Double(settings.defaultMinutes * 60) : nil)
@@ -145,6 +192,125 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
   public func setDisplayAwake(id: UUID, enabled: Bool) {
     mutate { $0.setDisplayAwake(id: id, enabled: enabled) }
+  }
+  public var closedLidPolicy: ClosedLidPolicy {
+    ClosedLidPolicy(
+      batteryFloor: settings.closedLidBatteryFloor,
+      maximumBatteryClosedSeconds: Double(settings.closedLidBatteryMinutes * 60),
+      acOnly: settings.closedLidACOnly, overrideLowPower: settings.overrideLowPower)
+  }
+  public func setClosedLid(id: UUID, enabled: Bool, allowPrompt: Bool = true) async throws {
+    guard !stopped, !preparingToQuit, !helperInstallation.busy else {
+      throw HelperClientError.rejected("Dilated is finishing a helper operation.")
+    }
+    guard engine.holds.contains(where: { $0.id == id }) else { throw WakeError.holdNotFound }
+    if !enabled {
+      engine.setClosedLid(id: id, enabled: false)
+      commit()
+      try await synchronizeClosedLid()
+      return
+    }
+    if readPower().onBattery && !settings.closedLidBatteryWarningAccepted {
+      guard allowPrompt, onClosedLidBatteryWarning?() == true else {
+        throw HelperClientError.rejected(
+          "Enable closed-lid from the menu once to review the battery warning.")
+      }
+      settings.closedLidBatteryWarningAccepted = true
+    }
+    if !closedLid.hasLease { try await closedLid.enable(policy: closedLidPolicy) }
+    guard engine.holds.contains(where: { $0.id == id }), !stopped, !preparingToQuit else {
+      queueClosedLidReset()
+      try await synchronizeClosedLid()
+      throw CancellationError()
+    }
+    engine.setClosedLid(id: id, enabled: true)
+    message = nil
+    commit()
+  }
+  public func synchronizeClosedLid() async throws {
+    queueClosedLidReset()
+    try await lidChange?.value
+    if !engine.desiredState.closedLid,
+      closedLid.state.map({ !$0.readback.confirmedDisabled }) == true
+    {
+      try await closedLid.disable()
+    }
+  }
+  private func queueClosedLidReset() {
+    guard !engine.desiredState.closedLid, lidChange == nil,
+      closedLid.hasLease || closedLid.pendingEnable
+    else { return }
+    lidChange = Task { [weak self] in
+      guard let self else { return }
+      defer { self.lidChange = nil }
+      do { try await self.closedLid.disable() } catch {
+        if !self.stopped {
+          self.message = error.localizedDescription
+          self.onChange?()
+        }
+        throw error
+      }
+    }
+  }
+  public func sleepNow() async {
+    engine.stopAll()
+    commit(resetClosedLid: false)
+    do {
+      try await lidChange?.value
+      try await closedLid.sleepNow()
+    } catch { message = error.localizedDescription }
+    onChange?()
+  }
+  public func refreshHelperStatus() {
+    helperInstallation.refreshStatus()
+    if helperInstallation.status == .enabled && !closedLid.busy && !helperInstallation.busy {
+      Task { [weak self] in try? await self?.closedLid.refresh() }
+    }
+    onChange?()
+  }
+  public func setupHelper() async {
+    engine.clearClosedLidRequests()
+    commit()
+    do { try await synchronizeClosedLid() } catch {
+      message = error.localizedDescription
+      return
+    }
+    await helperInstallation.nextStep(controller: closedLid)
+    message = helperInstallation.lastError
+    onChange?()
+  }
+  public func removeHelper() async {
+    engine.clearClosedLidRequests()
+    commit()
+    do {
+      try await synchronizeClosedLid()
+      try await helperInstallation.remove(controller: closedLid)
+      message = "Closed-lid is off and the helper has been removed."
+    } catch { message = error.localizedDescription }
+    onChange?()
+  }
+  public func prepareToQuit() async -> Bool {
+    guard !stopped else { return true }
+    guard !preparingToQuit else { return false }
+    preparingToQuit = true
+    defer { preparingToQuit = false }
+    engine.clearClosedLidRequests()
+    commit()
+    do {
+      try await synchronizeClosedLid()
+      if helperInstallation.status == .enabled
+        || closedLid.state.map({ !$0.readback.confirmedDisabled }) == true
+      {
+        try await closedLid.disable()
+      }
+      shutdown()
+      return true
+    } catch {
+      message =
+        "Couldn't confirm closed-lid is off. Dilated is staying open: \(error.localizedDescription)"
+      onChange?()
+      return false
+    }
   }
   public func toggle() { engine.holds.isEmpty ? startDefault() : stopAll() }
   public func refreshPower() {
@@ -192,6 +358,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     stopped = true
     timer?.invalidate()
     timer = nil
+    closedLid.invalidate()
     engine.quit()
     do { try store.save(engine.snapshot) } catch {
       message = "Couldn't clear saved holds: \(error.localizedDescription)"
@@ -212,7 +379,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       return error as? WakeError
     }
   }
-  @discardableResult private func commit() -> Bool {
+  @discardableResult private func commit(resetClosedLid: Bool = true) -> Bool {
     now = Date()
     var saved = true
     do { try store.save(engine.snapshot) } catch {
@@ -220,6 +387,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       saved = false
     }
     let applied = synchronizeAssertions()
+    if resetClosedLid { queueClosedLidReset() }
     if !engine.holds.isEmpty && timer == nil && !stopped {
       let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
         MainActor.assumeIsolated { self?.tick() }

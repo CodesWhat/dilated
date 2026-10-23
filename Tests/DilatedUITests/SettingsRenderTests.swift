@@ -8,6 +8,29 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct SettingsRenderTests {
+  @Test func closedLidSettingsRenderWithoutInstallingOrStartingTheHelper() throws {
+    _ = NSApplication.shared
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    model.start(duration: 3600)
+    let view = NSHostingView(
+      rootView: ClosedLidSettings(model: model).padding(28).frame(width: 660))
+    view.setFrameSize(view.fittingSize)
+    view.layoutSubtreeIfNeeded()
+    let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+    view.cacheDisplay(in: view.bounds, to: bitmap)
+    #expect(bitmap.pixelsWide >= 660)
+    #expect(model.closedLid.state == nil)
+    #expect(!model.engine.desiredState.closedLid)
+    if let output = ProcessInfo.processInfo.environment["DILATED_SETTINGS_PREVIEWS"] {
+      let destination = URL(fileURLWithPath: output)
+      try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+      try #require(bitmap.representation(using: .png, properties: [:])).write(
+        to: destination.appendingPathComponent("closed-lid-settings.png"))
+    }
+  }
   @Test func settingsRenderInLightAndDarkWithoutShowingAWindow() throws {
     _ = NSApplication.shared
     FontRegistry.registerBundledFonts()

@@ -76,7 +76,8 @@ import AppKit
           ? "∞" : expiry.map { AppModel.remaining(until: $0, now: model.now) } ?? "") : ""
     statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
     statusItem.button?.alphaValue = !awake && model.settings.lowOpacityIdle ? 0.5 : 1
-    statusItem.button?.toolTip = "Dilated: \(model.statusText)"
+    statusItem.button?.toolTip =
+      "Dilated: \(model.statusText)" + (model.closedLid.active ? ". Closed-lid armed." : "")
   }
   private func animateBurst() {
     burst?.invalidate()
@@ -104,9 +105,31 @@ import AppKit
       awake: !model.engine.holds.isEmpty, elapsed: ProcessInfo.processInfo.systemUptime - began,
       motion: model.settings.motion,
       reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
-    let key = glyph.rawValue + frame
+    let mark = model.attention != nil ? "attention" : model.closedLid.active ? "armed" : ""
+    let key = glyph.rawValue + frame + mark
     guard key != lastFrame else { return }
-    if cache[key] == nil { cache[key] = glyph.image(frame: frame) }
+    if cache[key] == nil, let base = glyph.image(frame: frame) {
+      if mark.isEmpty {
+        cache[key] = base
+      } else {
+        let image = NSImage(size: base.size, flipped: false) { rect in
+          base.draw(in: rect)
+          NSColor.black.setFill()
+          if mark == "attention" {
+            NSBezierPath(ovalIn: NSRect(x: rect.width - 4, y: rect.height - 4, width: 3, height: 3))
+              .fill()
+          } else {
+            NSBezierPath(
+              roundedRect: NSRect(x: 5, y: 0, width: rect.width - 10, height: 1), xRadius: 0.5,
+              yRadius: 0.5
+            ).fill()
+          }
+          return true
+        }
+        image.isTemplate = true
+        cache[key] = image
+      }
+    }
     guard let image = cache[key] else {
       model.message = "The selected menu bar glyph couldn't be loaded."
       return

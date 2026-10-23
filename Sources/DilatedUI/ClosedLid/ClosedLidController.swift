@@ -16,6 +16,7 @@ import Observation
   @ObservationIgnored private var monitoring: Task<Void, Never>?
   @ObservationIgnored private var operation = UUID()
   public var active: Bool { leaseID != nil && state?.enabled == true }
+  public var hasLease: Bool { leaseID != nil }
 
   public init(
     transport: any HelperTransporting = HelperTransport(),

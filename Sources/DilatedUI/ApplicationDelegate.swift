@@ -13,6 +13,7 @@ import IOKit.ps
   private var powerSource: CFRunLoopSource?
   private var observers: [(NotificationCenter, NSObjectProtocol)] = []
   private var started = false
+  private var awaitingQuit = false
 
   public func applicationDidFinishLaunching(_ notification: Notification) {
     installMainMenu()
@@ -56,6 +57,16 @@ import IOKit.ps
         model.start(duration: duration, batteryOverride: true)
       }
     }
+    model.onClosedLidBatteryWarning = {
+      let alert = NSAlert()
+      alert.messageText = "Keep working with the lid closed on battery?"
+      alert.informativeText =
+        "Keep your Mac ventilated. Don't put it in a bag while it's working. Closed-lid mode replaces macOS sleep protections with Dilated's battery, temperature and time limits."
+      alert.addButton(withTitle: "Cancel")
+      alert.addButton(withTitle: "Enable Closed-Lid")
+      NSApp.activate()
+      return alert.runModal() == .alertSecondButtonReturn
+    }
     if !shortcuts.register(.toggle, action: { [weak model] in model?.toggle() }) {
       model.message = "The global shortcut ⌃⌥⌘D is in use by another app."
     }
@@ -69,6 +80,9 @@ import IOKit.ps
     observe(.NSProcessInfoPowerStateDidChange, center: .default) { model.refreshPower() }
     observe(.NSSystemClockDidChange, center: .default) { model.tick() }
     observe(.NSSystemTimeZoneDidChange, center: .default) { model.tick() }
+    observe(NSApplication.didBecomeActiveNotification, center: .default) {
+      model.refreshHelperStatus()
+    }
     observe(NSWorkspace.didWakeNotification, center: NSWorkspace.shared.notificationCenter) {
       model.refreshPower()
       model.tick()
@@ -139,5 +153,17 @@ import IOKit.ps
     if let powerSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), powerSource, .commonModes) }
     for (center, observer) in observers { center.removeObserver(observer) }
     observers.removeAll()
+  }
+  public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    guard started, let model else { return .terminateNow }
+    guard !awaitingQuit else { return .terminateLater }
+    awaitingQuit = true
+    Task { [weak self] in
+      let safe = await model.prepareToQuit()
+      self?.awaitingQuit = false
+      if !safe { self?.showSettings() }
+      sender.reply(toApplicationShouldTerminate: safe)
+    }
+    return .terminateLater
   }
 }

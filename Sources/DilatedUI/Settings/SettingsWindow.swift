@@ -84,6 +84,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
   case menuBar = "Menu Bar"
   case keepAwake = "Keep Awake"
   case safety = "Battery & Safety"
+  case closedLid = "Closed Lid"
   case automation = "Automation"
   case advanced = "Advanced"
   var id: String { rawValue }
@@ -94,6 +95,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case .menuBar: "menubar.rectangle"
     case .keepAwake: "sun.max"
     case .safety: "battery.50percent"
+    case .closedLid: "laptopcomputer"
     case .automation: "terminal"
     case .advanced: "wrench.and.screwdriver"
     }
@@ -105,6 +107,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case .menuBar: "A small sign that your Mac is staying awake."
     case .keepAwake: "Choose what happens when you start keeping awake."
     case .safety: "Set limits for battery use and Low Power Mode."
+    case .closedLid: "Keep work running with the lid shut, within your safety limits."
     case .automation: "Keep work alive from scripts and agents."
     case .advanced: "Inspect the current state and export diagnostics."
     }
@@ -172,6 +175,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case .menuBar: menuBar
     case .keepAwake: keepAwake
     case .safety: safety
+    case .closedLid: ClosedLidSettings(model: model)
     case .automation: automation
     case .advanced: advanced
     }
@@ -210,7 +214,9 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         }
       }
       Text(
-        "Closed-lid mode isn’t available in this preview. Keep the lid open while your work runs."
+        model.closedLid.active
+          ? "Closed-lid is armed. Your Mac will keep working with its lid shut."
+          : "Set up the helper in Closed Lid, then enable it for an awake reason."
       )
       .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }

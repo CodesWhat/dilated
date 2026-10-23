@@ -1,5 +1,6 @@
 import DilatedCore
 import Foundation
+import ServiceManagement
 import Testing
 
 @testable import DilatedUI
@@ -63,6 +64,130 @@ import Testing
     await #expect(throws: (any Error).self) { try await transport.send(.init(action: .status)) }
     #expect(started.duration(to: .now) < .seconds(9))
   }
+
+  @Test func modelMergesLidRequestsAndStopClearsThePowerFlag() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      closedLid: fixture.controller())
+    defer { model.shutdown() }
+    model.start(duration: 120)
+    model.start(duration: 180)
+    let first = model.engine.holds[0].id
+    let second = model.engine.holds[1].id
+    try await model.setClosedLid(id: first, enabled: true)
+    try await model.setClosedLid(id: second, enabled: true)
+    #expect(model.engine.desiredState.closedLid)
+    model.stop(id: first)
+    try await model.synchronizeClosedLid()
+    #expect(model.closedLid.active)
+    model.stopAll()
+    try await model.synchronizeClosedLid()
+    #expect(model.engine.automationPaused)
+    #expect(!model.closedLid.active)
+    let state = await fixture.power.readback()
+    #expect(state.confirmedDisabled)
+  }
+
+  @Test func aGuardStopClearsModelIntentButKeepsOrdinaryHolds() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      closedLid: fixture.controller())
+    defer { model.shutdown() }
+    model.start(duration: 120)
+    try await model.setClosedLid(id: model.engine.holds[0].id, enabled: true)
+    fixture.inputs.overheat()
+    await fixture.service.tick()
+    try await model.closedLid.refresh()
+    #expect(!model.engine.desiredState.closedLid)
+    #expect(model.engine.holds.count == 1)
+    #expect(model.attention?.contains("hot") == true)
+    fixture.inputs.cool()
+    model.refreshPower()
+    #expect(!model.engine.desiredState.closedLid)
+  }
+
+  @Test func quitConfirmsResetBeforeDiscardingTimers() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      closedLid: fixture.controller())
+    defer { model.shutdown() }
+    model.start(duration: 120)
+    try await model.setClosedLid(id: model.engine.holds[0].id, enabled: true)
+    let canQuit = await model.prepareToQuit()
+    #expect(canQuit)
+    #expect(model.engine.holds.isEmpty)
+    let state = await fixture.power.readback()
+    #expect(state.confirmedDisabled)
+  }
+
+  @Test func repairWaitsForVerifiedResetAndCompletedUnregister() async throws {
+    let fixture = await ControllerFixture()
+    let controller = fixture.controller()
+    defer { controller.invalidate() }
+    try await controller.enable(policy: .init())
+    let service = InstallationFixture(power: fixture.power)
+    let installation = HelperInstallation(service: service)
+    await installation.nextStep(controller: controller)
+    #expect(installation.lastError == nil)
+    #expect(service.operations == ["reset-confirmed", "unregister-completed", "register"])
+    #expect(service.openedApproval)
+    #expect(installation.status == .requiresApproval)
+  }
+
+  @Test func failedResetKeepsQuitBlockedAndStopCannotClaimSuccess() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      closedLid: fixture.controller())
+    defer { model.shutdown() }
+    model.start(duration: 120)
+    try await model.setClosedLid(id: model.engine.holds[0].id, enabled: true)
+    await fixture.power.denyReset()
+    #expect(await model.prepareToQuit() == false)
+    #expect(model.engine.holds.count == 1)
+    #expect(model.attention?.contains("staying open") == true)
+    await #expect(throws: (any Error).self) { try await model.synchronizeClosedLid() }
+    await fixture.power.allowReset()
+    await fixture.service.tick()
+    #expect(await model.prepareToQuit())
+  }
+
+  @Test func acceptingTheBatteryWarningNeverOverridesTheClosedLidFloor() async throws {
+    let fixture = await ControllerFixture()
+    fixture.inputs.battery(percent: 15)
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory),
+      power: { PowerState(onBattery: true, batteryPercent: 15) }, closedLid: fixture.controller())
+    defer { model.shutdown() }
+    model.settings.overrideLowPower = true
+    var warnings = 0
+    model.onClosedLidBatteryWarning = {
+      warnings += 1
+      return true
+    }
+    model.start(duration: 120)
+    await #expect(throws: (any Error).self) {
+      try await model.setClosedLid(id: model.engine.holds[0].id, enabled: true)
+    }
+    #expect(warnings == 1)
+    #expect(model.settings.closedLidBatteryWarningAccepted)
+    #expect(!model.engine.desiredState.closedLid)
+    let state = await fixture.power.readback()
+    #expect(state.confirmedDisabled)
+  }
 }
 
 @MainActor private struct ControllerFixture {
@@ -121,18 +246,55 @@ import Testing
 private final class ControllerInputs: @unchecked Sendable {
   private let lock = NSLock()
   private var thermal = ClosedLidThermal.nominal
+  private var source = ClosedLidPowerSource.ac
+  private var percent: Int?
   func read() -> ClosedLidEnvironment {
-    lock.withLock { ClosedLidEnvironment(powerSource: .ac, thermal: thermal, lidClosed: false) }
+    lock.withLock {
+      ClosedLidEnvironment(
+        powerSource: source, batteryPercent: percent, thermal: thermal, lidClosed: false)
+    }
+  }
+  func battery(percent: Int) {
+    lock.withLock {
+      source = .battery
+      self.percent = percent
+    }
   }
   func overheat() { lock.withLock { thermal = .serious } }
   func cool() { lock.withLock { thermal = .nominal } }
 }
 private actor ControllerPower: ClosedLidPowerControlling {
   private var value = ClosedLidReadback(effectiveDisabled: false, storedDisabled: false)
-  func setSleepDisabled(_ disabled: Bool) -> ClosedLidReadback {
+  private var resetDenied = false
+  func setSleepDisabled(_ disabled: Bool) throws -> ClosedLidReadback {
+    if !disabled && resetDenied { throw ClosedLidPowerError.commandFailed(1) }
     value = ClosedLidReadback(effectiveDisabled: disabled, storedDisabled: disabled)
     return value
   }
   func readback() -> ClosedLidReadback { value }
   func sleep() {}
+  func denyReset() { resetDenied = true }
+  func allowReset() { resetDenied = false }
+}
+
+@MainActor private final class InstallationFixture: HelperInstalling {
+  var status = SMAppService.Status.enabled
+  var operations: [String] = []
+  var openedApproval = false
+  private let power: ControllerPower
+  init(power: ControllerPower) { self.power = power }
+  func register() throws {
+    #expect(status == .notRegistered)
+    operations.append("register")
+    status = .requiresApproval
+  }
+  func unregister() async throws {
+    let state = await power.readback()
+    #expect(state.confirmedDisabled)
+    operations.append("reset-confirmed")
+    await Task.yield()
+    status = .notRegistered
+    operations.append("unregister-completed")
+  }
+  func openApproval() { openedApproval = true }
 }
