@@ -7,7 +7,7 @@ configuration="${1:-debug}"
 case "$configuration" in debug|release) ;; *) echo "Use debug or release" >&2; exit 1 ;; esac
 swift build -c "$configuration" --arch arm64 --jobs 4
 bin_dir="$(swift build -c "$configuration" --arch arm64 --show-bin-path)"
-app="$PWD/build/Dilated.app"
+app="${DILATED_BUILD_DIR:-$PWD/build}/Dilated.app"
 if pgrep -f "$app/Contents/MacOS/DilatedApp" >/dev/null; then
     echo "Quit the running build of Dilated before rebuilding its bundle." >&2
     exit 1
@@ -19,6 +19,17 @@ cp "$bin_dir/dilated" "$app/Contents/MacOS/dilated"
 cp "$bin_dir/dilated-helper" "$app/Contents/MacOS/dilated-helper"
 cp packaging/com.codeswhat.dilated.helper.plist "$app/Contents/Library/LaunchDaemons/"
 cp packaging/Info.plist "$app/Contents/Info.plist"
+python3 - "$app/Contents/Info.plist" <<'PY'
+from pathlib import Path
+import plistlib
+import subprocess
+import sys
+destination = Path(sys.argv[1])
+info = plistlib.loads(destination.read_bytes())
+info.update(plistlib.loads(Path('packaging/Version.plist').read_bytes()))
+info['DilatedSourceRevision'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+destination.write_bytes(plistlib.dumps(info))
+PY
 cp packaging/Dilated.icns "$app/Contents/Resources/Dilated.icns"
 cp LICENSE "$app/Contents/Resources/LICENSE"
 cp docs/THIRD-PARTY.md "$app/Contents/Resources/THIRD-PARTY.md"

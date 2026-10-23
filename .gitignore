@@ -2,6 +2,7 @@
 .build/
 build/
 DerivedData/
+__pycache__/
 *.xcodeproj/xcuserdata/
 xcuserdata/
 
