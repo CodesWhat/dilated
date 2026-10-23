@@ -10,3 +10,8 @@ frames animate while the Mac is being kept awake.
   `preview.gif` for timing.
 - `spiral-eyes/`: flat lines off, rotating spirals on.
 - `cat-cans/`: cat in headphones, eyes open on.
+
+The editable pixel source is `glyphs.json`. Regenerate the design and bundled
+copies on macOS with `swift design/menubar/generate.swift`. This uses AppKit and
+has no third-party package dependency. Builds and tests use tracked resources;
+they never read `.planning/`.
