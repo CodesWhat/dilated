@@ -6,6 +6,44 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct AppModelTests {
+  @Test func installationBlocksNewStartsButStillAcceptsStop() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    model.start(duration: 120)
+    model.updater.updateWillRelaunch()
+    model.start()
+    #expect(model.engine.holds.count == 1)
+    let blocked = await model.control(.init(action: .start, duration: 60))
+    #expect(!blocked.ok)
+    let stopped = await model.control(.init(action: .stopAll))
+    #expect(stopped.ok)
+    #expect(model.engine.holds.isEmpty)
+    model.updater.updateFinished(error: nil)
+    model.start(duration: 60)
+    #expect(model.engine.holds.count == 1)
+  }
+
+  @Test func plannedUpdateRestoresOnlyTimersWithTheirOriginalDeadlines() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let endpoint = SocketEndpoint(stateDirectory: directory)
+    let model = AppModel(endpoint: endpoint, power: { PowerState() })
+    defer { model.shutdown() }
+    model.stopAll()
+    model.start(duration: 120)
+    model.start()
+    let timer = try #require(model.engine.holds.first { $0.expiry != nil })
+    #expect(await model.prepareToUpdate())
+    model.shutdown()
+    let restored = AppModel(endpoint: endpoint, power: { PowerState() })
+    defer { restored.shutdown() }
+    #expect(restored.engine.automationPaused)
+    #expect(restored.engine.holds.count == 1)
+    #expect(restored.engine.holds.first == timer)
+  }
+
   @Test func stopPersistsAcrossModelsAndQuitDiscardsTimers() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }

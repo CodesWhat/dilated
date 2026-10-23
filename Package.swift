@@ -11,12 +11,21 @@ let package = Package(
     .executable(name: "dilated", targets: ["DilatedCLI"]),
     .executable(name: "dilated-helper", targets: ["DilatedHelper"]),
   ],
+  dependencies: [
+    .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")
+  ],
   targets: [
     .target(name: "DilatedCore"),
     .target(name: "DilatedControl", dependencies: ["DilatedCore"]),
     .target(
-      name: "DilatedUI", dependencies: ["DilatedCore", "DilatedControl"],
-      resources: [.copy("Resources/MenuBar"), .copy("Resources/Fonts")]),
+      name: "DilatedUI",
+      dependencies: [
+        "DilatedCore", "DilatedControl", .product(name: "Sparkle", package: "Sparkle"),
+      ],
+      resources: [.copy("Resources/MenuBar"), .copy("Resources/Fonts")],
+      linkerSettings: [
+        .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
+      ]),
     .executableTarget(name: "Dilated", dependencies: ["DilatedUI"]),
     .executableTarget(name: "DilatedCLI", dependencies: ["DilatedCore", "DilatedControl"]),
     .executableTarget(name: "DilatedHelper", dependencies: ["DilatedCore"]),

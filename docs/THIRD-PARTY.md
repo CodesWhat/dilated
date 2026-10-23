@@ -2,7 +2,7 @@
 
 Dilated's menu/status-image patterns, design palette and typography, glass
 Settings shell, Dock behavior, login item, hotkeys, font registration and local
-build/test scripts are copied or adapted from CodesWhat/Mouthtype, authored by
+build/test/release/DMG scripts and update lifecycle patterns are copied or adapted from CodesWhat/Mouthtype, authored by
 Scott Benson and relicensed by him for Dilated under the repository's MIT
 license. Mouthtype's GPL distribution license does not replace those author
 grants. The source files name their provenance.
@@ -36,3 +36,7 @@ SIL Open Font License. Their notices are bundled alongside the font files in
 
 KeepingYouAwake and its Amphetamine-style fork are behavior references. No KYA
 source has been copied into this M1 implementation.
+
+Sparkle 2.10.0 (https://sparkle-project.org/) provides app updates under its MIT
+license, with additional bundled component notices. The complete distribution
+notice is copied to `Contents/Resources/Sparkle-LICENSE` in the app bundle.

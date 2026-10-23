@@ -58,6 +58,16 @@ import ServiceManagement
     }
   }
 
+  public func reconcileAfterLaunch(controller: ClosedLidController) async {
+    refreshStatus()
+    guard status == .enabled, !busy else { return }
+    do {
+      try await controller.refresh()
+    } catch HelperClientError.helperUpdate {
+      await nextStep(controller: controller)
+    } catch { lastError = error.localizedDescription }
+  }
+
   public func nextStep(controller: ClosedLidController) async {
     guard !busy else { return }
     refreshStatus()

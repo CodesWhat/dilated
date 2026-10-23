@@ -263,6 +263,25 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
           Text("⌃⌥⌘D").font(DesignFont.mono(13))
         }
       }
+      SettingsGroup(eyebrow: "UPDATES") {
+        SettingsRow(title: "App updates", detail: model.updater.statusText) {
+          Button("Check for Updates…") { model.updater.checkForUpdates() }
+            .disabled(!model.updater.canCheckForUpdates)
+        }
+        if model.updater.isAvailable {
+          SettingsRow(
+            title: "Check automatically", detail: "Downloading and installing always asks first."
+          ) {
+            Toggle(
+              "Check automatically",
+              isOn: Binding(
+                get: { model.updater.automaticallyChecksForUpdates },
+                set: { model.updater.setAutomaticChecks($0) }
+              )
+            ).labelsHidden()
+          }
+        }
+      }
     }
   }
   private var loginDescription: String {

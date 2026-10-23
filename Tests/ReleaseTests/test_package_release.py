@@ -66,6 +66,18 @@ class ReleaseGuardsTests(unittest.TestCase):
         self.assertEqual(info['CFBundleVersion'], metadata['CFBundleVersion'])
         self.assertEqual(info['CFBundleIdentifier'], 'com.codeswhat.dilated')
         self.assertEqual(len(info['DilatedSourceRevision']), 40)
+        framework = app / 'Contents/Frameworks/Sparkle.framework'
+        self.assertTrue((framework / 'Versions/B/Sparkle').is_file())
+        self.assertTrue((app / 'Contents/Resources/Sparkle-LICENSE').is_file())
+        self.assertEqual(info['SUPublicEDKey'], 'ehOxBirzN5y9MqUzYKsrYwgn4MAle82Z3rQIvYpZlhY=')
+        self.assertEqual(info['SUFeedURL'], 'https://dilated.codeswhat.com/updates/appcast.xml')
+        self.assertTrue(info['SURequireSignedFeed'])
+        self.assertTrue(info['SUVerifyUpdateBeforeExtraction'])
+        linked = subprocess.check_output(['otool', '-L', str(app / 'Contents/MacOS/DilatedApp')], text=True)
+        self.assertIn('@rpath/Sparkle.framework', linked)
+        for binary in ['dilated', 'dilated-helper']:
+            linked = subprocess.check_output(['otool', '-L', str(app / 'Contents/MacOS' / binary)], text=True)
+            self.assertNotIn('Sparkle', linked)
         with (app / 'Contents/Library/LaunchDaemons/com.codeswhat.dilated.helper.plist').open('rb') as file:
             helper = plistlib.load(file)
         self.assertEqual(helper['BundleProgram'], 'Contents/MacOS/dilated-helper')

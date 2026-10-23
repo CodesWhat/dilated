@@ -101,6 +101,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored public var onClosedLidBatteryWarning: (() -> Bool)?
   public let closedLid: ClosedLidController
   public let helperInstallation = HelperInstallation()
+  public let updater = AppUpdater()
   @ObservationIgnored public let endpoint: SocketEndpoint
   @ObservationIgnored private let store: StateStore
   @ObservationIgnored private let readPower: () -> PowerState
@@ -109,6 +110,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored private var lastAssertionRefresh = Date.distantPast
   @ObservationIgnored private var stopped = false
   @ObservationIgnored private var preparingToQuit = false
+  @ObservationIgnored private var savedForUpdate = false
   @ObservationIgnored private var lidChange: Task<Void, any Error>?
   private var settingsFile: URL { endpoint.stateDirectory.appendingPathComponent("settings.json") }
   public var attention: String? { message ?? engine.attention }
@@ -155,19 +157,36 @@ public struct AppSettings: Codable, Equatable, Sendable {
       if self.settings.closedLidWarningSound { NSSound.beep() }
       self.commit()
     }
+    updater.activity = { [weak self] in self?.updateActivity ?? .starting }
   }
 
   public func begin() {
     commit()
     if settings.startAtLaunch { automaticStart(label: "At launch") }
     if helperInstallation.status == .enabled {
-      Task { [weak self] in try? await self?.closedLid.refresh() }
+      Task { [weak self] in
+        guard let self else { return }
+        await self.helperInstallation.reconcileAfterLaunch(controller: self.closedLid)
+        if let error = self.helperInstallation.lastError { self.message = error }
+      }
     }
+    updater.start()
+  }
+  var updateActivity: UpdateActivity {
+    if helperInstallation.busy { return .helperChange }
+    if engine.desiredState.closedLid || closedLid.hasLease || closedLid.pendingEnable
+      || closedLid.busy
+    {
+      return .closedLid
+    }
+    if closedLid.state.map({ !$0.readback.confirmedDisabled }) == true { return .recovering }
+    return .idle
   }
   public func startDefault() {
     start(duration: settings.defaultMinutes > 0 ? Double(settings.defaultMinutes * 60) : nil)
   }
   public func start(duration: TimeInterval? = nil, batteryOverride: Bool = false) {
+    guard allowNewWork() else { return }
     let failure = mutate {
       _ = try $0.start(
         source: .manual, label: duration == nil ? "Keep awake" : "Manual timer", duration: duration,
@@ -177,6 +196,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     if failure == .lowBattery && !batteryOverride { onBatteryOverrideNeeded?(duration) }
   }
   public func automaticStart(label: String) {
+    guard allowNewWork() else { return }
     mutate {
       _ = try $0.start(
         source: .cli, label: label,
@@ -188,6 +208,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public func stop(id: UUID) { mutate { $0.stop(id: id) } }
   public func resumeAutomation() { mutate { $0.resumeAutomation() } }
   public func extend(id: UUID, seconds: TimeInterval) {
+    guard allowNewWork() else { return }
     mutate { try $0.extend(id: id, by: seconds) }
   }
   public func setDisplayAwake(id: UUID, enabled: Bool) {
@@ -200,7 +221,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       acOnly: settings.closedLidACOnly, overrideLowPower: settings.overrideLowPower)
   }
   public func setClosedLid(id: UUID, enabled: Bool, allowPrompt: Bool = true) async throws {
-    guard !stopped, !preparingToQuit, !helperInstallation.busy else {
+    guard !stopped, !preparingToQuit, !updater.blocksNewWork, !helperInstallation.busy else {
       throw HelperClientError.rejected("Dilated is finishing a helper operation.")
     }
     guard engine.holds.contains(where: { $0.id == id }) else { throw WakeError.holdNotFound }
@@ -275,6 +296,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     onChange?()
   }
   public func setupHelper() async {
+    guard allowNewWork() else { return }
     engine.clearClosedLidRequests()
     commit()
     do { try await synchronizeClosedLid() } catch {
@@ -286,6 +308,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     onChange?()
   }
   public func removeHelper() async {
+    guard allowNewWork() else { return }
     engine.clearClosedLidRequests()
     commit()
     do {
@@ -318,6 +341,31 @@ public struct AppSettings: Codable, Equatable, Sendable {
       return false
     }
   }
+  public func prepareToUpdate() async -> Bool {
+    guard !stopped else { return true }
+    guard !preparingToQuit, updateActivity == .idle else {
+      message = "Turn off closed-lid and finish helper changes before updating."
+      onChange?()
+      return false
+    }
+    preparingToQuit = true
+    defer { preparingToQuit = false }
+    do {
+      try await synchronizeClosedLid()
+      if helperInstallation.status == .enabled { try await closedLid.disable() }
+      let restored = WakeEngine(
+        snapshot: engine.snapshot, power: readPower(), batteryFloor: engine.batteryFloor)
+      try store.save(restored.snapshot)
+      savedForUpdate = true
+      shutdown()
+      return true
+    } catch {
+      message =
+        "Couldn't prepare the update. Dilated is staying open: \(error.localizedDescription)"
+      onChange?()
+      return false
+    }
+  }
   public func toggle() { engine.holds.isEmpty ? startDefault() : stopAll() }
   public func refreshPower() {
     engine.updatePower(readPower())
@@ -337,6 +385,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public func control(_ request: ControlRequest) async -> ControlResponse {
     guard !stopped, !preparingToQuit else {
       return ControlResponse(ok: false, message: "Dilated is quitting.", code: "unavailable")
+    }
+    if updater.blocksNewWork, ![.status, .stopAll, .release].contains(request.action) {
+      return ControlResponse(
+        ok: false, message: "Dilated is installing an update.", code: "unavailable")
     }
     guard !request.closedLid || [.start, .lease, .runner, .toggle].contains(request.action) else {
       return ControlResponse(
@@ -399,10 +451,20 @@ public struct AppSettings: Codable, Equatable, Sendable {
     timer = nil
     closedLid.invalidate()
     engine.quit()
-    do { try store.save(engine.snapshot) } catch {
-      message = "Couldn't clear saved holds: \(error.localizedDescription)"
+    if !savedForUpdate {
+      do { try store.save(engine.snapshot) } catch {
+        message = "Couldn't clear saved holds: \(error.localizedDescription)"
+      }
     }
     assertions.releaseAll()
+  }
+  private func allowNewWork() -> Bool {
+    guard !stopped, !preparingToQuit, !updater.blocksNewWork else {
+      message = "Dilated is finishing an update or quitting."
+      onChange?()
+      return false
+    }
+    return true
   }
   @discardableResult private func mutate(_ change: (inout WakeEngine) throws -> Void) -> WakeError?
   {

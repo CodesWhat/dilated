@@ -33,6 +33,10 @@ PY
 cp packaging/Dilated.icns "$app/Contents/Resources/Dilated.icns"
 cp LICENSE "$app/Contents/Resources/LICENSE"
 cp docs/THIRD-PARTY.md "$app/Contents/Resources/THIRD-PARTY.md"
+sparkle=".build/artifacts/sparkle/Sparkle"
+mkdir -p "$app/Contents/Frameworks"
+ditto "$sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
+cp "$sparkle/LICENSE" "$app/Contents/Resources/Sparkle-LICENSE"
 for bundle in "$bin_dir"/Dilated_DilatedUI.bundle; do
     test -d "$bundle"
     ditto "$bundle" "$app/Contents/Resources/$(basename "$bundle")"
@@ -40,6 +44,13 @@ done
 sign_as="${DILATED_SIGN_IDENTITY:--}"
 timestamp="--timestamp"
 if [[ "$sign_as" == "-" ]]; then timestamp="--timestamp=none"; fi
+framework="$app/Contents/Frameworks/Sparkle.framework"
+for nested in "$framework/Versions/B/XPCServices/Downloader.xpc" \
+    "$framework/Versions/B/XPCServices/Installer.xpc" \
+    "$framework/Versions/B/Autoupdate" "$framework/Versions/B/Updater.app"; do
+    codesign --force --options runtime "$timestamp" --preserve-metadata=entitlements --sign "$sign_as" "$nested"
+done
+codesign --force --options runtime "$timestamp" --sign "$sign_as" "$framework"
 for nested in "$app/Contents/Resources/"*.bundle; do
     codesign --force --options runtime "$timestamp" --sign "$sign_as" "$nested"
 done

@@ -103,6 +103,10 @@ import IOKit.ps
     let appMenu = NSMenu(title: "Dilated")
     appMenu.addItem(AwakeMenu.action("About Dilated") { NSApp.orderFrontStandardAboutPanel(nil) })
     appMenu.addItem(AwakeMenu.action("Settings…", key: ",") { [weak self] in self?.showSettings() })
+    appMenu.addItem(
+      AwakeMenu.action("Check for Updates…") { [weak self] in
+        self?.model?.updater.checkForUpdates()
+      })
     appMenu.addItem(.separator())
     appMenu.addItem(AwakeMenu.action("Quit Dilated", key: "q") { NSApp.terminate(nil) })
     appItem.submenu = appMenu
@@ -161,7 +165,8 @@ import IOKit.ps
     guard !awaitingQuit else { return .terminateLater }
     awaitingQuit = true
     Task { [weak self] in
-      let safe = await model.prepareToQuit()
+      let safe =
+        await (model.updater.blocksNewWork ? model.prepareToUpdate() : model.prepareToQuit())
       self?.awaitingQuit = false
       if !safe { self?.showSettings() }
       sender.reply(toApplicationShouldTerminate: safe)

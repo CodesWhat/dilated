@@ -6,6 +6,40 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct ClosedLidControllerTests {
+  @Test func relaunchRepairsAnApprovedHelperOnlyWhenItsBuildChanged() async throws {
+    let fixture = await ControllerFixture()
+    let controller = ClosedLidController(
+      transport: fixture.transport, expectedBuild: { "updated-build" })
+    defer { controller.invalidate() }
+    let service = InstallationFixture(power: fixture.power)
+    let installation = HelperInstallation(service: service)
+    await installation.reconcileAfterLaunch(controller: controller)
+    #expect(service.operations == ["reset-confirmed", "unregister-completed", "register"])
+    #expect(installation.status == .requiresApproval)
+    #expect(!controller.hasLease)
+  }
+
+  @Test func anUpdateCannotEndAnActiveClosedLidSession() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      closedLid: fixture.controller())
+    defer { model.shutdown() }
+    model.start(duration: 120)
+    try await model.setClosedLid(id: model.engine.holds[0].id, enabled: true)
+    #expect(await model.prepareToUpdate() == false)
+    #expect(model.closedLid.active)
+    #expect(model.engine.holds.count == 1)
+    try await model.setClosedLid(id: model.engine.holds[0].id, enabled: false)
+    #expect(await model.prepareToUpdate())
+    let restored = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { restored.shutdown() }
+    #expect(restored.engine.holds.count == 1)
+    #expect(!restored.engine.desiredState.closedLid)
+  }
+
   @Test func aDifferentHelperBuildCannotEnableClosedLid() async throws {
     let fixture = await ControllerFixture()
     let controller = ClosedLidController(

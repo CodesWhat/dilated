@@ -10,13 +10,16 @@ import Testing
 @MainActor struct SettingsRenderTests {
   @Test func closedLidSettingsRenderWithoutInstallingOrStartingTheHelper() throws {
     _ = NSApplication.shared
+    FontRegistry.registerBundledFonts()
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
     defer { model.shutdown() }
     model.start(duration: 3600)
     let view = NSHostingView(
-      rootView: ClosedLidSettings(model: model).padding(28).frame(width: 660))
+      rootView: ClosedLidSettings(model: model).padding(28).frame(width: 660)
+        .background(DesignPalette.bg).foregroundStyle(DesignPalette.ink)
+        .font(DesignFont.sans(13)))
     view.setFrameSize(view.fittingSize)
     view.layoutSubtreeIfNeeded()
     let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
