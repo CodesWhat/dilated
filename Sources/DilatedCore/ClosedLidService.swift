@@ -81,7 +81,7 @@ public actor ClosedLidService {
     case .disable, .sleep:
       if let lease = governor.lease {
         guard lease.owner == owner else { return failure(ClosedLidError.notLeaseOwner) }
-        guard lease.id == request.leaseID else { return failure(ClosedLidError.missingLease) }
+        if let id = request.leaseID, id != lease.id { return failure(ClosedLidError.missingLease) }
       }
       guard phase != .starting, phase != .disabling, phase != .sleeping else {
         return reply(false, code: "busy", text: "The helper is finishing a power operation.")

@@ -91,6 +91,18 @@ struct HelperServiceTests {
     #expect(status.state?.leaseID == nil)
   }
 
+  @Test func theOwningConnectionCanCancelWithoutWaitingForAnEnableReply() async throws {
+    let power = TestHelperPower()
+    let service = makeService(power, HelperInputs())
+    await service.start()
+    _ = await service.handle(.init(action: .enable, policy: .init()), owner: owner)
+    let foreign = await service.handle(.init(action: .disable), owner: UUID())
+    #expect(!foreign.ok)
+    let stopped = await service.handle(.init(action: .disable), owner: owner)
+    #expect(stopped.ok)
+    #expect(stopped.state?.readback.confirmedDisabled == true)
+  }
+
   @Test func aDroppedPowerFlagCanOnlyBeReappliedForTheSameLiveSafeLease() async throws {
     let power = TestHelperPower()
     let inputs = HelperInputs()
