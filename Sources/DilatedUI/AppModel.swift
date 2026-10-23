@@ -100,7 +100,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored public var onBatteryOverrideNeeded: ((TimeInterval?) -> Void)?
   @ObservationIgnored public var onClosedLidBatteryWarning: (() -> Bool)?
   public let closedLid: ClosedLidController
-  public let helperInstallation = HelperInstallation()
+  public let helperInstallation: HelperInstallation
   public let updater = AppUpdater()
   @ObservationIgnored public let endpoint: SocketEndpoint
   @ObservationIgnored private let store: StateStore
@@ -124,13 +124,16 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
   public init(
     endpoint: SocketEndpoint = .current, power: @escaping () -> PowerState = SystemPower.read,
-    assertions: any AssertionControlling = NativeAssertions(), closedLid: ClosedLidController? = nil
+    assertions: any AssertionControlling = NativeAssertions(),
+    closedLid: ClosedLidController? = nil,
+    helperInstallation: HelperInstallation? = nil
   ) {
     self.endpoint = endpoint
     self.store = StateStore(directory: endpoint.stateDirectory)
     self.readPower = power
     self.assertions = assertions
     self.closedLid = closedLid ?? ClosedLidController()
+    self.helperInstallation = helperInstallation ?? HelperInstallation()
     var loadMessage: String?
     var loadedSettings = AppSettings()
     let file = endpoint.stateDirectory.appendingPathComponent("settings.json")
@@ -307,16 +310,21 @@ public struct AppSettings: Codable, Equatable, Sendable {
     message = helperInstallation.lastError
     onChange?()
   }
-  public func removeHelper() async {
-    guard allowNewWork() else { return }
+  @discardableResult public func removeHelper() async -> Bool {
+    guard allowNewWork() else { return false }
     engine.clearClosedLidRequests()
     commit()
     do {
       try await synchronizeClosedLid()
       try await helperInstallation.remove(controller: closedLid)
       message = "Closed-lid is off and the helper has been removed."
-    } catch { message = error.localizedDescription }
-    onChange?()
+      onChange?()
+      return true
+    } catch {
+      message = error.localizedDescription
+      onChange?()
+      return false
+    }
   }
   public func prepareToQuit() async -> Bool {
     guard !stopped else { return true }
@@ -390,6 +398,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
       return ControlResponse(
         ok: false, message: "Dilated is installing an update.", code: "unavailable")
     }
+    if [.helperStatus, .helperSetup, .helperRemove].contains(request.action) {
+      return await controlHelper(request.action)
+    }
     guard !request.closedLid || [.start, .lease, .runner, .toggle].contains(request.action) else {
       return ControlResponse(
         ok: false, message: "Renewals can't enable closed-lid. Start a new hold or use the menu.",
@@ -426,6 +437,38 @@ public struct AppSettings: Codable, Equatable, Sendable {
     response.snapshot = engine.snapshot
     response.helper = closedLid.state
     return response
+  }
+  private func controlHelper(_ action: ControlAction) async -> ControlResponse {
+    helperInstallation.refreshStatus()
+    guard !helperInstallation.busy || action == .helperStatus else {
+      return ControlResponse(
+        ok: false, message: "The helper setup is still running.", code: "unavailable")
+    }
+    var removalSucceeded = false
+    if action == .helperSetup {
+      await setupHelper()
+    } else if action == .helperRemove {
+      removalSucceeded = await removeHelper()
+    } else if helperInstallation.status == .enabled {
+      do { try await closedLid.refresh() } catch { message = error.localizedDescription }
+    }
+    let ok: Bool
+    switch action {
+    case .helperSetup:
+      ok =
+        helperInstallation.status == .enabled && helperInstallation.lastError == nil
+        && closedLid.state?.ready == true
+    case .helperRemove: ok = removalSucceeded
+    default: ok = true
+    }
+    return ControlResponse(
+      ok: ok, snapshot: engine.snapshot,
+      message: action == .helperStatus
+        ? helperInstallation.statusText : message ?? helperInstallation.statusText,
+      code: ok
+        ? nil
+        : helperInstallation.status == .requiresApproval ? "approvalRequired" : "helperFailure",
+      helper: closedLid.state, helperInstallation: helperInstallation.statusCode)
   }
   public func openURL(_ url: URL) async {
     guard settings.urlAutomation else {

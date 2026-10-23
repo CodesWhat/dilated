@@ -84,6 +84,17 @@ def main():
                 helper = subprocess.run(["launchctl", "print", "system/com.codeswhat.dilated.helper"],
                                         capture_output=True, timeout=5)
                 assert helper.returncode != 0, "This check requires an uninstalled helper"
+                helper_status = json.loads(command("helper", "status", "--json").stdout)
+                assert helper_status['helperInstallation'] in ('notRegistered', 'notFound')
+                setup = json.loads(command("helper", "setup", "--json", expected=1).stdout)
+                assert 'Applications' in setup['message']
+                if helper_status['helperInstallation'] == 'notRegistered':
+                    removed = json.loads(command("helper", "remove", "--json").stdout)
+                    assert removed['ok'] and removed['helperInstallation'] == 'notRegistered'
+                else:
+                    removed = json.loads(command("helper", "remove", "--json", expected=1).stdout)
+                    assert not removed['ok'] and removed['code'] == 'helperFailure'
+                print("PASS helper status, install-location validation and conservative removal")
                 rejected = command("on", "--for", "30s", "--lid", "--json", expected=1)
                 assert json.loads(rejected.stdout)["code"] == "helperFailure"
                 assert not status()["snapshot"]["holds"], "Failed closed-lid left an awake hold"

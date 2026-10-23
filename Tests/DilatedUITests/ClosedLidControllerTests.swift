@@ -6,6 +6,49 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct ClosedLidControllerTests {
+  @Test func failedRemovalNeverReturnsSuccessfulControlAcknowledgement() async throws {
+    let fixture = await ControllerFixture()
+    let service = InstallationFixture(power: fixture.power)
+    service.status = .notRegistered
+    let installation = HelperInstallation(
+      service: service,
+      readPower: {
+        .init(effectiveDisabled: true, storedDisabled: true)
+      })
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      closedLid: fixture.controller(), helperInstallation: installation)
+    defer { model.shutdown() }
+    let response = await model.control(.init(action: .helperRemove))
+    #expect(!response.ok)
+    #expect(response.message?.contains("normal sleep") == true)
+    #expect(service.operations.isEmpty)
+  }
+
+  @Test func removingAnUnusedHelperNeedsConfirmedNormalSleep() async throws {
+    let fixture = await ControllerFixture()
+    let controller = fixture.controller()
+    defer { controller.invalidate() }
+    let service = InstallationFixture(power: fixture.power)
+    service.status = .notRegistered
+    let installation = HelperInstallation(
+      service: service,
+      readPower: {
+        .init(effectiveDisabled: false, storedDisabled: false)
+      })
+    try await installation.remove(controller: controller)
+    #expect(service.operations.isEmpty)
+    let unsafe = HelperInstallation(
+      service: service,
+      readPower: {
+        .init(effectiveDisabled: true, storedDisabled: true)
+      })
+    await #expect(throws: (any Error).self) { try await unsafe.remove(controller: controller) }
+    #expect(service.operations.isEmpty)
+  }
+
   @Test func relaunchRepairsAnApprovedHelperOnlyWhenItsBuildChanged() async throws {
     let fixture = await ControllerFixture()
     let controller = ClosedLidController(

@@ -19,14 +19,16 @@ import Foundation
       do {
         response = try LocalSocketClient.send(request, to: endpoint)
       } catch let error as AppConnectionUnavailable {
-        guard request.action != .status else { throw error }
+        guard ![.status, .helperStatus].contains(request.action) else { throw error }
         try await launchApp(endpoint: endpoint)
         response = try LocalSocketClient.send(request, to: endpoint)
       }
       if input.json {
         print(String(decoding: try WireJSON.encode(response), as: UTF8.self))
       } else if response.ok {
-        if let id = response.id {
+        if [.helperStatus, .helperSetup, .helperRemove].contains(request.action) {
+          print(response.message ?? "Helper operation completed.")
+        } else if let id = response.id {
           print(id.uuidString)
         } else if let snapshot = response.snapshot {
           if snapshot.holds.isEmpty {
@@ -207,10 +209,13 @@ import Foundation
            dilated hold --ttl 10m [--label NAME] [--id ID | --lid]
            dilated release --id ID
            dilated run [--label NAME] [--lid] -- command arguments
+           dilated helper status|setup|remove [--json]
 
     Starts allow display sleep unless --display-awake is supplied.
     --override-low-power explicitly allows a new hold in Low Power Mode.
     --lid requires the app's approved helper and its closed-lid safety limits.
+    helper setup opens macOS approval when needed. Move the app to Applications first.
+    helper remove verifies normal sleep before unregistering the helper.
     Renewals preserve an active lid request but can't re-enable a stopped one.
     A new hold prints its unique ID. Pass it to hold --id to renew, or release.
     Stop pauses CLI/URL starts and renewals until Resume automation in the app.

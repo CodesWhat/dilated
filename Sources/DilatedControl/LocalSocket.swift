@@ -208,7 +208,9 @@ public enum LocalSocketClient {
     guard fd >= 0 else { throw socketError("Create control connection") }
     defer { close(fd) }
     let powerOperation = [.stopAll, .release, .toggle].contains(request.action)
-    configure(fd, receiveSeconds: request.closedLid ? 20 : powerOperation ? 10 : 3)
+    let helperOperation = [.helperSetup, .helperRemove].contains(request.action)
+    configure(
+      fd, receiveSeconds: helperOperation ? 60 : request.closedLid ? 20 : powerOperation ? 10 : 3)
     var addr = try address(for: endpoint)
     let result = withUnsafePointer(to: &addr) { pointer in
       pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {

@@ -5,6 +5,25 @@ import Testing
 @testable import DilatedControl
 
 struct ControlTests {
+  @Test func helperCommandsAreExplicitAppOperations() throws {
+    for (command, action) in [
+      ("status", ControlAction.helperStatus), ("setup", .helperSetup), ("remove", .helperRemove),
+    ] {
+      let input = try CLIInput.parse(["helper", command, "--json"])
+      #expect(input.request?.action == action)
+      #expect(input.json)
+      var engine = WakeEngine()
+      #expect(!ControlRouter.handle(input.request!, engine: &engine).ok)
+      #expect(engine.holds.isEmpty)
+    }
+    for arguments in [
+      ["helper"], ["helper", "reset"], ["helper", "remove", "--lid"],
+      ["helper", "setup", "--json", "--json"],
+    ] {
+      #expect(throws: (any Error).self) { try CLIInput.parse(arguments) }
+    }
+  }
+
   @Test func minimalWireRequestsUseSafeDefaults() throws {
     let request = try WireJSON.decode(ControlRequest.self, from: Data(#"{"action":"status"}"#.utf8))
     #expect(request.action == .status)

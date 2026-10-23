@@ -34,11 +34,25 @@ import ServiceManagement
   public private(set) var busy = false
   public private(set) var lastError: String?
   @ObservationIgnored private let service: any HelperInstalling
+  @ObservationIgnored private let readPower: () -> ClosedLidReadback
 
   public convenience init() { self.init(service: SystemHelperInstallation()) }
-  init(service: any HelperInstalling) {
+  init(
+    service: any HelperInstalling,
+    readPower: @escaping () -> ClosedLidReadback = NativeClosedLidPower.readback
+  ) {
     self.service = service
+    self.readPower = readPower
     status = service.status
+  }
+  public var statusCode: String {
+    switch status {
+    case .enabled: "enabled"
+    case .requiresApproval: "requiresApproval"
+    case .notRegistered: "notRegistered"
+    case .notFound: "notFound"
+    @unknown default: "unknown"
+    }
   }
   public func refreshStatus() { status = service.status }
   public var statusText: String {
@@ -107,6 +121,16 @@ import ServiceManagement
     defer {
       busy = false
       refreshStatus()
+    }
+    refreshStatus()
+    if status == .notRegistered {
+      guard readPower().confirmedDisabled else {
+        throw HelperClientError.rejected(
+          "The helper isn't registered, but macOS hasn't confirmed normal sleep. Repair the helper before removing Dilated."
+        )
+      }
+      controller.invalidate()
+      return
     }
     try await controller.disable()
     controller.invalidate()

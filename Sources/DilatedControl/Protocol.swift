@@ -3,6 +3,7 @@ import Foundation
 
 public enum ControlAction: String, Codable, Sendable {
   case status, start, lease, runner, renew, release, stopAll, toggle
+  case helperStatus, helperSetup, helperRemove
 }
 public struct ControlRequest: Codable, Sendable {
   public var action: ControlAction
@@ -49,9 +50,10 @@ public struct ControlResponse: Codable, Sendable {
   public var message: String?
   public var code: String?
   public var helper: HelperState?
+  public var helperInstallation: String?
   public init(
     ok: Bool, id: UUID? = nil, snapshot: EngineSnapshot? = nil, message: String? = nil,
-    code: String? = nil, helper: HelperState? = nil
+    code: String? = nil, helper: HelperState? = nil, helperInstallation: String? = nil
   ) {
     self.ok = ok
     self.id = id
@@ -59,6 +61,7 @@ public struct ControlResponse: Codable, Sendable {
     self.message = message
     self.code = code
     self.helper = helper
+    self.helperInstallation = helperInstallation
   }
 }
 public enum ControlRouter {
@@ -72,6 +75,8 @@ public enum ControlRouter {
       engine.tick(now: now)
       var id: UUID?
       switch request.action {
+      case .helperStatus, .helperSetup, .helperRemove:
+        throw InputError("Helper management requires the Dilated app.")
       case .status: break
       case .stopAll: engine.stopAll()
       case .release:
@@ -130,6 +135,15 @@ public struct CLIInput {
   public static func parse(_ arguments: [String]) throws -> CLIInput {
     guard let verb = arguments.first, !["--help", "-h", "help"].contains(verb) else {
       return CLIInput(help: true)
+    }
+    if verb == "helper" {
+      let actions: [String: ControlAction] = [
+        "status": .helperStatus, "setup": .helperSetup, "remove": .helperRemove,
+      ]
+      guard arguments.count >= 2, let action = actions[arguments[1]],
+        arguments.count == 2 || (arguments.count == 3 && arguments[2] == "--json")
+      else { throw InputError("Use dilated helper status|setup|remove [--json].") }
+      return CLIInput(request: .init(action: action), json: arguments.count == 3)
     }
     let actions: [String: ControlAction] = [
       "status": .status, "on": .start, "off": .stopAll,
