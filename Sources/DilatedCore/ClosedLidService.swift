@@ -76,6 +76,11 @@ public actor ClosedLidService {
           await stop(stopped)
           return reply(false, code: "leaseEnded", text: stopped.reason.localizedDescription)
         }
+        await tick()
+        guard governor.lease?.id == id, phase == .on, readback.confirmedEnabled else {
+          return reply(
+            false, code: "leaseEnded", text: "Closed-lid ended. Enable it again to continue.")
+        }
         return reply(true)
       } catch { return failure(error) }
     case .disable, .sleep:

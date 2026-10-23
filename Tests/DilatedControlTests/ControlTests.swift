@@ -10,6 +10,7 @@ struct ControlTests {
     #expect(request.action == .status)
     #expect(!request.displayAwake)
     #expect(!request.lowPowerOverride)
+    #expect(!request.closedLid)
   }
   @Test func cliParsesFiniteWorkAndPreservesCommandArguments() throws {
     let start = try CLIInput.parse(["on", "--for", "90m", "--display-awake", "--label", "Build"])
@@ -26,17 +27,32 @@ struct ControlTests {
       #expect(throws: (any Error).self) { try CLIInput.parse(bad) }
     }
   }
-  @Test func urlAllowsCombinedParametersButRejectsAmbiguityAndClosedLid() throws {
+  @Test func urlAllowsCombinedParametersButRejectsAmbiguity() throws {
     let request = try URLInput.parse(URL(string: "dilated://awake?for=90m&display=allow")!)
     #expect(request.duration == 5400)
     #expect(!request.displayAwake)
     #expect(try URLInput.parse(URL(string: "dilated://stop")!).action == .stopAll)
     for url in [
-      "dilated://awake?for=1h&for=2h", "dilated://awake?lid=closed", "dilated://awake?wat=1",
+      "dilated://awake?for=1h&for=2h", "dilated://awake?lid=bad", "dilated://awake?wat=1",
       "other://awake",
     ] {
       #expect(throws: (any Error).self) { try URLInput.parse(URL(string: url)!) }
     }
+  }
+  @Test func closedLidInputRequiresAnExplicitStartAndTheAppHelper() throws {
+    for arguments in [
+      ["on", "--lid"], ["hold", "--ttl", "10m", "--lid"], ["run", "--lid", "--", "make"],
+    ] {
+      #expect(try CLIInput.parse(arguments).request?.closedLid == true)
+    }
+    #expect(try URLInput.parse(URL(string: "dilated://awake?lid=closed")!).closedLid)
+    #expect(throws: (any Error).self) {
+      try CLIInput.parse(["hold", "--id", UUID().uuidString, "--ttl", "10m", "--lid"])
+    }
+    var engine = WakeEngine()
+    let direct = ControlRouter.handle(.init(action: .start, closedLid: true), engine: &engine)
+    #expect(!direct.ok)
+    #expect(engine.holds.isEmpty)
   }
   @Test func routerUsesOneEngineAndCannotBypassPause() throws {
     var engine = WakeEngine()

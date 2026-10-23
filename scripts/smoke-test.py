@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the packaged M1 app and CLI using disposable state and bounded commands."""
+"""Exercise the packaged app and CLI using disposable state and bounded commands."""
 import hashlib
 import json
 import os
@@ -79,6 +79,19 @@ def main():
             eventually(lambda: not status()["snapshot"]["holds"])
             eventually(lambda: not has_assertion(app.pid))
             print("PASS timers, independent leases, renewal/release, expiry and native assertion readback")
+
+            if "--expect-no-helper" in sys.argv:
+                helper = subprocess.run(["launchctl", "print", "system/com.codeswhat.dilated.helper"],
+                                        capture_output=True, timeout=5)
+                assert helper.returncode != 0, "This check requires an uninstalled helper"
+                rejected = command("on", "--for", "30s", "--lid", "--json", expected=1)
+                assert json.loads(rejected.stdout)["code"] == "helperFailure"
+                assert not status()["snapshot"]["holds"], "Failed closed-lid left an awake hold"
+                forbidden_lid = state / "closed-lid-command-must-not-start"
+                command("run", "--lid", "--", "/usr/bin/touch", str(forbidden_lid), expected=1)
+                assert not forbidden_lid.exists()
+                assert not status()["snapshot"]["holds"]
+                print("PASS unavailable helper rejects closed-lid without leaving holds or starting work")
 
             command("run", "--", "/bin/sh", "-c", "exit 7", expected=7)
             runner = subprocess.Popen([str(CLI), "run", "--label", "bounded runner", "--", sys.executable,

@@ -125,6 +125,20 @@ struct HelperServiceTests {
     #expect(stopped.state?.stopReason == .thermal)
   }
 
+  @Test func heartbeatConfirmsCurrentPowerBeforeAcknowledgingTheLease() async throws {
+    let power = TestHelperPower()
+    let service = makeService(power, HelperInputs())
+    await service.start()
+    let enabled = await service.handle(.init(action: .enable, policy: .init()), owner: owner)
+    let id = try #require(enabled.state?.leaseID)
+    await power.dropFlag()
+    let renewed = await service.handle(.init(action: .heartbeat, leaseID: id), owner: owner)
+    #expect(renewed.ok)
+    #expect(renewed.state?.readback.confirmedEnabled == true)
+    let calls = await power.calls
+    #expect(calls == [false, true, true])
+  }
+
   @Test func fixedSigningRequirementsParseAsActualSecurityRequirements() {
     for text in [HelperIdentity.appRequirement, HelperIdentity.helperRequirement] {
       var requirement: SecRequirement?

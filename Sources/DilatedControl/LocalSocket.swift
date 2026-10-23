@@ -53,12 +53,13 @@ private func address(for endpoint: SocketEndpoint) throws -> sockaddr_un {
   return address
 }
 
-private func configure(_ fd: Int32) {
+private func configure(_ fd: Int32, receiveSeconds: Int = 3) {
   var enabled: Int32 = 1
   setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, socklen_t(MemoryLayout.size(ofValue: enabled)))
-  var timeout = timeval(tv_sec: 3, tv_usec: 0)
-  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout.size(ofValue: timeout)))
-  setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout.size(ofValue: timeout)))
+  var receive = timeval(tv_sec: receiveSeconds, tv_usec: 0)
+  var send = timeval(tv_sec: 3, tv_usec: 0)
+  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &receive, socklen_t(MemoryLayout.size(ofValue: receive)))
+  setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &send, socklen_t(MemoryLayout.size(ofValue: send)))
   _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
 }
 
@@ -194,6 +195,11 @@ public final class LocalSocketServer: @unchecked Sendable {
   deinit { source.cancel() }
 }
 
+public struct AppConnectionUnavailable: LocalizedError {
+  public let text: String
+  public var errorDescription: String? { text }
+}
+
 public enum LocalSocketClient {
   public static func send(_ request: ControlRequest, to endpoint: SocketEndpoint) throws
     -> ControlResponse
@@ -201,14 +207,18 @@ public enum LocalSocketClient {
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
     guard fd >= 0 else { throw socketError("Create control connection") }
     defer { close(fd) }
-    configure(fd)
+    let powerOperation = [.stopAll, .release, .toggle].contains(request.action)
+    configure(fd, receiveSeconds: request.closedLid ? 20 : powerOperation ? 10 : 3)
     var addr = try address(for: endpoint)
     let result = withUnsafePointer(to: &addr) { pointer in
       pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
         connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
       }
     }
-    guard result == 0 else { throw socketError("Connect to Dilated. Start the app first") }
+    guard result == 0 else {
+      throw AppConnectionUnavailable(
+        text: socketError("Connect to Dilated. Start the app first").localizedDescription)
+    }
     try writeLine(WireJSON.encode(request), to: fd)
     return try WireJSON.decode(ControlResponse.self, from: readLine(fd))
   }

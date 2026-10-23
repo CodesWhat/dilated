@@ -141,7 +141,9 @@ import IOKit.ps
     return true
   }
   public func application(_ application: NSApplication, open urls: [URL]) {
-    for url in urls { model?.openURL(url) }
+    Task { [weak self] in
+      for url in urls { await self?.model?.openURL(url) }
+    }
   }
   public func applicationWillTerminate(_ notification: Notification) {
     guard started else { return }

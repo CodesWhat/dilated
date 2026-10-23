@@ -25,8 +25,22 @@ struct SocketTests {
   }
   @Test func unreachableSocketReportsFailure() {
     let endpoint = SocketEndpoint(stateDirectory: URL(fileURLWithPath: "/tmp/\(UUID().uuidString)"))
-    #expect(throws: (any Error).self) {
+    #expect(throws: AppConnectionUnavailable.self) {
       try LocalSocketClient.send(ControlRequest(action: .status), to: endpoint)
     }
+  }
+  @Test func aPowerOperationCanFinishBeforeTheControlClientDeadline() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let endpoint = SocketEndpoint(stateDirectory: directory)
+    let server = try LocalSocketServer(endpoint: endpoint) { _ in
+      try? await Task.sleep(for: .milliseconds(3300))
+      return ControlResponse(ok: true)
+    }
+    defer { server.stop() }
+    let response = try await Task.detached {
+      try LocalSocketClient.send(ControlRequest(action: .stopAll), to: endpoint)
+    }.value
+    #expect(response.ok)
   }
 }

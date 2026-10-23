@@ -16,7 +16,9 @@ import Foundation
       guard let request = input.request else { throw InputError("Missing command.") }
       let endpoint = SocketEndpoint.current
       let response: ControlResponse
-      do { response = try LocalSocketClient.send(request, to: endpoint) } catch {
+      do {
+        response = try LocalSocketClient.send(request, to: endpoint)
+      } catch let error as AppConnectionUnavailable {
         guard request.action != .status else { throw error }
         try await launchApp(endpoint: endpoint)
         response = try LocalSocketClient.send(request, to: endpoint)
@@ -38,6 +40,7 @@ import Foundation
               )
             }
           }
+          if response.helper?.enabled == true { print("Closed-lid armed.") }
         }
       }
       guard response.ok else {
@@ -83,6 +86,13 @@ import Foundation
     let endpoint = SocketEndpoint.current
     let store = StateStore(directory: endpoint.stateDirectory)
     let options = input.request!
+    if options.closedLid {
+      do {
+        _ = try LocalSocketClient.send(ControlRequest(action: .status), to: endpoint)
+      } catch is AppConnectionUnavailable {
+        try await launchApp(endpoint: endpoint)
+      }
+    }
     var floor: Int?
     var lowPowerOverride = options.lowPowerOverride
     let settingsFile = endpoint.stateDirectory.appendingPathComponent("settings.json")
@@ -106,14 +116,18 @@ import Foundation
     if let response = try? LocalSocketClient.send(
       ControlRequest(
         action: .runner, label: options.label, duration: 30,
-        displayAwake: options.displayAwake, lowPowerOverride: lowPowerOverride), to: endpoint)
+        displayAwake: options.displayAwake, lowPowerOverride: lowPowerOverride,
+        closedLid: options.closedLid), to: endpoint)
     {
       guard response.ok else {
         throw InputError(response.message ?? "Couldn't keep awake for this command.")
       }
       managedID = response.id
-    } else if try store.load().automationPaused {
-      throw WakeError.automationPaused
+    } else {
+      if options.closedLid {
+        throw InputError("Closed-lid run requires the app and its approved helper.")
+      }
+      if try store.load().automationPaused { throw WakeError.automationPaused }
     }
     try assertions.synchronize(holds: local.holds)
     let process = Process()
@@ -188,14 +202,16 @@ import Foundation
   }
   private static let help = """
     Usage: dilated status [--json]
-           dilated on [--for 2h | --until 17:00] [--label NAME] [--display-awake]
+           dilated on [--for 2h | --until 17:00] [--label NAME] [--display-awake] [--lid]
            dilated off [--id ID | --label NAME]
-           dilated hold --ttl 10m [--label NAME] [--id ID]
+           dilated hold --ttl 10m [--label NAME] [--id ID | --lid]
            dilated release --id ID
-           dilated run [--label NAME] -- command arguments
+           dilated run [--label NAME] [--lid] -- command arguments
 
     Starts allow display sleep unless --display-awake is supplied.
     --override-low-power explicitly allows a new hold in Low Power Mode.
+    --lid requires the app's approved helper and its closed-lid safety limits.
+    Renewals preserve an active lid request but can't re-enable a stopped one.
     A new hold prints its unique ID. Pass it to hold --id to renew, or release.
     Stop pauses CLI/URL starts and renewals until Resume automation in the app.
     run works without the app. Ending its awake hold never terminates the command.

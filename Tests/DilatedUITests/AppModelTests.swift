@@ -6,7 +6,7 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct AppModelTests {
-  @Test func stopPersistsAcrossModelsAndQuitDiscardsTimers() throws {
+  @Test func stopPersistsAcrossModelsAndQuitDiscardsTimers() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let endpoint = SocketEndpoint(stateDirectory: directory)
@@ -21,22 +21,24 @@ import Testing
     defer { restored.shutdown() }
     #expect(restored.engine.automationPaused)
     #expect(restored.engine.holds.count == 1)
-    #expect(!restored.control(ControlRequest(action: .start)).ok)
+    let paused = await restored.control(ControlRequest(action: .start))
+    #expect(!paused.ok)
     restored.resumeAutomation()
-    #expect(restored.control(ControlRequest(action: .lease, duration: 30)).ok)
+    let resumed = await restored.control(ControlRequest(action: .lease, duration: 30))
+    #expect(resumed.ok)
     restored.shutdown()
     let afterQuit = AppModel(endpoint: endpoint, power: { PowerState() })
     defer { afterQuit.shutdown() }
     #expect(afterQuit.engine.holds.isEmpty)
   }
-  @Test func controlReportsNativeAssertionFailure() throws {
+  @Test func controlReportsNativeAssertionFailure() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let model = AppModel(
       endpoint: SocketEndpoint(stateDirectory: directory), power: { PowerState() },
       assertions: UnavailableAssertions())
     defer { model.shutdown() }
-    let response = model.control(ControlRequest(action: .start, duration: 60))
+    let response = await model.control(ControlRequest(action: .start, duration: 60))
     #expect(!response.ok)
     #expect(response.code == "systemFailure")
     #expect(model.message?.contains("Power management unavailable") == true)

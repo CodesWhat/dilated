@@ -65,6 +65,20 @@ import Testing
     #expect(started.duration(to: .now) < .seconds(9))
   }
 
+  @Test func anUnavailableHelperReportsTheConnectionFailureInsteadOfCancellation() async {
+    let transport = HelperTransport(
+      serviceName: "com.codeswhat.dilated.missing.\(UUID().uuidString)")
+    let controller = ClosedLidController(transport: transport, expectedBuild: { "unused" })
+    defer { controller.invalidate() }
+    do {
+      try await controller.enable(policy: .init())
+      Issue.record("An unavailable helper enabled closed-lid.")
+    } catch {
+      #expect(error.localizedDescription.contains("disconnected"))
+    }
+    #expect(!controller.active)
+  }
+
   @Test func modelMergesLidRequestsAndStopClearsThePowerFlag() async throws {
     let fixture = await ControllerFixture()
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -187,6 +201,52 @@ import Testing
     #expect(!model.engine.desiredState.closedLid)
     let state = await fixture.power.readback()
     #expect(state.confirmedDisabled)
+  }
+
+  @Test func controlWaitsForPowerConfirmationAndRenewalsCannotRearm() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      closedLid: fixture.controller())
+    defer { model.shutdown() }
+    let response = await model.control(.init(action: .lease, duration: 60, closedLid: true))
+    #expect(response.ok)
+    #expect(response.helper?.enabled == true)
+    let id = try #require(response.id)
+    fixture.inputs.overheat()
+    await fixture.service.tick()
+    try await model.closedLid.refresh()
+    fixture.inputs.cool()
+    let denied = await model.control(.init(action: .renew, id: id, duration: 60, closedLid: true))
+    #expect(!denied.ok)
+    let renewed = await model.control(.init(action: .renew, id: id, duration: 60))
+    #expect(renewed.ok)
+    #expect(!model.closedLid.active)
+    #expect(!model.engine.desiredState.closedLid)
+    let stopped = await model.control(.init(action: .stopAll))
+    #expect(stopped.ok)
+    #expect(stopped.helper?.readback.confirmedDisabled == true)
+  }
+
+  @Test func closedLidLinksRequireTheSeparateOptIn() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      closedLid: fixture.controller())
+    defer { model.shutdown() }
+    let url = URL(string: "dilated://awake?for=1h&lid=closed")!
+    await model.openURL(url)
+    #expect(model.engine.holds.isEmpty)
+    #expect(model.message?.contains("Closed Lid") == true)
+    model.settings.closedLidURLAutomation = true
+    await model.openURL(url)
+    #expect(model.closedLid.active)
+    #expect(model.engine.holds.count == 1)
+    #expect(await model.prepareToQuit())
   }
 }
 

@@ -50,8 +50,10 @@ public enum HelperClientError: LocalizedError {
         self?.breakConnection(current, error: HelperClientError.timedOut)
       }
       let proxy =
-        connection.remoteObjectProxyWithErrorHandler { @Sendable [weak self] error in
-          Task { @MainActor [weak self] in self?.breakConnection(current, error: error) }
+        connection.remoteObjectProxyWithErrorHandler { @Sendable [weak self] _ in
+          Task { @MainActor [weak self] in
+            self?.breakConnection(current, error: HelperClientError.disconnected)
+          }
         } as? any HelperXPCProtocol
       guard let proxy else {
         breakConnection(current, error: HelperClientError.disconnected)

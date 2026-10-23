@@ -15,6 +15,7 @@ import Observation
   @ObservationIgnored private var leaseGeneration: UUID?
   @ObservationIgnored private var monitoring: Task<Void, Never>?
   @ObservationIgnored private var operation = UUID()
+  @ObservationIgnored private var operationFailure: String?
   public var active: Bool { leaseID != nil && state?.enabled == true }
   public var hasLease: Bool { leaseID != nil }
 
@@ -49,6 +50,7 @@ import Observation
     pendingEnable = true
     let current = UUID()
     operation = current
+    operationFailure = nil
     defer {
       if operation == current {
         busy = false
@@ -68,7 +70,10 @@ import Observation
       lastError = nil
       startMonitoring()
     } catch {
-      guard operation == current else { throw CancellationError() }
+      guard operation == current else {
+        if let operationFailure { throw HelperClientError.rejected(operationFailure) }
+        throw CancellationError()
+      }
       failed(error)
       throw error
     }
@@ -92,6 +97,7 @@ import Observation
 
   public func invalidate() {
     operation = UUID()
+    operationFailure = nil
     busy = false
     pendingEnable = false
     monitoring?.cancel()
@@ -104,6 +110,7 @@ import Observation
   private func end(sleep: Bool) async throws {
     let current = UUID()
     operation = current
+    operationFailure = nil
     let id = leaseID
     leaseID = nil
     leaseGeneration = nil
@@ -126,7 +133,10 @@ import Observation
       }
       lastError = nil
     } catch {
-      guard operation == current else { throw CancellationError() }
+      guard operation == current else {
+        if let operationFailure { throw HelperClientError.rejected(operationFailure) }
+        throw CancellationError()
+      }
       failed(error)
       throw error
     }
@@ -167,6 +177,7 @@ import Observation
     lastError = error.localizedDescription
     let hadLease = leaseID != nil
     invalidate()
+    operationFailure = error.localizedDescription
     if hadLease { onEnded?(error.localizedDescription) }
     onChange?()
   }

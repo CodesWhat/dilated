@@ -217,7 +217,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
       }
       settings.closedLidBatteryWarningAccepted = true
     }
-    if !closedLid.hasLease { try await closedLid.enable(policy: closedLidPolicy) }
+    if closedLid.hasLease {
+      try await closedLid.heartbeat()
+    } else {
+      try await closedLid.enable(policy: closedLidPolicy)
+    }
+    engine.updatePower(readPower())
+    engine.tick(now: Date())
     guard engine.holds.contains(where: { $0.id == id }), !stopped, !preparingToQuit else {
       queueClosedLidReset()
       try await synchronizeClosedLid()
@@ -328,9 +334,18 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     onChange?()
   }
-  public func control(_ request: ControlRequest) -> ControlResponse {
+  public func control(_ request: ControlRequest) async -> ControlResponse {
+    guard !stopped, !preparingToQuit else {
+      return ControlResponse(ok: false, message: "Dilated is quitting.", code: "unavailable")
+    }
+    guard !request.closedLid || [.start, .lease, .runner, .toggle].contains(request.action) else {
+      return ControlResponse(
+        ok: false, message: "Renewals can't enable closed-lid. Start a new hold or use the menu.",
+        code: "invalidRequest")
+    }
     engine.updatePower(readPower())
     var effective = request
+    effective.closedLid = false
     effective.lowPowerOverride = request.lowPowerOverride || settings.overrideLowPower
     var response = ControlRouter.handle(effective, engine: &engine)
     if !commit() {
@@ -338,17 +353,41 @@ public struct AppSettings: Codable, Equatable, Sendable {
       response.message = message
       response.code = "systemFailure"
     }
+    if response.ok, request.closedLid, let id = response.id {
+      do { try await setClosedLid(id: id, enabled: true, allowPrompt: false) } catch {
+        engine.stop(id: id)
+        commit()
+        try? await synchronizeClosedLid()
+        response.ok = false
+        response.id = nil
+        response.message = error.localizedDescription
+        response.code = "helperFailure"
+      }
+    }
+    if response.ok, [.stopAll, .release, .toggle].contains(request.action) {
+      do { try await synchronizeClosedLid() } catch {
+        response.ok = false
+        response.message = error.localizedDescription
+        response.code = "helperFailure"
+      }
+    }
     response.snapshot = engine.snapshot
+    response.helper = closedLid.state
     return response
   }
-  public func openURL(_ url: URL) {
+  public func openURL(_ url: URL) async {
     guard settings.urlAutomation else {
       message = "URL automation is turned off in Settings."
       onChange?()
       return
     }
     do {
-      let response = control(try URLInput.parse(url))
+      let request = try URLInput.parse(url)
+      guard !request.closedLid || settings.closedLidURLAutomation else {
+        throw HelperClientError.rejected(
+          "Allow closed-lid automation links in Closed Lid settings first.")
+      }
+      let response = await control(request)
       if !response.ok { message = response.message }
     } catch { message = error.localizedDescription }
     onChange?()

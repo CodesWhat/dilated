@@ -12,10 +12,12 @@ public struct ControlRequest: Codable, Sendable {
   public var until: String?
   public var displayAwake: Bool
   public var lowPowerOverride: Bool
+  public var closedLid: Bool
   public init(
     action: ControlAction, id: UUID? = nil, label: String = "Command line",
     duration: TimeInterval? = nil,
-    until: String? = nil, displayAwake: Bool = false, lowPowerOverride: Bool = false
+    until: String? = nil, displayAwake: Bool = false, lowPowerOverride: Bool = false,
+    closedLid: Bool = false
   ) {
     self.action = action
     self.id = id
@@ -24,6 +26,7 @@ public struct ControlRequest: Codable, Sendable {
     self.until = until
     self.displayAwake = displayAwake
     self.lowPowerOverride = lowPowerOverride
+    self.closedLid = closedLid
   }
   public init(from decoder: any Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -34,7 +37,8 @@ public struct ControlRequest: Codable, Sendable {
       duration: try values.decodeIfPresent(TimeInterval.self, forKey: .duration),
       until: try values.decodeIfPresent(String.self, forKey: .until),
       displayAwake: try values.decodeIfPresent(Bool.self, forKey: .displayAwake) ?? false,
-      lowPowerOverride: try values.decodeIfPresent(Bool.self, forKey: .lowPowerOverride) ?? false)
+      lowPowerOverride: try values.decodeIfPresent(Bool.self, forKey: .lowPowerOverride) ?? false,
+      closedLid: try values.decodeIfPresent(Bool.self, forKey: .closedLid) ?? false)
   }
 
 }
@@ -44,15 +48,17 @@ public struct ControlResponse: Codable, Sendable {
   public var snapshot: EngineSnapshot?
   public var message: String?
   public var code: String?
+  public var helper: HelperState?
   public init(
     ok: Bool, id: UUID? = nil, snapshot: EngineSnapshot? = nil, message: String? = nil,
-    code: String? = nil
+    code: String? = nil, helper: HelperState? = nil
   ) {
     self.ok = ok
     self.id = id
     self.snapshot = snapshot
     self.message = message
     self.code = code
+    self.helper = helper
   }
 }
 public enum ControlRouter {
@@ -60,6 +66,9 @@ public enum ControlRouter {
     -> ControlResponse
   {
     do {
+      guard !request.closedLid else {
+        throw InputError("Closed-lid requests require the app's approved helper.")
+      }
       engine.tick(now: now)
       var id: UUID?
       switch request.action {
@@ -139,16 +148,19 @@ public struct CLIInput {
       case "on":
         [
           "--for", "--until", "--label", "--display-awake", "--display-sleep",
-          "--override-low-power", "--json",
+          "--override-low-power", "--lid", "--json",
         ]
       case "off", "release": ["--id", "--label", "--json"]
       case "hold":
         [
           "--id", "--ttl", "--label", "--display-awake", "--display-sleep", "--override-low-power",
-          "--json",
+          "--lid", "--json",
         ]
       case "run":
-        ["--label", "--display-awake", "--display-sleep", "--override-low-power", "--json"]
+        [
+          "--label", "--display-awake", "--display-sleep", "--override-low-power", "--lid",
+          "--json",
+        ]
       default: []
       }
     while index < arguments.count {
@@ -166,6 +178,7 @@ public struct CLIInput {
       case "--display-awake": request.displayAwake = true
       case "--display-sleep": request.displayAwake = false
       case "--override-low-power": request.lowPowerOverride = true
+      case "--lid": request.closedLid = true
       default:
         guard index < arguments.count else { throw InputError("Missing value for \(flag).") }
         let value = arguments[index]
@@ -199,6 +212,9 @@ public struct CLIInput {
         throw InputError("hold requires --ttl, for example --ttl 10m.")
       }
       if request.id != nil { request.action = .renew }
+      if request.id != nil && request.closedLid {
+        throw InputError("Renewals can't enable closed-lid. Start a new hold or use the menu.")
+      }
     }
     if verb == "off", request.id != nil || seen.contains("--label") { request.action = .release }
     if verb == "release", request.id == nil && !seen.contains("--label") {
@@ -225,10 +241,10 @@ public enum URLInput {
     let items = components.queryItems ?? []
     var values: [String: String] = [:]
     for item in items {
-      guard ["for", "until", "display"].contains(item.name), values[item.name] == nil,
+      guard ["for", "until", "display", "lid"].contains(item.name), values[item.name] == nil,
         let value = item.value
       else {
-        throw InputError("Unsupported or repeated URL option. Closed-lid isn't available in M1.")
+        throw InputError("Unsupported or repeated URL option.")
       }
       values[item.name] = value
     }
@@ -238,11 +254,14 @@ public enum URLInput {
     if let display = values["display"], !["allow", "prevent"].contains(display) {
       throw InputError("display must be allow or prevent.")
     }
+    if let lid = values["lid"], !["open", "closed"].contains(lid) {
+      throw InputError("lid must be open or closed.")
+    }
     let duration = try values["for"].map(TimeInput.duration)
     if let until = values["until"] { _ = try TimeInput.until(until) }
     return ControlRequest(
       action: host == "stop" ? .stopAll : host == "toggle" ? .toggle : .start,
       label: "Automation link", duration: duration, until: values["until"],
-      displayAwake: values["display"] == "prevent")
+      displayAwake: values["display"] == "prevent", closedLid: values["lid"] == "closed")
   }
 }

@@ -100,6 +100,15 @@ import SwiftUI
         text:
           "Keep your Mac ventilated. Don't put it in a bag while it works. The helper checks battery, temperature and its 90-second app lease independently. A crash, reboot or safety stop requires enabling closed-lid again."
       )
+      SettingsGroup(eyebrow: "AUTOMATION") {
+        SettingsRow(
+          title: "Allow closed-lid automation links",
+          detail:
+            "Allows lid=closed in dilated:// links. Any website can open these links. Stop still pauses all automation."
+        ) {
+          Toggle("", isOn: $model.settings.closedLidURLAutomation).labelsHidden()
+        }
+      }
       if model.helperInstallation.status == .enabled {
         Button("Turn off and remove helper") { Task { await model.removeHelper() } }
           .disabled(model.closedLid.busy || model.helperInstallation.busy)
