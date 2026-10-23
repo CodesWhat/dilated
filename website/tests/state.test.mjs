@@ -3,17 +3,18 @@ import test from 'node:test';
 
 const state = await import('../dist/state.mjs').catch(() => ({}));
 
-test('a shared link selects its direction and font, rejecting unknown values', () => {
+test('a shared link selects its direction, rejecting unknown values', () => {
   assert.equal(typeof state.readPreferences, 'function');
   assert.deepEqual(state.readPreferences('?concept=night&font=fraunces'), { concept: 'night', font: 'fraunces' });
   assert.deepEqual(state.readPreferences('?concept=unknown&font=unknown'), { concept: 'gas-station', font: 'barlow' });
 });
 
-test('font defaults belong to each direction and a saved font may override them', () => {
+test('each direction uses its chosen typeface despite old font links or saved preferences', () => {
   assert.equal(typeof state.readPreferences, 'function');
   assert.deepEqual(state.readPreferences('?concept=field'), { concept: 'field', font: 'instrument' });
-  assert.deepEqual(state.readPreferences('?concept=night', { night: 'barlow' }), { concept: 'night', font: 'barlow' });
-  assert.deepEqual(state.readPreferences('?concept=night&font=instrument', { night: 'barlow' }), { concept: 'night', font: 'instrument' });
+  assert.deepEqual(state.readPreferences('?concept=gas-station&font=instrument', { 'gas-station': 'fraunces' }), { concept: 'gas-station', font: 'barlow' });
+  assert.deepEqual(state.readPreferences('?concept=night', { night: 'barlow' }), { concept: 'night', font: 'fraunces' });
+  assert.deepEqual(state.readPreferences('?concept=night&font=instrument'), { concept: 'night', font: 'fraunces' });
 });
 
 test('a preview timer expires at its absolute deadline and never displays negative time', () => {

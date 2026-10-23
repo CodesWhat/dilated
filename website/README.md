@@ -1,17 +1,18 @@
 # Dilated website
 
 Gas Station is the main landing page: yellow and red packaging, Barlow Condensed
-headings, and the selected pixel-eyes app icon. The optional typeface switch stays
-at the top. Earlier layouts and icon studies sit inside the closed sketchbook
-disclosure near the footer.
+headings, and the selected pixel-eyes app icon. Barlow Condensed is fixed for the
+selected direction. The earlier sketchbook disclosure and footer link have been
+removed; alternate layout source and icon assets remain local references.
 
 This is buildless HTML, CSS, and JavaScript. Serve `dist/` from any static HTTP
 server; it is the complete publication artifact. Assets and release-data paths
 are relative, so the page can also be served from a subdirectory. Hosting and
 domain setup are handled separately.
 
-From the repo root, `python3 -m http.server 5173 --bind 127.0.0.1 --directory website/dist`
-serves a local preview at `http://127.0.0.1:5173/`. Stop the server when finished.
+The current local review runs at `http://127.0.0.1:5173/`, serving `dist/`.
+The review server has a two-hour deadline. Hosting is intended for Vercel after
+local review; no Vercel deployment has been performed.
 
 ## Release availability
 
@@ -48,8 +49,8 @@ Direct study links remain available:
 - `?concept=night`: a dark desktop and shift ledger, defaulting to Fraunces
 - `?concept=field`: an editorial specimen plate, defaulting to Instrument Serif
 
-The typeface switch changes display headings, remembers each layout's choice
-locally, and includes `concept` and `font` in shared links. The fonts are
+Each layout keeps its chosen display face. The typeface picker has been removed;
+old font query parameters and saved choices no longer override the design. The fonts are
 self-hosted under the SIL Open Font License, with notices beside the files.
 Barlow Condensed and Fraunces come from the official Google Fonts repository;
 Instrument Sans, Instrument Serif, and JetBrains Mono use the Mouthtype site's
@@ -72,7 +73,7 @@ Run all behavior checks with `node --test website/tests/*.test.mjs` from the rep
 root. Syntax checks are `node --check website/dist/app.mjs`,
 `node --check website/dist/state.mjs`, and `node --check website/dist/release.mjs`.
 
-The current page passed CUA Chrome checks on desktop and at 390px. All nine
+The earlier page passed CUA Chrome checks on desktop and at 390px. All nine
 layout/typeface combinations fit at 390px without horizontal overflow. Timer
 start/stop, CLI copy feedback, expandable notes, study controls, and the icon SVG
 target were exercised. In-memory HTTP fixtures verified that accepted release
@@ -80,3 +81,23 @@ data reveals all three download links, version, build, requirements, and checksu
 bad data preserves the testing state. No release metadata fixture is stored in
 `dist/`, and no actual app download or public deployment was tested in this pass.
 Reduced motion disables transitions and the tilted package hover.
+
+
+## Current local review
+
+The utility/hero labels, section numbers, sketchbook and its footer link were
+removed. The phrase strip scrolls a seamless repeated group, pauses on hover or
+focus, has an explicit pause/resume control, and stays still with reduced motion.
+The release section presents the yellow icon on a dark Dock tray. The interactive
+preview uses the exact lidded menu bar frame while stopped, and open eyes while
+awake. Its closed/open state was exercised in local Chrome; seven Node checks
+and JavaScript syntax checks pass. The replacement menu was checked at 390×844 and 320×844 in local Chrome. Current progress and outstanding work are in the private roadmap.
+
+The preview card has since been replaced by a clickable sample menu bar and
+native-style dropdown. Keep Awake starts indefinitely; Stop pauses automation;
+preset durations preserve that pause until Resume. Display preference and Quit
+are simulated locally. Outside click, Escape, arrow keys and focus return are
+supported. Current verification is 11 passing Node tests plus desktop Chrome
+interaction checks. Chrome checks at 390×844 and 320×844 confirmed the open and paused menus fit,
+along with the facts label, terminal panel and Dock tray.
+Awake Facts is white, and the command example is a dark terminal panel.
