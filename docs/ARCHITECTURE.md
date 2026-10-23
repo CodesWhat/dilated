@@ -35,6 +35,11 @@ OS code-signing requirements to their XPC peers. The app also checks protocol
 version and the running helper's code-directory hash against the helper packaged
 in its own bundle. A helper generation change invalidates the old lease.
 
+Stored power settings are read through CFPreferences, synchronized before each
+read. Reading the plist directly can return an old disk snapshot after macOS has
+accepted a change. Effective sleep-disable is checked separately in IORegistry;
+both readings must match, and missing or non-boolean values stay unknown.
+
 Closed-lid mode uses fixed-argument `pmset` operations through a serialized,
 bounded driver. Both stored and effective sleep-disable readings must confirm the
 requested state. The daemon resets the flag before becoming ready and retries a

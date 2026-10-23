@@ -115,14 +115,22 @@ public struct NativePowerRunner: PowerCommandRunning {
 
 public enum NativeClosedLidPower {
   public static func readback() -> ClosedLidReadback {
-    let file = URL(fileURLWithPath: "/Library/Preferences/com.apple.PowerManagement.plist")
-    let data = try? Data(contentsOf: file)
-    let plist = data.flatMap {
-      try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any]
-    }
-    let stored = (plist?["SystemPowerSettings"] as? [String: Any])?["SleepDisabled"] as? Bool
-    return ClosedLidReadback(
-      effectiveDisabled: rootProperty("SleepDisabled"), storedDisabled: stored)
+    ClosedLidReadback(
+      effectiveDisabled: rootProperty("SleepDisabled"),
+      storedDisabled: storedSleepDisabled(domain: "com.apple.PowerManagement" as CFString))
+  }
+
+  static func storedSleepDisabled(
+    domain: CFString, user: CFString = kCFPreferencesAnyUser,
+    host: CFString = kCFPreferencesCurrentHost
+  ) -> Bool? {
+    guard CFPreferencesSynchronize(domain, user, host),
+      let settings = CFPreferencesCopyValue("SystemPowerSettings" as CFString, domain, user, host)
+        as? [String: Any],
+      let value = settings["SleepDisabled"] as? NSNumber,
+      CFGetTypeID(value) == CFBooleanGetTypeID()
+    else { return nil }
+    return value.boolValue
   }
 
   public static func environment() -> ClosedLidEnvironment {
