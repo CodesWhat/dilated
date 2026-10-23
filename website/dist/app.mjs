@@ -1,4 +1,5 @@
 import { directions, readPreferences, remainingTime } from './state.mjs';
+import { loadRelease } from './release.mjs';
 
 const root = document.documentElement;
 let saved = {};
@@ -27,7 +28,7 @@ function applyPreferences(updateUrl = true) {
   document.querySelectorAll('[data-panel]').forEach(panel => { panel.hidden = panel.dataset.panel !== current.concept; });
   document.querySelectorAll('[data-direction]').forEach(button => { button.setAttribute('aria-pressed', String(button.dataset.direction === current.concept)); });
   document.querySelector('#font-choice').value = current.font;
-  document.title = `Dilated · ${directions[current.concept].name}`;
+  document.title = current.concept === 'gas-station' ? 'Dilated · Keep your Mac awake.' : `Dilated · ${directions[current.concept].name} study`;
   document.querySelector('meta[name="theme-color"]').content = { 'gas-station': '#ffdf24', night: '#101f26', field: '#f4f0e6' }[current.concept];
   if (updateUrl) {
     const url = new URL(location.href);
@@ -117,3 +118,22 @@ document.querySelector('#copy-command').addEventListener('click', async event =>
 
 applyPreferences(false);
 renderDemo();
+
+const release = await loadRelease(window.fetch.bind(window), document.baseURI);
+if (release) {
+  document.querySelectorAll('[data-release-link]').forEach(link => {
+    link.href = release.downloadURL;
+    link.hidden = false;
+    link.querySelector('[data-release-label]').textContent = 'Download for Mac';
+  });
+  document.querySelectorAll('[data-testing-only]').forEach(element => { element.hidden = true; });
+  document.querySelector('[data-release-status]').textContent = 'ON THE SHELF.';
+  document.querySelector('[data-release-heading]').replaceChildren('See you in', document.createElement('br'), 'the menu bar.');
+  document.querySelector('[data-release-copy]').textContent = `Dilated ${release.version} is ready for macOS ${release.minimumMacOS}+ on Apple Silicon. Free software from CodesWhat, under MIT.`;
+  document.querySelectorAll('[data-release-summary]').forEach(element => {
+    element.textContent = `V${release.version} · MACOS ${release.minimumMacOS}+ · APPLE SILICON · MIT LICENSE`;
+  });
+  document.querySelector('[data-release-version]').textContent = `Version ${release.version} · Build ${release.build}`;
+  document.querySelector('[data-release-checksum]').textContent = release.sha256;
+  document.querySelector('[data-release-details]').hidden = false;
+}

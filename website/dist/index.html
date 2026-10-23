@@ -3,27 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="Dilated keeps your Mac awake while work finishes. Three design studies from CodesWhat, featuring the pixel eyes.">
+  <meta name="description" content="The render. The download. The agent having a moment. Dilated keeps your Mac awake until the job is done. Free Mac software from CodesWhat, currently in testing.">
   <meta name="theme-color" content="#ffdf24">
-  <title>Dilated · Stay up for the good bit.</title>
+  <title>Dilated · Keep your Mac awake.</title>
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Dilated · Keep your Mac awake.">
+  <meta property="og:description" content="One small menu bar app for work that hasn't quite clocked out. Free Mac software from CodesWhat, currently in testing.">
   <link rel="icon" href="./assets/icon-gas-station.svg" type="image/svg+xml" id="favicon">
   <link rel="stylesheet" href="./styles.css">
   <script type="module" src="./app.mjs"></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
-  <div class="study-bar" aria-label="Design study controls">
-    <a class="study-label" href="#">DILATED <span>GAS STATION / SELECTED DIRECTION</span></a>
-    <div class="directions" role="group" aria-label="Website direction">
-      <button type="button" data-direction="gas-station" aria-pressed="true"><span>01</span> Gas Station</button>
-      <button type="button" data-direction="night" aria-pressed="false"><span>02</span> Night shift</button>
-      <button type="button" data-direction="field" aria-pressed="false"><span>03</span> Field notes</button>
-    </div>
+  <div class="utility-bar page-width">
+    <p>SMALL MAC SOFTWARE <span>/ BY CODESWHAT</span></p>
     <label class="font-control">TYPEFACE <select id="font-choice" aria-label="Display typeface"><option value="barlow">Barlow Condensed</option><option value="fraunces">Fraunces</option><option value="instrument">Instrument Serif</option></select></label>
   </div>
   <header class="masthead page-width">
-    <a class="brand" href="#" aria-label="Dilated home"><svg aria-hidden="true" viewBox="0 0 16 10"><use href="./assets/symbols.svg#eyes"/></svg><span>dilated</span></a>
-    <nav aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#icon-studies">The eyes</a><a class="nav-source" href="#availability">The preview <span aria-hidden="true">↗</span></a></nav>
+    <a class="brand" href="./" aria-label="Dilated home"><img src="./assets/icon-gas-station.svg" alt="" width="43" height="43"><span>dilated</span></a>
+    <nav aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#command-line">Command line</a><a class="nav-source" data-release-link href="#availability"><span data-release-label>In testing</span> <span aria-hidden="true">↗</span></a></nav>
   </header>
   <main id="main">
     <article class="direction gas-station" data-panel="gas-station" aria-labelledby="gas-station-title">
@@ -31,11 +29,12 @@
         <div class="gas-station-copy">
           <p class="eyebrow"><span class="square-dot"></span> AWAKE AID FOR YOUR MAC</p>
           <h1 id="gas-station-title">NOT<br>DONE<br><span>YET.</span></h1>
-          <div class="gas-station-bottom"><p>The render. The download. The agent having a moment. Keep your Mac up until the job is done.</p><a class="button solid" href="#how-it-works">Meet Dilated <span aria-hidden="true">↓</span></a></div>
+          <div class="gas-station-bottom"><p>The render. The download. The agent having a moment. Keep your Mac up until the job is done.</p><div class="hero-actions"><a class="button solid" data-release-link href="#availability"><span data-release-label>Release status</span> <span aria-hidden="true">↘</span></a><a class="hero-preview-link" href="#gas-station-details">See how it works ↓</a></div></div>
+          <p class="hero-availability" data-release-summary>IN TESTING · MACOS 26+ · APPLE SILICON</p>
         </div>
         <div class="package-stage" aria-label="Dilated package design: keep awake, for as long as it takes">
           <div class="retail-pack">
-            <div class="pack-top"><span>FOR MAC</span><span>NO. 001</span></div>
+            <div class="pack-top"><span>FOR MAC</span><span>AWAKE AID</span></div>
             <div class="pack-wordmark">dilated<span>●</span></div>
             <div class="pack-red">KEEP AWAKE</div>
             <svg class="pack-eyes" aria-hidden="true" viewBox="0 0 16 10"><use href="./assets/symbols.svg#eyes"/></svg>
@@ -50,7 +49,7 @@
       <section class="gas-station-details page-width" id="gas-station-details">
         <div class="section-intro"><p class="eyebrow">DIRECTIONS FOR USE</p><h2>One click.<br>Eyes open.</h2><p>Choose a little longer, a specific time, or until you say stop. Your display can sleep while your Mac keeps working.</p></div>
         <div class="demo-mount" data-demo-mount></div>
-        <div class="facts-label"><h3>Awake facts</h3><div><strong>Active ingredient</strong><span>You deciding when your Mac sleeps.</span></div><div><strong>Useful for</strong><span>Builds, uploads, downloads, and long-running commands.</span></div><div><strong>When you're done</strong><span>Stop clears the holds and pauses automation until you resume it.</span></div><div><strong>Small print</strong><span>Battery and Low Power Mode guards included. Closed-lid mode is planned.</span></div></div>
+        <div class="facts-label"><h3>Awake facts</h3><div><strong>Active ingredient</strong><span>You deciding when your Mac sleeps.</span></div><div><strong>Useful for</strong><span>Builds, uploads, downloads, and long-running commands.</span></div><div><strong>When you're done</strong><span>Stop clears the holds and pauses automation until you resume it.</span></div><div><strong>Small print</strong><span>Battery and Low Power Mode guards can end a hold when power needs a break.</span></div></div>
       </section>
     </article>
 
@@ -82,24 +81,33 @@
 
     <section class="common-section page-width" id="how-it-works">
       <div class="section-line"><p class="eyebrow">A SMALL TOOL, WITH A FEW GOOD MANNERS.</p><span>01 / THE WORK</span></div>
-      <div class="work-layout"><h2>Keep the job<br>on its feet.</h2><div class="work-copy"><p>From the menu bar or the command line, Dilated gives the work a reason to stay awake.</p><div class="command-example"><div><span>TERMINAL</span><button type="button" id="copy-command" aria-label="Copy example command">Copy ↗</button></div><code><span>$</span> dilated run -- make test</code><p>Awake while it runs.<br>Done when the command is done.</p></div><details class="command-guide"><summary>Command line notes <span aria-hidden="true">+</span></summary><div><p>The M1 development app includes a CLI. Install it from Settings → Automation.</p><dl><dt><code>dilated on --for 90m</code></dt><dd>A timed hold. The display may sleep.</dd><dt><code>dilated run -- make test</code></dt><dd>Keep awake while the command runs. Preserve its exit status.</dd><dt><code>dilated off</code></dt><dd>End all app holds and pause automation until you choose Resume automation in the app.</dd></dl><p>Agent workflows can create, renew, and release their own holds. Automatic hook setup is planned.</p></div></details></div></div>
+      <div class="work-layout" id="command-line"><h2>Keep the job<br>on its feet.</h2><div class="work-copy"><p>From the menu bar or the command line, Dilated gives the work a reason to stay awake.</p><div class="command-example"><div><span>TERMINAL</span><button type="button" id="copy-command" aria-label="Copy example command">Copy ↗</button></div><code><span>$</span> dilated run -- make test</code><p>Awake while it runs.<br>Done when the command is done.</p></div><details class="command-guide"><summary>Command line notes <span aria-hidden="true">+</span></summary><div><p>Dilated includes a CLI. Install it from Settings → Automation.</p><dl><dt><code>dilated on --for 90m</code></dt><dd>A timed hold. The display may sleep.</dd><dt><code>dilated run -- make test</code></dt><dd>Keep awake while the command runs. Preserve its exit status.</dd><dt><code>dilated off</code></dt><dd>End all app holds and pause automation until you choose Resume automation in the app.</dd></dl><p>Agent workflows can create, renew, and release their own holds. Automatic hook setup is planned.</p></div></details></div></div>
       <div class="manners"><div><span>01</span><h3>The screen can sleep.</h3><p>Keeping your Mac awake doesn't have to keep the display on.</p></div><div><span>02</span><h3>Stop is a full stop.</h3><p>Clears every hold. Automation waits until you explicitly resume it.</p></div><div><span>03</span><h3>Power gets a say.</h3><p>Battery and Low Power Mode guards help put a limit on late nights.</p></div></div>
     </section>
 
-    <section class="icon-lab page-width" id="icon-studies">
+    <section class="availability page-width" id="availability"><img class="availability-icon" src="./assets/icon-gas-station.svg" alt="Dilated's yellow and red pixel-eyes app icon" width="100" height="100"><p class="eyebrow" data-release-status aria-live="polite">STILL IN TESTING.</p><h2 data-release-heading>Nearly on<br>the shelf.</h2><p data-release-copy>Dilated is free Mac software from CodesWhat. <br>The first release is in testing. There's no public download yet.</p><p class="testing-note" data-testing-only>Closed-lid mode is still being checked on real hardware. Installation and update checks are also underway.</p><a class="button solid" href="#how-it-works" data-testing-only>See how it works <span aria-hidden="true">↑</span></a><a class="button solid" data-release-link hidden><span data-release-label>Download for Mac</span> <span aria-hidden="true">↓</span></a><div class="release-details" data-release-details hidden><p data-release-version></p><details><summary>SHA-256 checksum</summary><code data-release-checksum></code></details></div><p class="availability-spec" data-release-summary>IN TESTING · MACOS 26+ · APPLE SILICON · MIT LICENSE</p></section>
+
+    <details class="icon-lab page-width" id="design-studies">
+      <summary class="studies-summary"><span>FROM THE SKETCHBOOK</span><span>Design studies <b aria-hidden="true">+</b></span></summary>
+      <div class="studies-content">
+      <p class="study-note">Gas Station is the chosen direction. These earlier layouts and icon studies are here for a look around.</p>
+      <div class="directions" role="group" aria-label="Website direction">
+        <button type="button" data-direction="gas-station" aria-pressed="true"><span>01</span> Gas Station</button>
+        <button type="button" data-direction="night" aria-pressed="false"><span>02</span> Night shift</button>
+        <button type="button" data-direction="field" aria-pressed="false"><span>03</span> Field notes</button>
+      </div>
       <div class="section-line"><p class="eyebrow">SAME EYES. DIFFERENT UNIFORMS.</p><span>02 / ICON STUDIES</span></div>
-      <div class="icon-lab-header"><h2>A face for<br>the late shift.</h2><p>Our 16-pixel eyes, in three app-icon treatments. Pick one to try it in the browser tab.</p></div>
+      <div class="icon-lab-header"><h2>A face for<br>the late shift.</h2><p>Our 16-pixel eyes, in three app-icon treatments. Try one in the browser tab. The Mac app uses the yellow and red icon.</p></div>
       <div class="icon-options" role="group" aria-label="App icon treatment">
         <button type="button" class="icon-option" data-icon="gas-station" aria-pressed="true"><span class="icon-stage"><img src="./assets/icon-gas-station.svg" alt="Red pixel eyes on a yellow app icon" width="200" height="200"></span><span class="icon-description"><span>01 / GAS STATION</span><b>Wide awake.</b><span class="icon-pick">Selected ↗</span></span></button>
         <button type="button" class="icon-option" data-icon="night" aria-pressed="false"><span class="icon-stage"><img src="./assets/icon-night.svg" alt="Lime pixel eyes on an ink blue app icon" width="200" height="200"></span><span class="icon-description"><span>02 / NIGHT SHIFT</span><b>On watch.</b><span class="icon-pick">Try this icon ↗</span></span></button>
         <button type="button" class="icon-option" data-icon="paper" aria-pressed="false"><span class="icon-stage"><img src="./assets/icon-paper.svg" alt="Ink pixel eyes on a warm paper app icon with orange registration marks" width="200" height="200"></span><span class="icon-description"><span>03 / FIELD NOTES</span><b>Paying attention.</b><span class="icon-pick">Try this icon ↗</span></span></button>
       </div>
       <div class="icon-footnote"><p>Original pixel artwork. Built to have a little life at menu-bar size.</p><a class="text-link" id="download-icon" href="./assets/icon-gas-station.svg" download="dilated-gas-station.svg">Save this icon as SVG <span aria-hidden="true">↓</span></a></div>
-    </section>
-
-    <section class="availability page-width" id="availability"><svg aria-hidden="true" viewBox="0 0 16 10"><use href="./assets/symbols.svg#eyes"/></svg><p class="eyebrow">SMALL APP. STILL TAKING SHAPE.</p><h2>See you in<br>the menu bar.</h2><p>Dilated is a free Mac app in development.<br>The first preview works locally. A public download is still to come.</p><a class="button solid" href="https://github.com/CodesWhat/dilated">Private preview repository <span aria-hidden="true">↗</span></a><p class="availability-access">Repository access is limited during development.</p><p class="availability-spec">MACOS 26+ · APPLE SILICON · MIT LICENSE</p></section>
+      </div>
+    </details>
   </main>
-  <footer class="page-width"><a class="footer-brand" href="#">dilated</a><p>Made by <a href="https://codeswhat.com">CodesWhat</a>.<br>For work that hasn't quite clocked out.</p><div><a href="https://github.com/CodesWhat/dilated">Private preview repo ↗</a><a href="https://mouthtype.app">Mouthtype ↗</a></div><span>DESIGN STUDIES / OCT 2026</span></footer>
+  <footer class="page-width"><a class="footer-brand" href="./">dilated</a><p>Made by <a href="https://codeswhat.com">CodesWhat</a>.<br>For work that hasn't quite clocked out.</p><div><a href="https://mouthtype.app">Also from CodesWhat: Mouthtype ↗</a><a href="#design-studies">From the sketchbook ↓</a></div><span>FREE SOFTWARE<br>MIT LICENSE</span></footer>
   <div class="toast" role="status" aria-live="polite" id="toast"></div>
 
   <template id="awake-demo">

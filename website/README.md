@@ -1,56 +1,82 @@
-# Dilated website studies
+# Dilated website
 
-Gas Station is the selected direction: yellow and red packaging, Barlow
-Condensed headings, and the pixel eyes. The font switcher and other studies
-remain available for comparison.
+Gas Station is the main landing page: yellow and red packaging, Barlow Condensed
+headings, and the selected pixel-eyes app icon. The optional typeface switch stays
+at the top. Earlier layouts and icon studies sit inside the closed sketchbook
+disclosure near the footer.
 
-A buildless, self-contained design study. Serve `dist/` from any static HTTP
-server. `dist/` is also the publication artifact; no installation or build is
-needed.
+This is buildless HTML, CSS, and JavaScript. Serve `dist/` from any static HTTP
+server; it is the complete publication artifact. Assets and release-data paths
+are relative, so the page can also be served from a subdirectory. Hosting and
+domain setup are handled separately.
 
 From the repo root, `python3 -m http.server 5173 --bind 127.0.0.1 --directory website/dist`
-serves a local preview at `http://127.0.0.1:5173`. Stop the foreground server
-with Ctrl-C when finished.
+serves a local preview at `http://127.0.0.1:5173/`. Stop the server when finished.
 
-- `?concept=gas-station`: Gas Station, yellow and red retail packaging, with Barlow
-  Condensed. The product box is original artwork, not a replica of a retail brand.
-- `?concept=night`: Night shift, a dark panoramic desktop and shift ledger, with
-  Fraunces.
-- `?concept=field`: Field notes, an editorial specimen plate and marginal notes,
-  with Instrument Serif.
+## Release availability
 
-The font control swaps all display headings. Each direction remembers its own
-font choice locally. Links include `concept` and `font` when changed. All text
-faces and fonts are self-hosted under the SIL Open Font License, included beside
-the font files. Barlow Condensed and Fraunces come from the official Google Fonts
-repository. Instrument Sans, Instrument Serif, and JetBrains Mono reuse the
-Mouthtype website's licensed font assets.
+The checked-in page is in testing, with no app download. It doesn't claim that
+closed-lid hardware acceptance, installation, or upgrade checks are complete.
+The interactive timer is an illustration and doesn't change Mac power settings.
+
+`app.mjs` fetches `./releases/latest.json` without caching. That file is intentionally
+absent until an accepted public release is published. Missing, unreadable, or
+invalid metadata leaves the testing copy and links in place. The hidden app
+download has no `href` in the HTML.
+
+The release pipeline owns this metadata. An accepted record must contain:
+
+- `released: true`
+- A semantic `version` and a positive integer `build` (string or number)
+- `downloadURL`, a page-relative path or an HTTPS URL without embedded credentials
+- `sha256`, the download's 64-character hexadecimal SHA-256 checksum
+- `minimumMacOS`, a dotted version of 26.0 or later
+- `architecture: "arm64"`
+
+Relative download paths resolve against the page URL, not the metadata file.
+For example, `./releases/Dilated.dmg` works when the site is hosted at `/` or
+`/dilated/`. Successful validation reveals the Mac download links, version,
+build, system requirements, and a collapsible checksum. The publication pipeline
+must verify the actual release artifact before publishing the record; the
+frontend validates metadata and displays the checksum.
+
+## Studies and assets
+
+Direct study links remain available:
+
+- `?concept=gas-station`: the selected yellow and red packaging direction
+- `?concept=night`: a dark desktop and shift ledger, defaulting to Fraunces
+- `?concept=field`: an editorial specimen plate, defaulting to Instrument Serif
+
+The typeface switch changes display headings, remembers each layout's choice
+locally, and includes `concept` and `font` in shared links. The fonts are
+self-hosted under the SIL Open Font License, with notices beside the files.
+Barlow Condensed and Fraunces come from the official Google Fonts repository;
+Instrument Sans, Instrument Serif, and JetBrains Mono use the Mouthtype site's
+licensed assets.
 
 - [Barlow Condensed source and license](https://github.com/google/fonts/tree/main/ofl/barlowcondensed)
 - [Fraunces source and license](https://github.com/google/fonts/tree/main/ofl/fraunces)
-- Font notices are included in `dist/assets/fonts/OFL-*.txt`.
+- Font notices: `dist/assets/fonts/OFL-*.txt`
 
-The 16-pixel eyes use the existing Dilated bug-eyes geometry. Three exportable
-1024-viewBox SVG app-icon studies live under `dist/assets/icon-*.svg`. The Gas Station treatment
-is the native app icon. Its canonical artwork is `design/app-icon/gas-station.svg`;
-regenerate the `.icns` with `swift design/app-icon/generate.swift`.
-The SVG paths preserve the awake-frame geometry from
-`design/menubar/glyphs.json`; the package, backgrounds, and icon treatments are
-original Dilated compositions. Static hosting uses the checked-in assets and
-doesn't need the app source or any private planning files.
+The original pixel eyes preserve the awake-frame geometry from
+`design/menubar/glyphs.json`. The selected icon's canonical artwork is
+`design/app-icon/gas-station.svg`; `swift design/app-icon/generate.swift`
+regenerates the native icon and synchronizes its website SVG. The other SVGs
+remain browser-only icon studies. Static hosting needs no app source or private
+planning files.
 
-The awake timer is an interactive illustration. It doesn't alter Mac power
-settings. Availability copy reflects the M1 development preview. There is no
-public-download button or release claim.
-The GitHub destination is labeled as a private preview repository. The CLI
-notes are included on the page so the site doesn't depend on an unpublished
-development branch.
+## Verification
 
-Run behavior checks with `node --test website/tests/state.test.mjs` from the repo
-root. Run `node --check website/dist/app.mjs` for a syntax check.
+Run all behavior checks with `node --test website/tests/*.test.mjs` from the repo
+root. Syntax checks are `node --check website/dist/app.mjs`,
+`node --check website/dist/state.mjs`, and `node --check website/dist/release.mjs`.
 
-The live Chrome check covered all three directions on desktop and at 390px,
-all nine direction/typeface combinations at 390px without horizontal overflow,
-the preview timer, font selection, icon selection and SVG download target,
-clipboard feedback, and expandable CLI notes. The browser reported no errors or
-warnings. Reduced motion disables transitions and the tilted package hover.
+The current page passed CUA Chrome checks on desktop and at 390px. All nine
+layout/typeface combinations fit at 390px without horizontal overflow. Timer
+start/stop, CLI copy feedback, expandable notes, study controls, and the icon SVG
+target were exercised. In-memory HTTP fixtures verified that accepted release
+data reveals all three download links, version, build, requirements, and checksum;
+bad data preserves the testing state. No release metadata fixture is stored in
+`dist/`, and no actual app download or public deployment was tested in this pass.
+Reduced motion disables transitions and the tilted package hover.
