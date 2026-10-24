@@ -81,8 +81,11 @@ enum ScriptValue: Equatable, Sendable {
       let end = hold.expiry.map { ISO8601DateFormatter().string(from: $0) } ?? "indefinitely"
       return "\(hold.id.uuidString): \(hold.label), \(hold.source.rawValue), \(end)"
     }
+    let changing = model.closedLid.busy || model.closedLid.pendingEnable
     let helper =
-      response.helper.map { state in
+      changing
+      ? "changing (unconfirmed)"
+      : response.helper.map { state in
         state.enabled ? "on" : state.readback.confirmedDisabled ? "off" : "unknown"
       } ?? "unknown"
     return
@@ -132,6 +135,9 @@ enum ScriptValue: Equatable, Sendable {
     case .isTrigger: return .boolean(holds.contains { $0.source == .trigger })
     case .triggersEnabled: return .boolean(model.settings.triggersEnabled)
     case .closedLidEnabled:
+      guard !model.closedLid.busy, !model.closedLid.pendingEnable else {
+        throw InputError("Closed-lid is still changing. Wait for confirmation before querying it.")
+      }
       guard let helper = model.closedLid.state else {
         throw InputError("Closed-lid helper state is unknown.")
       }

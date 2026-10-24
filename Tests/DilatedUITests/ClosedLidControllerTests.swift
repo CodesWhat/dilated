@@ -615,6 +615,92 @@ import Testing
     #expect(!fixture.transport.actions.contains(.enable))
   }
 
+  @Test(arguments: [false, true])
+  func passiveStatusAndPowerRefreshDoNotCancelAPendingEnable(automated: Bool) async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: ControllerAssertions(), closedLid: fixture.controller(),
+      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+    defer { model.shutdown() }
+    let service = AutomationService()
+    service.bind(model)
+    let id: UUID
+    if automated {
+      id = try await service.start(duration: 120)
+    } else {
+      model.stopAll()
+      model.start(duration: 120)
+      id = try #require(model.engine.holds.first?.id)
+    }
+    fixture.transport.delayEnableReply = true
+    let enabling = Task {
+      if automated {
+        try await service.setClosedLid(id: id, enabled: true)
+      } else {
+        try await model.setClosedLid(id: id, enabled: true)
+      }
+    }
+    await fixture.transport.waitForEnableReply()
+    #expect(try await service.status().contains("Helper state: changing"))
+    await #expect(throws: (any Error).self) { try await service.script(.closedLidEnabled) }
+    model.refreshPower()
+    #expect(!fixture.transport.actions.contains(.disable))
+    fixture.transport.releaseReply()
+    try await enabling.value
+    #expect(model.engine.desiredState.closedLid)
+    try await service.stop()
+    #expect(await fixture.power.readback().confirmedDisabled)
+  }
+
+  @Test func cancellingAutomationDuringEnableResetsRatherThanCommitting() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: ControllerAssertions(), closedLid: fixture.controller(),
+      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+    defer { model.shutdown() }
+    let service = AutomationService()
+    service.bind(model)
+    let id = try await service.start(duration: 120)
+    fixture.transport.delayEnableReply = true
+    let enabling = Task { try await service.setClosedLid(id: id, enabled: true) }
+    await fixture.transport.waitForEnableReply()
+    enabling.cancel()
+    fixture.transport.releaseReply()
+    await #expect(throws: CancellationError.self) { try await enabling.value }
+    #expect(!model.engine.desiredState.closedLid)
+    #expect(await fixture.power.readback().confirmedDisabled)
+    try await service.stop()
+  }
+
+  @Test func policyChangesDuringAnEnableInvalidateTheOldRequest() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: ControllerAssertions(), closedLid: fixture.controller(),
+      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+    defer { model.shutdown() }
+    let service = AutomationService()
+    service.bind(model)
+    let id = try await service.start(duration: 120)
+    fixture.transport.delayEnableReply = true
+    let enabling = Task { try await service.setClosedLid(id: id, enabled: true) }
+    await fixture.transport.waitForEnableReply()
+    model.settings.closedLidBatteryFloor = 25
+    fixture.transport.releaseReply()
+    await #expect(throws: (any Error).self) { try await enabling.value }
+    try await model.synchronizeClosedLid()
+    #expect(!model.engine.desiredState.closedLid)
+    #expect(await fixture.power.readback().confirmedDisabled)
+  }
+
   @Test func closedLidLinksRequireTheSeparateOptIn() async throws {
     let fixture = await ControllerFixture()
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

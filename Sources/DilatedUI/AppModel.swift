@@ -164,6 +164,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored private var savedForUpdate = false
   @ObservationIgnored private var historyShutdownReason = HoldEndReason.quit
   @ObservationIgnored private var lidChange: Task<Void, any Error>?
+  @ObservationIgnored private var pendingLidRequest:
+    (operation: UUID, id: UUID, policy: ClosedLidPolicy, automated: Bool)?
   private var settingsFile: URL { endpoint.stateDirectory.appendingPathComponent("settings.json") }
   public var attention: String? { message ?? engine.attention }
   public var statusText: String {
@@ -332,11 +334,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
     guard engine.holds.contains(where: { $0.id == id }) else { throw WakeError.holdNotFound }
     if enabled && requireAutomation && engine.automationPaused { throw WakeError.automationPaused }
     if !enabled {
+      if pendingLidRequest?.id == id { pendingLidRequest = nil }
       engine.setClosedLid(id: id, enabled: false)
       let committed = commit()
       try await synchronizeClosedLid()
       if !committed { throw InputError(message ?? "Couldn't save closed-lid state.") }
       return
+    }
+    guard pendingLidRequest == nil, !closedLid.busy else {
+      throw HelperClientError.rejected("Closed-lid is already changing. Wait for it to finish.")
     }
     if readPower().onBattery && !settings.closedLidBatteryWarningAccepted {
       guard allowPrompt, onClosedLidBatteryWarning?() == true else {
@@ -345,28 +351,35 @@ public struct AppSettings: Codable, Equatable, Sendable {
       }
       settings.closedLidBatteryWarningAccepted = true
     }
-    if closedLid.hasLease {
-      try await closedLid.heartbeat()
-    } else {
-      try await closedLid.enable(policy: closedLidPolicy)
+    let operation = UUID()
+    let policy = closedLidPolicy
+    pendingLidRequest = (operation, id, policy, requireAutomation)
+    defer {
+      if pendingLidRequest?.operation == operation { pendingLidRequest = nil }
     }
-    engine.updatePower(readPower())
-    engine.tick(now: Date())
-    guard engine.holds.contains(where: { $0.id == id }), !stopped, !preparingToQuit,
-      !updater.blocksNewWork, !requireAutomation || !engine.automationPaused
-    else {
-      queueClosedLidReset()
-      try await synchronizeClosedLid()
-      throw CancellationError()
-    }
-    engine.setClosedLid(id: id, enabled: true)
-    message = nil
-    if !commit() {
-      let issue = message ?? "Couldn't save closed-lid state."
-      engine.setClosedLid(id: id, enabled: false)
+    do {
+      if closedLid.hasLease {
+        try await closedLid.heartbeat()
+      } else {
+        try await closedLid.enable(policy: policy)
+      }
+      engine.updatePower(readPower())
+      guard !Task.isCancelled, pendingLidRequest?.operation == operation, validPendingLidRequest
+      else {
+        throw CancellationError()
+      }
+      engine.setClosedLid(id: id, enabled: true)
+      message = nil
+      if !commit() {
+        let issue = message ?? "Couldn't save closed-lid state."
+        engine.setClosedLid(id: id, enabled: false)
+        throw InputError(issue)
+      }
+    } catch {
+      if pendingLidRequest?.operation == operation { pendingLidRequest = nil }
       commit()
       try await synchronizeClosedLid()
-      throw InputError(issue)
+      throw error
     }
   }
   public func synchronizeClosedLid() async throws {
@@ -379,7 +392,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
   }
   private func queueClosedLidReset() {
-    guard !engine.desiredState.closedLid, lidChange == nil,
+    guard !engine.desiredState.closedLid, !validPendingLidRequest, lidChange == nil,
       closedLid.hasLease || closedLid.pendingEnable
     else { return }
     lidChange = Task { [weak self] in
@@ -393,6 +406,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
         throw error
       }
     }
+  }
+  private var validPendingLidRequest: Bool {
+    guard let request = pendingLidRequest else { return false }
+    return !stopped && !preparingToQuit && !updater.blocksNewWork
+      && request.policy == closedLidPolicy
+      && (!request.automated || !engine.automationPaused)
+      && engine.holds.contains {
+        $0.id == request.id && ($0.expiry.map { $0 > Date() } ?? true)
+      }
   }
   public func sleepNow() async {
     engine.stopAll(reason: .sleep)
