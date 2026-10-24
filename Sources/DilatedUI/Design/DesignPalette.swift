@@ -46,8 +46,8 @@ enum DesignPalette {
     static let track = pair(light: 0xD9D9DE, dark: 0x3C3C40)
     static let key = pair(light: 0xFFFFFF, dark: 0x38383B)
     static let scrim = pair(light: (0, 0, 0, 0.3), dark: (0, 0, 0, 0.5))
-    static let sideBase = pair(light: 0xFFDF24, dark: 0xFFDF24)
-    static let sideInk = pair(light: 0x29251C, dark: 0x29251C)
+    static let sideBase = NSColor.windowBackgroundColor
+    static let sideInk = NSColor.labelColor
     static let sideSelection = pair(light: 0xB91C27, dark: 0xB91C27)
 
   }
@@ -144,6 +144,6 @@ struct DesignSidebarBackground: View {
   var solid: Bool
 
   var body: some View {
-    Color(nsColor: DesignPalette.NS.sideBase)
+    Color(nsColor: solid ? DesignPalette.NS.sideBase : .clear)
   }
 }

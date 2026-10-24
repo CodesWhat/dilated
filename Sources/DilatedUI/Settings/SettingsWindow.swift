@@ -138,7 +138,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
 
   var body: some View {
     HStack(spacing: 0) {
-      VStack(alignment: .leading, spacing: 20) {
+      VStack(alignment: .leading, spacing: 12) {
         HStack(spacing: 10) {
           if let eyes = Glyph.bugEyes.image(frame: Glyph.bugEyes.stillFrame) {
             Image(nsImage: eyes).resizable().interpolation(.none)
@@ -147,7 +147,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
           Text("dilated").font(DesignFont.wordmark(38)).fixedSize()
         }
         .foregroundStyle(DesignPalette.sideSelection)
-        .padding(.horizontal, 22).padding(.top, 40)
+        .padding(.horizontal, 22).padding(.top, 8)
         ScrollView {
           VStack(spacing: 4) {
             ForEach(SettingsPage.allCases) { item in
@@ -200,7 +200,8 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
           }
           pageContent
         }
-        .padding(28).padding(.top, 18).frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 28).padding(.top, 12).padding(.bottom, 28)
+        .frame(maxWidth: .infinity, alignment: .leading)
       }.background(DesignPalette.bg)
     }
     .font(DesignFont.sans(13)).foregroundStyle(DesignPalette.ink).tint(SettingsTheme.control)
