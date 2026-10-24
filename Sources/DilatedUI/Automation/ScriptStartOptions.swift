@@ -31,8 +31,8 @@ public struct ScriptStartOptions: Sendable {
         list.numberOfItems <= 6
       else { throw InputError("Invalid options record.") }
       for index in stride(from: 1, to: list.numberOfItems + 1, by: 2) {
-        guard let name = list.atIndex(index)?.stringValue,
-          ["duration", "interval", "displaySleepAllowed"].contains(name), fields[name] == nil,
+        guard let name = list.atIndex(index)?.stringValue?.lowercased(),
+          ["duration", "interval", "displaysleepallowed"].contains(name), fields[name] == nil,
           let value = list.atIndex(index + 1)
         else {
           throw InputError(
@@ -42,7 +42,7 @@ public struct ScriptStartOptions: Sendable {
       }
     }
     var result = Self(usesDefaultDuration: true)
-    if let display = fields["displaySleepAllowed"] {
+    if let display = fields["displaysleepallowed"] {
       guard [typeBoolean, typeTrue, typeFalse].contains(display.descriptorType) else {
         throw InputError("displaySleepAllowed must be true or false.")
       }

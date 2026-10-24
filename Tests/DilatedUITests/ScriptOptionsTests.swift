@@ -32,6 +32,13 @@ import Testing
     #expect(indefinite.duration == nil)
   }
 
+  @Test func recordLabelsFollowAppleScriptsCaseInsensitiveNames() throws {
+    let options = try ScriptStartOptions.parse(
+      record("{DURATION:5, INTERVAL:minutes, displaysleepallowed:false}"))
+    #expect(options.duration == 300)
+    #expect(options.displaySleepAllowed == false)
+  }
+
   @Test func malformedPartialAndUnknownOptionsAreRejected() throws {
     for text in [
       "{duration:5}", "{interval:minutes}", "{extra:1}", "{duration:-1, interval:minutes}",
