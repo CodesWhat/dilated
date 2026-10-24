@@ -28,14 +28,14 @@ import Foundation
           throw InputError(
             "Dilated is still running. Use prepare-update or prepare-uninstall first.")
         }
+        try await PackageHelperCheck.verifyAbsent(
+          appExecutable: app.appendingPathComponent("Contents/MacOS/DilatedApp"))
         _ = try PackageHandoffStore(directory: SocketEndpoint.current.stateDirectory)
           .requirePrepared(app: app)
         guard NativeClosedLidPower.readback().confirmedDisabled else {
           throw InputError(
             "macOS hasn't confirmed sleep-disable is off. Repair the helper before continuing.")
         }
-        try await PackageHelperCheck.verifyAbsent(
-          appExecutable: app.appendingPathComponent("Contents/MacOS/DilatedApp"))
         print("Package preparation verified.")
         return
       }
