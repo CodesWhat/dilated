@@ -507,6 +507,114 @@ import Testing
     #expect(stopped.helper?.readback.confirmedDisabled == true)
   }
 
+  @Test func automationAwaitsHelperConfirmationAndCannotRearmWhilePaused() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: ControllerAssertions(), closedLid: fixture.controller(),
+      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+    defer { model.shutdown() }
+    let service = AutomationService()
+    service.bind(model)
+    let id = try await service.start(duration: 120)
+    let deadline = model.engine.holds.first?.expiry
+    try await service.setClosedLid(id: id, enabled: true)
+    #expect(model.closedLid.state?.enabled == true)
+    #expect(model.engine.holds.first?.expiry == deadline)
+    try await service.stop()
+    #expect(await fixture.power.readback().confirmedDisabled)
+    model.start(duration: 120)
+    let manual = try #require(model.engine.holds.first?.id)
+    let enableCount = fixture.transport.actions.filter { $0 == .enable }.count
+    await #expect(throws: (any Error).self) {
+      try await service.setClosedLid(id: manual, enabled: true)
+    }
+    try await service.setClosedLid(id: manual, enabled: false)
+    #expect(fixture.transport.actions.filter { $0 == .enable }.count == enableCount)
+    #expect(model.engine.automationPaused)
+  }
+
+  @Test func stoppingDuringAutomationEnableCannotReturnSuccessfulEnable() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: ControllerAssertions(), closedLid: fixture.controller(),
+      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+    defer { model.shutdown() }
+    let service = AutomationService()
+    service.bind(model)
+    let id = try await service.start(duration: 120)
+    fixture.transport.delayEnableReply = true
+    let enabling = Task { try await service.setClosedLid(id: id, enabled: true) }
+    await fixture.transport.waitForEnableReply()
+    try await service.stop()
+    fixture.transport.releaseReply()
+    await #expect(throws: (any Error).self) { try await enabling.value }
+    #expect(model.engine.holds.isEmpty)
+    #expect(model.engine.automationPaused)
+    #expect(await fixture.power.readback().confirmedDisabled)
+  }
+
+  @Test func automationPersistenceFailureResetsHelperInsteadOfAcknowledgingEnable() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: ControllerAssertions(), closedLid: fixture.controller(),
+      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+    defer { model.shutdown() }
+    let service = AutomationService()
+    service.bind(model)
+    let id = try await service.start(duration: 120)
+    let file = StateStore(directory: directory).file
+    try FileManager.default.removeItem(at: file)
+    try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
+    await #expect(throws: (any Error).self) {
+      try await service.setClosedLid(id: id, enabled: true)
+    }
+    #expect(!model.engine.desiredState.closedLid)
+    #expect(await fixture.power.readback().confirmedDisabled)
+  }
+
+  @Test func automationNeverPromptsForUnreviewedBatteryWarningOrHelperApproval() async throws {
+    let fixture = await ControllerFixture()
+    fixture.inputs.battery(percent: 25)
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let installation = InstallationFixture(power: fixture.power)
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory),
+      power: { .init(onBattery: true, batteryPercent: 25) },
+      assertions: ControllerAssertions(), closedLid: fixture.controller(),
+      helperInstallation: HelperInstallation(service: installation))
+    defer { model.shutdown() }
+    let service = AutomationService()
+    service.bind(model)
+    var prompts = 0
+    model.onClosedLidBatteryWarning = {
+      prompts += 1
+      return true
+    }
+    let id = try await service.start(duration: 120)
+    await #expect(throws: (any Error).self) {
+      try await service.setClosedLid(id: id, enabled: true)
+    }
+    #expect(prompts == 0)
+    #expect(!fixture.transport.actions.contains(.enable))
+    model.settings.closedLidBatteryWarningAccepted = true
+    installation.status = .requiresApproval
+    await #expect(throws: (any Error).self) {
+      try await service.setClosedLid(id: id, enabled: true)
+    }
+    #expect(!installation.openedApproval)
+    #expect(!fixture.transport.actions.contains(.enable))
+  }
+
   @Test func closedLidLinksRequireTheSeparateOptIn() async throws {
     let fixture = await ControllerFixture()
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -525,6 +633,12 @@ import Testing
     #expect(model.engine.holds.count == 1)
     #expect(await model.prepareToQuit())
   }
+}
+
+@MainActor private final class ControllerAssertions: AssertionControlling {
+  var activeTypes: Set<String> { [] }
+  func synchronize(holds: [Hold], now: Date) throws {}
+  func releaseAll() {}
 }
 
 @MainActor private struct ControllerFixture {

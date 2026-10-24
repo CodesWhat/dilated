@@ -73,6 +73,70 @@ or while Settings is visible. A display-sleep shortcut changes current holds;
 it reports when there are no active holds. Starts use manual hold semantics and
 remain available during the durable automation pause.
 
+## Shortcuts actions
+
+The signed app exposes four actions in the Mac's Shortcuts action library:
+
+| Action | Result |
+|---|---|
+| Start keeping awake | Optional minutes and display-sleep preference; returns the new hold's UUID text |
+| Stop keeping awake | Ends every app-managed hold, confirms helper teardown and durably pauses automation |
+| Get awake status | Text containing active IDs/deadlines, pause state, requested closed-lid and last observed helper state |
+| Set closed-lid mode | Takes a hold UUID and enabled Boolean; changes only that active hold |
+
+Chain Start's result into Set closed-lid's Hold ID. Closed-lid enable requires
+previous helper approval, any battery-warning review, and passing guards. It never
+opens setup prompts, enables a future default or resumes automation. Disable remains
+available while paused. Expired/malformed IDs and failed operations return errors.
+
+When Shortcuts launches a closed app, normal startup runs first: eligible timers
+restore, and enabled launch/trigger rules evaluate. Get status reports that state;
+Stop clears it and pauses automation. This preserves normal recovery policy.
+Unlike the CLI's status query, the Shortcuts action can launch the app.
+
+macOS supports these actions in user-built shortcuts. It doesn't expose the separate
+App Shortcuts/Siri phrase surface described for other Apple platforms. On the tested
+Mac, ad-hoc apps appear in the action library but macOS rejects execution without a
+developer team identity. Use a developer-signed build for real runtime checks.
+
+## AppleScript
+
+The dictionary exposes these Amphetamine-compatible commands. Change the target app
+to Dilated in existing scripts; the event/parameter codes are retained. The initial
+surface excludes screen-saver and Drive Alive commands while those mechanisms remain
+unimplemented.
+
+| Commands | Behavior |
+|---|---|
+| `session is active`, `session is Trigger` | Any active hold; any active trigger hold |
+| `start new session` | Replaces only prior AppleScript-owned holds, preserving unrelated work |
+| `end session` | Global Stop with durable pause; triggers cannot immediately restart |
+| `session time remaining` | Longest timed lifetime in seconds; -3 inactive, 0 indefinite non-trigger, -1 trigger |
+| `display sleep allowed` | Aggregate current holds, or the session default when inactive |
+| `allow display sleep`, `prevent display sleep` | Changes current holds without replacing their IDs/deadlines, or changes the idle session default |
+| `closed display mode enabled` | Confirmed helper state; unknown state is an error |
+| `enable closed display mode`, `disable closed display mode` | Targets its own AppleScript hold, otherwise requires exactly one active hold |
+| `Triggers are enabled`, `enable Triggers`, `disable Triggers` | Persistent master switch, independent of each rule and the automation pause |
+
+For example, `tell application "Dilated" to start new session with options
+{duration:5, interval:minutes, displaySleepAllowed:false}` starts a five-minute
+script-owned hold with the display awake. Omit options to use current duration/display
+defaults. A record may override display alone. Duration and interval must be supplied
+together; duration must be an integer and interval a finite number. Explicit
+`{duration:0, interval:0}` means indefinite. Unknown fields, partial durations, Boolean
+numbers, invalid types and durations beyond ten years are rejected before replacement.
+
+For mixed holds, indefinite non-trigger work takes precedence over trigger, then
+timed work in the remaining-time result. Until-time holds report seconds rather than
+Amphetamine's -2 sentinel. Trigger display changes affect only the current run, and
+the master switch never chooses Resume automation. Closed-lid without an unambiguous
+current target returns an error and never saves a future default. Start and closed-lid
+enable respect Stop; manual timers from the app remain available during the pause.
+
+Cold scripting launches use the same normal startup policy as Shortcuts. Caller-side
+macOS Automation consent is separate from receiving commands in Dilated. Scripts
+receive success only after state/assertion work and any helper operation completes.
+
 ## Sleep and user switching
 
 Settings → General can stop all holds when the Mac sleeps or when switching
@@ -99,7 +163,8 @@ conditions stop matching. Schedule windows use local time, including overnight
 windows beginning on the selected weekday. Equal start/end times mean the whole
 selected day. Triggers cannot wake a sleeping Mac.
 
-Rules can be disabled or paused for five minutes, an hour or until tomorrow.
+The trigger master switch enables or disables all rules without losing their choices.
+Rules can also be disabled or paused for five minutes, an hour or until tomorrow.
 An individual awake reason's Stop suppresses its rule until conditions become
 false, or Resume this trigger is chosen. Main Stop blocks every trigger until
 Resume automation, including after relaunch/reboot. Resuming an individual rule
@@ -138,7 +203,7 @@ renewal loop.
 
 ## Stop and safety behavior
 
-Main Stop pauses CLI starts, URL starts and renewals until **Resume automation**
+Main Stop pauses CLI, URL, AppleScript and Shortcuts starts and renewals until **Resume automation**
 is chosen in the app. The pause survives app relaunch and Mac reboot. Local
 manual holds still work. An individual reason's Stop ends only that reason.
 

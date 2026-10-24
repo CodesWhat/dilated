@@ -1,6 +1,8 @@
 import Foundation
 
-public enum HoldSource: String, Codable, Sendable { case manual, cli, lease, runner, url, trigger }
+public enum HoldSource: String, Codable, Sendable {
+  case manual, cli, lease, runner, url, trigger, shortcut, appleScript
+}
 public struct Hold: Codable, Equatable, Identifiable, Sendable {
   public var id: UUID
   public var source: HoldSource

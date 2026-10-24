@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 configuration="${1:-debug}"
 case "$configuration" in debug|release) ;; *) echo "Use debug or release" >&2; exit 1 ;; esac
 swift build -c "$configuration" --arch arm64 --jobs 4
+python3 scripts/build-shell.py "$configuration"
 bin_dir="$(swift build -c "$configuration" --arch arm64 --show-bin-path)"
 app="${DILATED_BUILD_DIR:-$PWD/build}/Dilated.app"
 if pgrep -f "$app/Contents/MacOS/DilatedApp" >/dev/null; then
@@ -14,11 +15,16 @@ if pgrep -f "$app/Contents/MacOS/DilatedApp" >/dev/null; then
 fi
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Library/LaunchDaemons"
-cp "$bin_dir/DilatedApp" "$app/Contents/MacOS/DilatedApp"
+shell_configuration="Debug"
+if [[ "$configuration" == "release" ]]; then shell_configuration="Release"; fi
+shell_app="build/automation-shell/DerivedData/Build/Products/$shell_configuration/DilatedApp.app"
+cp "$shell_app/Contents/MacOS/DilatedApp" "$app/Contents/MacOS/DilatedApp"
+ditto "$shell_app/Contents/Resources/Metadata.appintents" "$app/Contents/Resources/Metadata.appintents"
 cp "$bin_dir/dilated" "$app/Contents/MacOS/dilated"
 cp "$bin_dir/dilated-helper" "$app/Contents/MacOS/dilated-helper"
 cp packaging/com.codeswhat.dilated.helper.plist "$app/Contents/Library/LaunchDaemons/"
 cp packaging/Info.plist "$app/Contents/Info.plist"
+cp packaging/Dilated.sdef "$app/Contents/Resources/Dilated.sdef"
 python3 - "$app/Contents/Info.plist" <<'PY'
 from pathlib import Path
 import plistlib
@@ -42,6 +48,7 @@ sparkle=".build/artifacts/sparkle/Sparkle"
 mkdir -p "$app/Contents/Frameworks"
 ditto "$sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
 cp "$sparkle/LICENSE" "$app/Contents/Resources/Sparkle-LICENSE"
+python3 scripts/package-release.py --check-automation "$app"
 for bundle in "$bin_dir"/Dilated_DilatedUI.bundle; do
     test -d "$bundle"
     ditto "$bundle" "$app/Contents/Resources/$(basename "$bundle")"

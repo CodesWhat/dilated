@@ -11,6 +11,13 @@ import UniformTypeIdentifiers
     VStack(alignment: .leading, spacing: 18) {
       SettingsGroup(eyebrow: "AUTOMATION") {
         SettingsRow(
+          title: "Enable triggers",
+          detail:
+            "Turn all triggers on or off while keeping each rule's settings. Stop still pauses automation."
+        ) {
+          Toggle("Enable triggers", isOn: $model.settings.triggersEnabled).labelsHidden()
+        }
+        SettingsRow(
           title: model.engine.automationPaused ? "Automation paused" : "Automation running",
           detail: "Stop pauses all automation across relaunch and reboot. Manual timers still work."
         ) {

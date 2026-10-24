@@ -6,6 +6,7 @@ let package = Package(
   platforms: [.macOS(.v26)],
   products: [
     .library(name: "DilatedCore", targets: ["DilatedCore"]),
+    .library(name: "DilatedUI", targets: ["DilatedUI"]),
     .library(name: "DilatedControl", targets: ["DilatedControl"]),
     .executable(name: "DilatedApp", targets: ["Dilated"]),
     .executable(name: "dilated", targets: ["DilatedCLI"]),

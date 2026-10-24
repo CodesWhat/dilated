@@ -26,6 +26,7 @@ import IOKit.ps
         await model.control(request)
       }
     } catch {
+      AutomationService.shared.unavailable()
       let alert = NSAlert()
       alert.messageText = "Dilated couldn't start"
       alert.informativeText = error.localizedDescription
@@ -106,6 +107,7 @@ import IOKit.ps
       center: NSWorkspace.shared.notificationCenter
     ) { [weak self] in self?.menu?.refresh() }
     model.begin()
+    AutomationService.shared.bind(model)
     if !model.settings.onboardingComplete || CommandLine.arguments.contains("--settings") {
       showSettings()
     }
@@ -189,6 +191,7 @@ import IOKit.ps
     }
   }
   public func applicationWillTerminate(_ notification: Notification) {
+    AutomationService.shared.unavailable()
     guard started else { return }
     model?.shutdown()
     server?.stop()
@@ -203,10 +206,12 @@ import IOKit.ps
     guard started, let model else { return .terminateNow }
     guard !awaitingQuit else { return .terminateLater }
     awaitingQuit = true
+    AutomationService.shared.unavailable()
     Task { [weak self] in
       let safe =
         await (model.updater.blocksNewWork ? model.prepareToUpdate() : model.prepareToQuit())
       self?.awaitingQuit = false
+      if !safe { AutomationService.shared.bind(model) }
       if !safe { self?.showSettings() }
       sender.reply(toApplicationShouldTerminate: safe)
     }

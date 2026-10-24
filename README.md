@@ -4,7 +4,8 @@ Keeps your Mac awake. A native macOS 26 menu bar app for Apple Silicon.
 
 The local preview includes timed and indefinite awake holds, display-sleep controls,
 battery and Low Power Mode guards, four animated menu bar glyphs, Settings,
-configurable global shortcuts, local history and statistics, URL automation, and
+configurable global shortcuts, local history and statistics, URL automation, AppleScript,
+four Shortcuts actions, and
 a CLI with renewable agent holds.
 Closed-lid controls and their privileged helper are implemented, with hardware
 recovery and release acceptance still pending. There is no public release yet.
@@ -15,7 +16,10 @@ Automatic agent setup remains later work.
 Build the local app with `bash scripts/build-app.sh`, then open
 `build/Dilated.app`. This is a development build, not a notarized release. The
 script uses ad-hoc signing by default; `DILATED_SIGN_IDENTITY` can select an
-installed signing identity.
+installed signing identity. Xcode and XcodeGen are required. The app shell extracts
+App Intents metadata while the core, UI, CLI and helper remain Swift packages.
+Real Shortcuts execution requires a developer-signed build on the tested Mac;
+an ad-hoc build can appear in the action catalog but fail to run.
 
 Run the checks with `bash scripts/verify.sh`. After building the bundle, run the
 bounded app/CLI integration check with `python3 scripts/smoke-test.py`. It uses

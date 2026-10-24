@@ -51,7 +51,10 @@ import UniformTypeIdentifiers
       HStack {
         Picker("Source", selection: $source) {
           Text("All sources").tag("all")
-          ForEach(["manual", "cli", "lease", "runner", "url", "trigger"], id: \.self) {
+          ForEach(
+            ["manual", "cli", "lease", "runner", "url", "trigger", "shortcut", "appleScript"],
+            id: \.self
+          ) {
             Text(sourceName($0)).tag($0)
           }
         }.frame(maxWidth: 240)
@@ -109,6 +112,8 @@ import UniformTypeIdentifiers
     case "runner": "Command"
     case "url": "Automation link"
     case "trigger": "Trigger"
+    case "shortcut": "Shortcut"
+    case "appleScript": "AppleScript"
     default: source
     }
   }

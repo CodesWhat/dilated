@@ -63,7 +63,29 @@ Packaging scripts verify signed/notarized app and DMG files. Public staging also
 requires acceptance records for the exact source, build and artifact checksums,
 including macOS 26/27 and a second Mac. Publication remains gated on that evidence.
 See [installation and removal](INSTALLATION.md) for the supported lifecycle and
-current limits. AppleScript and App Intents remain later phases.
+current limits.
+
+A thin XcodeGen bundle target compiles the AppKit entry point and four App Intents,
+linking the SwiftPM UI product. Its executable and extracted Metadata.appintents
+are preserved during final assembly. Packaging validates the metadata and SDEF
+before signing and again when verifying release bundles. Xcode shell builds do
+not register the app with Launch Services.
+
+One main-actor AutomationService binds the delegate's existing model after startup
+and rejects unavailable/quitting work. Shortcuts uses AppDependency; the command-only
+SDEF uses an Objective-C-visible NSScriptCommand subclass. Script commands suspend
+inside their handler and resume on the main actor after the actual operation.
+Receiving scripts adds no outgoing Apple Events or Accessibility permission.
+Trusted in-process origins retain Shortcut/AppleScript attribution without accepting
+a caller-selected source in the socket protocol. Script starts replace only prior
+script-owned work, and trigger master changes preserve per-rule choices and Stop's pause.
+
+Cold automation launches follow normal startup, including eligible timer recovery
+and enabled startup/trigger rules, before executing the requested command. A status
+action reports that resulting state; Stop clears it and pauses automation. AppKit's
+default-launch flag does not distinguish every Shortcuts launch. No launch heuristic
+or arbitrary startup delay is used. macOS exposes actions for user-built Shortcuts;
+the App Shortcuts provider's phrase metadata does not promise Siri phrase support.
 
 `TriggerEvaluator` combines conditions with AND within each rule and contributes
 an independent hold for every matching rule. Stops suppress only that rule until

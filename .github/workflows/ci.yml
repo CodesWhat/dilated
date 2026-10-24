@@ -17,4 +17,6 @@ jobs:
       - name: Check formatting
         run: swift format lint --strict --recursive Sources Tests Package.swift
       - name: Assemble local app
-        run: bash scripts/build-app.sh
+        run: |
+          brew install xcodegen
+          bash scripts/build-app.sh

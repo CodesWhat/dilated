@@ -21,6 +21,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public var startAfterWake = false
   public var stopOnSystemSleep = false
   public var stopOnUserSwitch = false
+  public var triggersEnabled = true
   public var historyEnabled = true
   public var historyRetentionDays = 30
   public var dockMode = "whileWindowOpen"
@@ -57,6 +58,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
       try values.decodeIfPresent(Bool.self, forKey: .stopOnSystemSleep) ?? stopOnSystemSleep
     stopOnUserSwitch =
       try values.decodeIfPresent(Bool.self, forKey: .stopOnUserSwitch) ?? stopOnUserSwitch
+    triggersEnabled =
+      try values.decodeIfPresent(Bool.self, forKey: .triggersEnabled) ?? triggersEnabled
     historyEnabled =
       try values.decodeIfPresent(Bool.self, forKey: .historyEnabled) ?? historyEnabled
     historyRetentionDays =
@@ -96,27 +99,35 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
 @MainActor @Observable public final class AppModel {
   public private(set) var engine: WakeEngine
+  private var preferences: AppSettings
   public var settings: AppSettings {
-    didSet {
-      do {
-        try writeSettings(settings)
-        engine.batteryFloor = settings.batteryFloor > 0 ? settings.batteryFloor : nil
-        if oldValue.closedLidBatteryFloor != settings.closedLidBatteryFloor
-          || oldValue.closedLidBatteryMinutes != settings.closedLidBatteryMinutes
-          || oldValue.closedLidACOnly != settings.closedLidACOnly
-          || oldValue.overrideLowPower != settings.overrideLowPower
-        {
-          engine.clearClosedLidRequests()
-        }
-        if oldValue.historyEnabled != settings.historyEnabled
-          || oldValue.historyRetentionDays != settings.historyRetentionDays
-        {
-          historyNeedsCompaction = true
-        }
-        refreshPower()
-      } catch { message = "Couldn't save settings: \(error.localizedDescription)" }
+    get { preferences }
+    set {
+      do { try applySettings(newValue) } catch {
+        message = "Couldn't save settings: \(error.localizedDescription)"
+      }
       onChange?()
     }
+  }
+  private func applySettings(_ value: AppSettings) throws {
+    try writeSettings(value)
+    let old = preferences
+    preferences = value
+    engine.batteryFloor = value.batteryFloor > 0 ? value.batteryFloor : nil
+    if old.closedLidBatteryFloor != value.closedLidBatteryFloor
+      || old.closedLidBatteryMinutes != value.closedLidBatteryMinutes
+      || old.closedLidACOnly != value.closedLidACOnly
+      || old.overrideLowPower != value.overrideLowPower
+    {
+      engine.clearClosedLidRequests()
+    }
+    if old.historyEnabled != value.historyEnabled
+      || old.historyRetentionDays != value.historyRetentionDays
+    {
+      historyNeedsCompaction = true
+    }
+    if old.triggersEnabled != value.triggersEnabled { reconcileTriggers(lastTriggerInputs) }
+    refreshPower()
   }
   public private(set) var history = SessionHistory()
   public private(set) var historyIssue: String?
@@ -199,7 +210,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         triggerRules = rules
       } catch { loadMessage = "Couldn't load triggers: \(error.localizedDescription)" }
     }
-    settings = loadedSettings
+    preferences = loadedSettings
     historyWasEnabled = loadedSettings.historyEnabled
     do { history = try historyStore.load(retentionDays: loadedSettings.historyRetentionDays) } catch
     {
@@ -312,15 +323,19 @@ public struct AppSettings: Codable, Equatable, Sendable {
       maximumBatteryClosedSeconds: Double(settings.closedLidBatteryMinutes * 60),
       acOnly: settings.closedLidACOnly, overrideLowPower: settings.overrideLowPower)
   }
-  public func setClosedLid(id: UUID, enabled: Bool, allowPrompt: Bool = true) async throws {
+  public func setClosedLid(
+    id: UUID, enabled: Bool, allowPrompt: Bool = true, requireAutomation: Bool = false
+  ) async throws {
     guard !stopped, !preparingToQuit, !updater.blocksNewWork, !helperInstallation.busy else {
       throw HelperClientError.rejected("Dilated is finishing a helper operation.")
     }
     guard engine.holds.contains(where: { $0.id == id }) else { throw WakeError.holdNotFound }
+    if enabled && requireAutomation && engine.automationPaused { throw WakeError.automationPaused }
     if !enabled {
       engine.setClosedLid(id: id, enabled: false)
-      commit()
+      let committed = commit()
       try await synchronizeClosedLid()
+      if !committed { throw InputError(message ?? "Couldn't save closed-lid state.") }
       return
     }
     if readPower().onBattery && !settings.closedLidBatteryWarningAccepted {
@@ -337,14 +352,22 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     engine.updatePower(readPower())
     engine.tick(now: Date())
-    guard engine.holds.contains(where: { $0.id == id }), !stopped, !preparingToQuit else {
+    guard engine.holds.contains(where: { $0.id == id }), !stopped, !preparingToQuit,
+      !updater.blocksNewWork, !requireAutomation || !engine.automationPaused
+    else {
       queueClosedLidReset()
       try await synchronizeClosedLid()
       throw CancellationError()
     }
     engine.setClosedLid(id: id, enabled: true)
     message = nil
-    commit()
+    if !commit() {
+      let issue = message ?? "Couldn't save closed-lid state."
+      engine.setClosedLid(id: id, enabled: false)
+      commit()
+      try await synchronizeClosedLid()
+      throw InputError(issue)
+    }
   }
   public func synchronizeClosedLid() async throws {
     queueClosedLidReset()
@@ -542,7 +565,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     onChange?()
   }
-  public func control(_ request: ControlRequest, fromURL: Bool = false) async -> ControlResponse {
+  public func control(
+    _ request: ControlRequest, origin: ControlOrigin = .commandLine
+  ) async -> ControlResponse {
     guard !stopped, !preparingToQuit else {
       return ControlResponse(ok: false, message: "Dilated is quitting.", code: "unavailable")
     }
@@ -569,7 +594,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     var effective = request
     effective.closedLid = false
     effective.lowPowerOverride = request.lowPowerOverride || settings.overrideLowPower
-    var response = ControlRouter.handle(effective, engine: &engine, fromURL: fromURL)
+    var response = ControlRouter.handle(effective, engine: &engine, origin: origin)
     if !commit() {
       response.ok = false
       response.message = message
@@ -641,7 +666,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         throw HelperClientError.rejected(
           "Allow closed-lid automation links in Closed Lid settings first.")
       }
-      let response = await control(request, fromURL: true)
+      let response = await control(request, origin: .url)
       if !response.ok { message = response.message }
     } catch { message = error.localizedDescription }
     onChange?()
@@ -687,16 +712,20 @@ public struct AppSettings: Codable, Equatable, Sendable {
       return error as? WakeError
     }
   }
-  @discardableResult private func commit(resetClosedLid: Bool = true) -> Bool {
+  @discardableResult private func commit(
+    resetClosedLid: Bool = true, saveState: Bool = true
+  ) -> Bool {
     now = Date()
     if engine.automationPaused {
       triggerMonitor?.stop()
       triggerMonitor = nil
     }
     var saved = true
-    do { try store.save(engine.snapshot) } catch {
-      message = "Couldn't save awake state: \(error.localizedDescription)"
-      saved = false
+    if saveState {
+      do { try store.save(engine.snapshot) } catch {
+        message = "Couldn't save awake state: \(error.localizedDescription)"
+        saved = false
+      }
     }
     recordHistory()
     let applied = synchronizeAssertions()
@@ -776,6 +805,76 @@ public struct AppSettings: Codable, Equatable, Sendable {
     try FileManager.default.setAttributes(
       [.posixPermissions: 0o600], ofItemAtPath: settingsFile.path)
   }
+  func startScript(_ options: ScriptStartOptions) async throws -> UUID {
+    guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
+    engine.updatePower(readPower())
+    var candidate = engine
+    let previous = candidate.holds.filter { $0.source == .appleScript }.map(\.id)
+    let duration =
+      options.usesDefaultDuration
+      ? (settings.defaultMinutes > 0 ? Double(settings.defaultMinutes * 60) : nil)
+      : options.duration
+    let hold: Hold
+    do {
+      hold = try candidate.start(
+        source: .appleScript, label: "AppleScript", duration: duration,
+        displayAwake: !(options.displaySleepAllowed ?? settings.allowDisplaySleep),
+        lowPowerOverride: settings.overrideLowPower)
+      for id in previous { candidate.stop(id: id, reason: .reconfigured) }
+      try store.save(candidate.snapshot)
+    } catch {
+      commit()
+      throw error
+    }
+    engine = candidate
+    guard commit(saveState: false) else {
+      throw InputError(message ?? "Couldn't apply awake state.")
+    }
+    try await synchronizeClosedLid()
+    return hold.id
+  }
+  func scriptClosedLidTarget() throws -> UUID {
+    let holds = engine.holds.filter { $0.expiry.map { $0 > Date() } ?? true }
+    let own = holds.filter { $0.source == .appleScript }
+    if own.count == 1 { return own[0].id }
+    if own.isEmpty && holds.count == 1 { return holds[0].id }
+    throw InputError(
+      "Closed-lid needs an AppleScript hold or exactly one active hold. Supply a hold ID in Shortcuts when several holds are active."
+    )
+  }
+  func setAutomationClosedLid(id: UUID, enabled: Bool) async throws {
+    engine.updatePower(readPower())
+    commit()
+    if enabled {
+      if engine.automationPaused { throw WakeError.automationPaused }
+      helperInstallation.refreshStatus()
+      guard helperInstallation.status == .enabled else {
+        throw InputError("Set up and approve the closed-lid helper in Dilated first.")
+      }
+    }
+    try await setClosedLid(id: id, enabled: enabled, allowPrompt: false, requireAutomation: true)
+  }
+  func setTriggersEnabled(_ enabled: Bool) throws {
+    guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
+    var value = settings
+    value.triggersEnabled = enabled
+    try applySettings(value)
+    reconcileTriggers(lastTriggerInputs)
+    refreshTriggers()
+    guard commit() else { throw InputError(message ?? "Couldn't apply trigger state.") }
+  }
+  func setScriptDisplayAwake(_ enabled: Bool) throws {
+    guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
+    engine.updatePower(readPower())
+    if engine.holds.isEmpty {
+      var value = settings
+      value.allowDisplaySleep = !enabled
+      try applySettings(value)
+    } else {
+      for id in engine.holds.map(\.id) { engine.setDisplayAwake(id: id, enabled: enabled) }
+    }
+    guard commit() else { throw InputError(message ?? "Couldn't apply display sleep state.") }
+  }
   public func assignShortcut(_ shortcut: AwakeShortcut?, to action: ShortcutAction) throws {
     var configuration = settings.shortcuts
     configuration[action] = shortcut
@@ -849,14 +948,19 @@ public struct AppSettings: Codable, Equatable, Sendable {
     lastTriggerInputs = input
     let before = engine.holds
     engine.updatePower(input.power)
-    triggerEvaluator.reconcile(rules: triggerRules, inputs: input, engine: &engine)
+    let rules = triggerRules.map { rule in
+      var rule = rule
+      rule.enabled = rule.enabled && settings.triggersEnabled
+      return rule
+    }
+    triggerEvaluator.reconcile(rules: rules, inputs: input, engine: &engine)
     triggerStatuses = triggerEvaluator.statuses
     if before != engine.holds { commit() }
   }
   private func refreshTriggers() {
     guard hasBegun, !stopped, !preparingToQuit, !updater.blocksNewWork else { return }
     let rules = triggerRules.filter(\.enabled)
-    guard !rules.isEmpty, !engine.automationPaused else {
+    guard !rules.isEmpty, settings.triggersEnabled, !engine.automationPaused else {
       triggerMonitor?.stop()
       triggerMonitor = nil
       reconcileTriggers(lastTriggerInputs)

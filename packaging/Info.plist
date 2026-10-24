@@ -10,6 +10,8 @@
 <key>LSMinimumSystemVersion</key><string>26.0</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
+<key>NSAppleScriptEnabled</key><true/>
+<key>OSAScriptingDefinition</key><string>Dilated.sdef</string>
 <key>SUFeedURL</key><string>https://dilated.codeswhat.com/updates/appcast.xml</string>
 <key>SUPublicEDKey</key><string>ehOxBirzN5y9MqUzYKsrYwgn4MAle82Z3rQIvYpZlhY=</string>
 <key>SURequireSignedFeed</key><true/>

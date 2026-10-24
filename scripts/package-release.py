@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 
 
 def run(args, *, cwd=None, timeout=60, log=None):
@@ -70,12 +71,39 @@ def validate_helper_bundle(app):
     return executable
 
 
+def validate_automation_bundle(app):
+    try:
+        with (app / 'Contents/Info.plist').open('rb') as file:
+            info = plistlib.load(file)
+        resources = app / 'Contents/Resources'
+        metadata = json.loads((resources / 'Metadata.appintents/extract.actionsdata').read_bytes())
+        dictionary = ET.parse(resources / 'Dilated.sdef')
+        expected = {'StartAwakeIntent', 'StopAwakeIntent', 'AwakeStatusIntent', 'SetClosedLidIntent'}
+        actions = metadata['actions']
+        if (not info.get('NSAppleScriptEnabled') or info.get('OSAScriptingDefinition') != 'Dilated.sdef'
+                or set(actions) != expected or not metadata.get('autoShortcutProviderMangledName')
+                or {item['actionIdentifier'] for item in metadata['autoShortcuts']} != expected
+                or any(action.get('supportedModes') != 1 or not action.get('isDiscoverable')
+                       for action in actions.values())):
+            raise ValueError('Invalid intent or scripting configuration')
+        codes = {'amph' + code for code in ['cAct', 'cmOn', 'cOff', 'STRm', 'DSOK', 'AWDS', 'PTDS',
+                                          'CDMK', 'ECDM', 'DCDM', 'SisT', 'TrEn', 'EnTr', 'DsTr']}
+        commands = dictionary.findall('./suite/command')
+        if (len(commands) != len(codes) or {item.get('code') for item in commands} != codes
+                or any(item.find('cocoa') is None
+                       or item.find('cocoa').get('class') != 'DilatedScriptCommand' for item in commands)):
+            raise ValueError('Invalid scripting dictionary')
+    except (OSError, ValueError, KeyError, TypeError, ET.ParseError) as error:
+        raise RuntimeError(f'The app has missing or invalid automation metadata: {error}') from error
+
+
 def verify_requirement(executable, requirement):
     run(['codesign', '--verify', '--strict', '-R', '=' + requirement, str(executable)])
 
 
 def verify_app(app, output, label):
     helper = validate_helper_bundle(app)
+    validate_automation_bundle(app)
     run(['codesign', '--verify', '--deep', '--strict', str(app)])
     for executable, identifier in ((app, 'com.codeswhat.dilated'), (helper, 'com.codeswhat.dilated.helper')):
         requirement = f'identifier "{identifier}" and anchor apple generic and certificate leaf[subject.OU] = "3524374A2S"'
@@ -203,10 +231,16 @@ def build_app(root, output, identity, enable_updates=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--notary-profile', help='Keychain profile; overrides the default App Store Connect API key')
-    parser.add_argument('--output-dir', required=True, type=Path)
+    parser.add_argument('--output-dir', type=Path)
+    parser.add_argument('--check-automation', type=Path, help='Validate local app automation payload only')
     parser.add_argument('--identity', default='Developer ID Application: Scott Benson (3524374A2S)')
     parser.add_argument('--candidate', action='store_true', help='Build a clean local test candidate without a release tag; it cannot be published')
     args = parser.parse_args()
+    if args.check_automation:
+        validate_automation_bundle(args.check_automation)
+        return
+    if args.output_dir is None:
+        parser.error('--output-dir is required when building a release')
     auth = notary_auth(args.notary_profile)
     root = Path(__file__).resolve().parent.parent
     metadata = release_metadata(root)

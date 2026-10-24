@@ -76,6 +76,7 @@ class ReleaseGuardsTests(unittest.TestCase):
         self.assertTrue(info['SURequireSignedFeed'])
         self.assertTrue(info['SUVerifyUpdateBeforeExtraction'])
         self.assertTrue(info['DilatedUpdatesEnabled'])
+        release.validate_automation_bundle(app)
         linked = subprocess.check_output(['otool', '-L', str(app / 'Contents/MacOS/DilatedApp')], text=True)
         self.assertIn('@rpath/Sparkle.framework', linked)
         for binary in ['dilated', 'dilated-helper']:
@@ -121,6 +122,15 @@ class ReleaseGuardsTests(unittest.TestCase):
         release.verify_requirement(app, 'identifier "com.codeswhat.dilated"')
         with self.assertRaises(RuntimeError):
             release.verify_requirement(app, 'identifier "com.codeswhat.other"')
+
+    def test_missing_automation_metadata_cannot_ship(self):
+        app = self.root / 'Dilated.app'
+        folder = app / 'Contents'
+        folder.mkdir(parents=True)
+        with (folder / 'Info.plist').open('wb') as file:
+            plistlib.dump({'NSAppleScriptEnabled': True, 'OSAScriptingDefinition': 'Dilated.sdef'}, file)
+        with self.assertRaisesRegex(RuntimeError, 'automation'):
+            release.validate_automation_bundle(app)
 
     def test_a_mispackaged_helper_cannot_reach_notarization(self):
         app = self.root / 'Dilated.app'

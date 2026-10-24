@@ -1,0 +1,36 @@
+name: DilatedAutomationShell
+options:
+  deploymentTarget:
+    macOS: "26.0"
+packages:
+  Dilated:
+    path: ../..
+schemes:
+  DilatedAutomationShell:
+    build:
+      targets:
+        DilatedApp: all
+targets:
+  DilatedApp:
+    type: bundle
+    platform: macOS
+    sources:
+      - path: ../Sources/Dilated
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.codeswhat.dilated
+        PRODUCT_NAME: DilatedApp
+        EXECUTABLE_NAME: DilatedApp
+        INFOPLIST_FILE: ../../packaging/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        WRAPPER_EXTENSION: app
+        MACH_O_TYPE: mh_execute
+        CODE_SIGNING_ALLOWED: NO
+        ENABLE_HARDENED_RUNTIME: YES
+        SWIFT_VERSION: "6.0"
+        ARCHS: arm64
+        ONLY_ACTIVE_ARCH: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
+    dependencies:
+      - package: Dilated
+        product: DilatedUI

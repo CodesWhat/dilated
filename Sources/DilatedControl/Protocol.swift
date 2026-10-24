@@ -68,9 +68,20 @@ public struct ControlResponse: Codable, Sendable {
     self.appPID = appPID
   }
 }
+public enum ControlOrigin: Sendable {
+  case commandLine, url, shortcut
+  var source: HoldSource {
+    switch self {
+    case .commandLine: .cli
+    case .url: .url
+    case .shortcut: .shortcut
+    }
+  }
+}
 public enum ControlRouter {
   public static func handle(
-    _ request: ControlRequest, engine: inout WakeEngine, now: Date = Date(), fromURL: Bool = false
+    _ request: ControlRequest, engine: inout WakeEngine, now: Date = Date(),
+    origin: ControlOrigin = .commandLine
   )
     -> ControlResponse
   {
@@ -112,7 +123,7 @@ public enum ControlRouter {
           ?? request.duration
         let source: HoldSource =
           request.action == .lease
-          ? .lease : request.action == .runner ? .runner : fromURL ? .url : .cli
+          ? .lease : request.action == .runner ? .runner : origin.source
         id = try engine.start(
           source: source, label: request.label, duration: duration,
           displayAwake: request.displayAwake, lowPowerOverride: request.lowPowerOverride, now: now
