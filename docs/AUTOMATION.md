@@ -73,6 +73,14 @@ or while Settings is visible. A display-sleep shortcut changes current holds;
 it reports when there are no active holds. Starts use manual hold semantics and
 remain available during the durable automation pause.
 
+## Sleep and user switching
+
+Settings → General can stop all holds when the Mac sleeps or when switching
+users. Both options start off. Enabling either uses the same durable pause as
+Stop, so waking or returning to the session cannot restart matching triggers
+until Resume automation. The sleep option applies to all system sleep events.
+Manual timers remain available while paused.
+
 ## Conditions and triggers
 
 Settings → Triggers creates named rules. All conditions inside a rule must match;

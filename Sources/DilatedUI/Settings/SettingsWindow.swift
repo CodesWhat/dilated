@@ -316,6 +316,17 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
             DesignFont.mono(13))
         }
       }
+      SettingsGroup(eyebrow: "SLEEP & USER SWITCHING") {
+        SettingsRow(
+          title: "Stop when the Mac sleeps",
+          detail:
+            "Ends all holds and pauses automation until Resume. Applies to every system sleep."
+        ) { Toggle("", isOn: $model.settings.stopOnSystemSleep).labelsHidden() }
+        SettingsRow(
+          title: "Stop when switching users",
+          detail: "Ends all holds and keeps automation paused when you return."
+        ) { Toggle("", isOn: $model.settings.stopOnUserSwitch).labelsHidden() }
+      }
       SettingsGroup(eyebrow: "UPDATES") {
         SettingsRow(title: "App updates", detail: model.updater.statusText) {
           Button("Check for Updates…") { model.updater.checkForUpdates() }

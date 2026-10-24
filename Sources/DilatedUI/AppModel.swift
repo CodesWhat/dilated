@@ -5,6 +5,8 @@ import Foundation
 import IOKit.ps
 import Observation
 
+public enum SystemTransition: Sendable { case sleep, userSwitch }
+
 public struct AppSettings: Codable, Equatable, Sendable {
   public var defaultMinutes = 0
   public var allowDisplaySleep = true
@@ -17,6 +19,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public var overrideLowPower = false
   public var startAtLaunch = false
   public var startAfterWake = false
+  public var stopOnSystemSleep = false
+  public var stopOnUserSwitch = false
   public var dockMode = "whileWindowOpen"
   public var urlAutomation = true
   public var onboardingComplete = false
@@ -47,6 +51,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
     startAtLaunch = try values.decodeIfPresent(Bool.self, forKey: .startAtLaunch) ?? startAtLaunch
     startAfterWake =
       try values.decodeIfPresent(Bool.self, forKey: .startAfterWake) ?? startAfterWake
+    stopOnSystemSleep =
+      try values.decodeIfPresent(Bool.self, forKey: .stopOnSystemSleep) ?? stopOnSystemSleep
+    stopOnUserSwitch =
+      try values.decodeIfPresent(Bool.self, forKey: .stopOnUserSwitch) ?? stopOnUserSwitch
     dockMode = try values.decodeIfPresent(String.self, forKey: .dockMode) ?? dockMode
     urlAutomation = try values.decodeIfPresent(Bool.self, forKey: .urlAutomation) ?? urlAutomation
     onboardingComplete =
@@ -248,6 +256,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
   }
   public func stopAll() { mutate { $0.stopAll() } }
+  public func handleSystemTransition(_ transition: SystemTransition) {
+    let shouldStop =
+      switch transition {
+      case .sleep: settings.stopOnSystemSleep
+      case .userSwitch: settings.stopOnUserSwitch
+      }
+    if shouldStop { stopAll() }
+  }
   public func stop(id: UUID) { mutate { $0.stop(id: id) } }
   public func resumeAutomation() {
     let wasPaused = engine.automationPaused

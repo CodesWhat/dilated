@@ -88,6 +88,14 @@ import IOKit.ps
     observe(NSApplication.didBecomeActiveNotification, center: .default) {
       model.refreshHelperStatus()
     }
+    observe(NSWorkspace.willSleepNotification, center: NSWorkspace.shared.notificationCenter) {
+      model.handleSystemTransition(.sleep)
+    }
+    observe(
+      NSWorkspace.sessionDidResignActiveNotification, center: NSWorkspace.shared.notificationCenter
+    ) {
+      model.handleSystemTransition(.userSwitch)
+    }
     observe(NSWorkspace.didWakeNotification, center: NSWorkspace.shared.notificationCenter) {
       model.refreshPower()
       model.tick()
