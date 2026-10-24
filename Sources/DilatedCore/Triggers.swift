@@ -227,7 +227,9 @@ public struct TriggerEvaluator: Sendable {
     }.min()
   }
   public mutating func resume(id: UUID, engine: inout WakeEngine) {
-    if let holdID = runtime.removeValue(forKey: id)?.holdID { engine.stop(id: holdID) }
+    if let holdID = runtime.removeValue(forKey: id)?.holdID {
+      engine.stop(id: holdID, reason: .reconfigured)
+    }
   }
   public mutating func reconcile(
     rules: [TriggerRule], inputs: TriggerInputs, engine: inout WakeEngine, now: Date = Date(),
@@ -235,20 +237,22 @@ public struct TriggerEvaluator: Sendable {
   ) {
     let ids = Set(rules.map(\.id))
     for id in runtime.keys.filter({ !ids.contains($0) }) {
-      if let holdID = runtime.removeValue(forKey: id)?.holdID { engine.stop(id: holdID) }
+      if let holdID = runtime.removeValue(forKey: id)?.holdID {
+        engine.stop(id: holdID, reason: .reconfigured, now: now)
+      }
     }
     statuses = [:]
     for rule in rules {
       var state = runtime[rule.id] ?? Runtime(rule: rule)
       if state.rule != rule {
-        if let id = state.holdID { engine.stop(id: id) }
+        if let id = state.holdID { engine.stop(id: id, reason: .reconfigured, now: now) }
         state = Runtime(rule: rule)
       }
       defer { runtime[rule.id] = state }
       let unavailable =
         !rule.enabled || engine.automationPaused || (rule.pausedUntil.map { $0 > now } ?? false)
       if unavailable || rule.validationMessage != nil {
-        if let id = state.holdID { engine.stop(id: id) }
+        if let id = state.holdID { engine.stop(id: id, reason: .reconfigured, now: now) }
         state = Runtime(rule: rule)
         statuses[rule.id] = rule.validationMessage ?? (!rule.enabled ? "Off" : "Paused")
         continue
@@ -259,7 +263,7 @@ public struct TriggerEvaluator: Sendable {
         state.suppressed = false
         if state.missingSince == nil { state.missingSince = uptime }
         if uptime - (state.missingSince ?? uptime) >= rule.graceSeconds {
-          if let id = state.holdID { engine.stop(id: id) }
+          if let id = state.holdID { engine.stop(id: id, reason: .conditionEnded, now: now) }
           state.holdID = nil
         }
         statuses[rule.id] =

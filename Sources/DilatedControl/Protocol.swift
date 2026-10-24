@@ -69,7 +69,9 @@ public struct ControlResponse: Codable, Sendable {
   }
 }
 public enum ControlRouter {
-  public static func handle(_ request: ControlRequest, engine: inout WakeEngine, now: Date = Date())
+  public static func handle(
+    _ request: ControlRequest, engine: inout WakeEngine, now: Date = Date(), fromURL: Bool = false
+  )
     -> ControlResponse
   {
     do {
@@ -82,17 +84,17 @@ public enum ControlRouter {
       case .helperStatus, .helperSetup, .helperRemove, .prepareUpdate, .prepareUninstall:
         throw InputError("Helper management requires the Dilated app.")
       case .status: break
-      case .stopAll: engine.stopAll()
+      case .stopAll: engine.stopAll(now: now)
       case .release:
         if let selected = request.id {
           guard engine.holds.contains(where: { $0.id == selected }) else {
             throw WakeError.holdNotFound
           }
-          engine.stop(id: selected)
+          engine.stop(id: selected, now: now)
         } else {
           let matches = engine.holds.filter { $0.label == request.label && $0.source != .manual }
           guard !matches.isEmpty else { throw WakeError.holdNotFound }
-          for hold in matches { engine.stop(id: hold.id) }
+          for hold in matches { engine.stop(id: hold.id, now: now) }
         }
       case .renew:
         guard let selected = request.id, let duration = request.duration else {
@@ -100,7 +102,7 @@ public enum ControlRouter {
         }
         try engine.renew(id: selected, duration: duration, now: now)
         id = selected
-      case .toggle where !engine.holds.isEmpty: engine.stopAll()
+      case .toggle where !engine.holds.isEmpty: engine.stopAll(now: now)
       case .start, .lease, .runner, .toggle:
         guard request.duration == nil || request.until == nil else {
           throw WakeError.invalidDuration
@@ -109,7 +111,8 @@ public enum ControlRouter {
           try request.until.map { try TimeInput.until($0, now: now).timeIntervalSince(now) }
           ?? request.duration
         let source: HoldSource =
-          request.action == .lease ? .lease : request.action == .runner ? .runner : .cli
+          request.action == .lease
+          ? .lease : request.action == .runner ? .runner : fromURL ? .url : .cli
         id = try engine.start(
           source: source, label: request.label, duration: duration,
           displayAwake: request.displayAwake, lowPowerOverride: request.lowPowerOverride, now: now

@@ -4,7 +4,8 @@ Keeps your Mac awake. A native macOS 26 menu bar app for Apple Silicon.
 
 The local preview includes timed and indefinite awake holds, display-sleep controls,
 battery and Low Power Mode guards, four animated menu bar glyphs, Settings,
-a global shortcut, URL automation, and a CLI with renewable agent holds.
+configurable global shortcuts, local history and statistics, URL automation, and
+a CLI with renewable agent holds.
 Closed-lid controls and their privileged helper are implemented, with hardware
 recovery and release acceptance still pending. There is no public release yet.
 Condition-based triggers are implemented locally for apps, processes, schedules,

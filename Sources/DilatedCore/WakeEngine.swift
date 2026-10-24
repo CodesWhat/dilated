@@ -52,6 +52,7 @@ public struct DesiredState: Equatable, Sendable {
 }
 public struct WakeEngine: Sendable {
   public private(set) var holds: [Hold] = []
+  private var historyEvents: [HoldHistoryEvent] = []
   public private(set) var automationPaused = false
   public private(set) var attention: String?
   public private(set) var power = PowerState()
@@ -81,6 +82,7 @@ public struct WakeEngine: Sendable {
       hold.closedLid = nil
       return hold
     }
+    for hold in holds { recordHistory(hold: hold, at: now) }
     updatePower(power, now: now)
   }
 
@@ -102,12 +104,27 @@ public struct WakeEngine: Sendable {
       lowPowerOverride: lowPowerOverride, batteryOverride: batteryOverride ? true : nil,
       closedLid: closedLid ? true : nil)
     holds.append(hold)
+    recordHistory(hold: hold, at: now)
     attention = nil
     return hold
   }
 
-  public mutating func stop(id: UUID) { holds.removeAll { $0.id == id } }
-  public mutating func stopAll() {
+  public mutating func takeHistoryEvents() -> [HoldHistoryEvent] {
+    let events = historyEvents
+    historyEvents.removeAll(keepingCapacity: true)
+    return events
+  }
+  private mutating func recordHistory(hold: Hold, at: Date, reason: HoldEndReason? = nil) {
+    historyEvents.append(.init(hold: hold, at: at, endReason: reason))
+    if historyEvents.count > 1024 { historyEvents.removeFirst(historyEvents.count - 1024) }
+  }
+  public mutating func stop(id: UUID, reason: HoldEndReason = .stopped, now: Date = Date()) {
+    guard let hold = holds.first(where: { $0.id == id }) else { return }
+    recordHistory(hold: hold, at: now, reason: reason)
+    holds.removeAll { $0.id == id }
+  }
+  public mutating func stopAll(reason: HoldEndReason = .stopped, now: Date = Date()) {
+    for hold in holds { recordHistory(hold: hold, at: now, reason: reason) }
     holds.removeAll()
     automationPaused = true
     attention = nil
@@ -116,8 +133,14 @@ public struct WakeEngine: Sendable {
     automationPaused = false
     attention = nil
   }
-  public mutating func quit() { holds.removeAll() }
+  public mutating func quit(reason: HoldEndReason = .quit, now: Date = Date()) {
+    for hold in holds { recordHistory(hold: hold, at: now, reason: reason) }
+    holds.removeAll()
+  }
   public mutating func tick(now: Date = Date()) {
+    for hold in holds where hold.expiry.map({ $0 <= now }) == true {
+      recordHistory(hold: hold, at: hold.expiry!, reason: .expired)
+    }
     holds.removeAll { $0.expiry.map { $0 <= now } ?? false }
   }
   public mutating func updatePower(_ power: PowerState, now: Date = Date()) {
@@ -125,6 +148,13 @@ public struct WakeEngine: Sendable {
     tick(now: now)
     let before = holds.count
     let lowBattery = batteryBlocked
+    for hold in holds {
+      if lowBattery && hold.batteryOverride != true {
+        recordHistory(hold: hold, at: now, reason: .lowBattery)
+      } else if power.lowPowerMode && !hold.lowPowerOverride {
+        recordHistory(hold: hold, at: now, reason: .lowPowerMode)
+      }
+    }
     holds.removeAll { hold in
       (power.lowPowerMode && !hold.lowPowerOverride) || (lowBattery && hold.batteryOverride != true)
     }

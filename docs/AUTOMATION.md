@@ -144,6 +144,27 @@ request or connection error, and `run` returns its child command's status. With
 `code`/`message`; timestamps are Unix seconds. A false `ok` is a failure even when
 the response also includes diagnostic state.
 
+## Local history
+
+Settings → Statistics shows recent app-managed awake reasons, sources, durations
+and end causes. Overlapping holds count once in Hold time. These totals describe
+requests made through Dilated, rather than physical Mac uptime. A standalone
+`dilated run` without the app isn't included. Automation links retain their own
+source, separate from command line requests.
+
+History stays on this Mac. Recording starts enabled with 30-day retention; choose
+7, 30 or 90 days, turn off future recording, export JSON or clear records. Turning
+recording back on during a hold begins a new segment. Clear keeps active work
+running and starts its history again from that moment. Completed history is bounded
+to 2,000 records and 2 MB; up to 1,024 concurrent active entries are recorded.
+
+After a crash, interrupted entries end at their last saved checkpoint, rather
+than claiming time while the app was unavailable. Checkpoints run every 20 seconds
+while holds are active. A restored timer starts a new history segment with the same
+hold ID and original expiry. Durations use wall-clock dates, so changing the system
+clock can affect them. Failed writes are reported and retried; corrupt history is
+preserved until Clear. No diagnostic/history files are uploaded.
+
 ## Package preparation
 
 `dilated prepare-update [--json]` prepares an external package upgrade and quits

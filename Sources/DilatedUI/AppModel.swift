@@ -21,6 +21,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public var startAfterWake = false
   public var stopOnSystemSleep = false
   public var stopOnUserSwitch = false
+  public var historyEnabled = true
+  public var historyRetentionDays = 30
   public var dockMode = "whileWindowOpen"
   public var urlAutomation = true
   public var onboardingComplete = false
@@ -55,6 +57,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
       try values.decodeIfPresent(Bool.self, forKey: .stopOnSystemSleep) ?? stopOnSystemSleep
     stopOnUserSwitch =
       try values.decodeIfPresent(Bool.self, forKey: .stopOnUserSwitch) ?? stopOnUserSwitch
+    historyEnabled =
+      try values.decodeIfPresent(Bool.self, forKey: .historyEnabled) ?? historyEnabled
+    historyRetentionDays =
+      try values.decodeIfPresent(Int.self, forKey: .historyRetentionDays) ?? historyRetentionDays
+    if ![7, 30, 90].contains(historyRetentionDays) { historyRetentionDays = 30 }
     dockMode = try values.decodeIfPresent(String.self, forKey: .dockMode) ?? dockMode
     urlAutomation = try values.decodeIfPresent(Bool.self, forKey: .urlAutomation) ?? urlAutomation
     onboardingComplete =
@@ -101,11 +108,23 @@ public struct AppSettings: Codable, Equatable, Sendable {
         {
           engine.clearClosedLidRequests()
         }
+        if oldValue.historyEnabled != settings.historyEnabled
+          || oldValue.historyRetentionDays != settings.historyRetentionDays
+        {
+          historyNeedsCompaction = true
+        }
         refreshPower()
       } catch { message = "Couldn't save settings: \(error.localizedDescription)" }
       onChange?()
     }
   }
+  public private(set) var history = SessionHistory()
+  public private(set) var historyIssue: String?
+  @ObservationIgnored private var historyAvailable = true
+  @ObservationIgnored private var historyWasEnabled = true
+  @ObservationIgnored private var historyNeedsCompaction = true
+  @ObservationIgnored private var lastHistoryCheckpoint = Date.distantPast
+  @ObservationIgnored private let historyStore: HistoryStore
   public private(set) var triggerRules: [TriggerRule] = []
   public private(set) var triggerStatuses: [UUID: String] = [:]
   @ObservationIgnored private var triggerEvaluator = TriggerEvaluator()
@@ -132,6 +151,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored private var stopped = false
   @ObservationIgnored private var preparingToQuit = false
   @ObservationIgnored private var savedForUpdate = false
+  @ObservationIgnored private var historyShutdownReason = HoldEndReason.quit
   @ObservationIgnored private var lidChange: Task<Void, any Error>?
   private var settingsFile: URL { endpoint.stateDirectory.appendingPathComponent("settings.json") }
   public var attention: String? { message ?? engine.attention }
@@ -151,6 +171,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   ) {
     self.endpoint = endpoint
     self.store = StateStore(directory: endpoint.stateDirectory)
+    self.historyStore = HistoryStore(directory: endpoint.stateDirectory)
     self.readPower = power
     self.assertions = assertions
     self.closedLid = closedLid ?? ClosedLidController()
@@ -179,6 +200,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
       } catch { loadMessage = "Couldn't load triggers: \(error.localizedDescription)" }
     }
     settings = loadedSettings
+    historyWasEnabled = loadedSettings.historyEnabled
+    do { history = try historyStore.load(retentionDays: loadedSettings.historyRetentionDays) } catch
+    {
+      historyIssue =
+        "Couldn't load history: \(error.localizedDescription) Clear history to start again."
+      historyAvailable = false
+    }
     let snapshot: EngineSnapshot
     do { snapshot = try store.load() } catch {
       snapshot = EngineSnapshot(automationPaused: true)
@@ -262,7 +290,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       case .sleep: settings.stopOnSystemSleep
       case .userSwitch: settings.stopOnUserSwitch
       }
-    if shouldStop { stopAll() }
+    if shouldStop { mutate { $0.stopAll(reason: transition == .sleep ? .sleep : .userSwitch) } }
   }
   public func stop(id: UUID) { mutate { $0.stop(id: id) } }
   public func resumeAutomation() {
@@ -344,7 +372,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
   }
   public func sleepNow() async {
-    engine.stopAll()
+    engine.stopAll(reason: .sleep)
     commit(resetClosedLid: false)
     do {
       try await lidChange?.value
@@ -426,6 +454,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         snapshot: engine.snapshot, power: readPower(), batteryFloor: engine.batteryFloor)
       try store.save(restored.snapshot)
       savedForUpdate = true
+      historyShutdownReason = .update
       shutdown()
       return true
     } catch {
@@ -480,6 +509,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
           intent: intent, appPath: app.resolvingSymlinksInPath().path, preparedAt: Date(),
           helperWasApproved: intent == .update && helperWasApproved))
       savedForUpdate = true
+      historyShutdownReason = intent == .update ? .update : .packageRemoval
       shutdown()
       message =
         intent == .update
@@ -508,10 +538,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
       commit()
     } else if now.timeIntervalSince(lastAssertionRefresh) >= 20 {
       synchronizeAssertions()
+      recordHistory()
     }
     onChange?()
   }
-  public func control(_ request: ControlRequest) async -> ControlResponse {
+  public func control(_ request: ControlRequest, fromURL: Bool = false) async -> ControlResponse {
     guard !stopped, !preparingToQuit else {
       return ControlResponse(ok: false, message: "Dilated is quitting.", code: "unavailable")
     }
@@ -538,7 +569,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     var effective = request
     effective.closedLid = false
     effective.lowPowerOverride = request.lowPowerOverride || settings.overrideLowPower
-    var response = ControlRouter.handle(effective, engine: &engine)
+    var response = ControlRouter.handle(effective, engine: &engine, fromURL: fromURL)
     if !commit() {
       response.ok = false
       response.message = message
@@ -546,7 +577,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     if response.ok, request.closedLid, let id = response.id {
       do { try await setClosedLid(id: id, enabled: true, allowPrompt: false) } catch {
-        engine.stop(id: id)
+        engine.stop(id: id, reason: .helperFailure)
         commit()
         try? await synchronizeClosedLid()
         response.ok = false
@@ -610,7 +641,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         throw HelperClientError.rejected(
           "Allow closed-lid automation links in Closed Lid settings first.")
       }
-      let response = await control(request)
+      let response = await control(request, fromURL: true)
       if !response.ok { message = response.message }
     } catch { message = error.localizedDescription }
     onChange?()
@@ -623,7 +654,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     timer?.invalidate()
     timer = nil
     closedLid.invalidate()
-    engine.quit()
+    engine.quit(reason: historyShutdownReason)
+    now = Date()
+    recordHistory()
     if !savedForUpdate {
       do { try store.save(engine.snapshot) } catch {
         message = "Couldn't clear saved holds: \(error.localizedDescription)"
@@ -649,6 +682,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       return nil
     } catch {
       message = error.localizedDescription
+      commit()
       onChange?()
       return error as? WakeError
     }
@@ -664,6 +698,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       message = "Couldn't save awake state: \(error.localizedDescription)"
       saved = false
     }
+    recordHistory()
     let applied = synchronizeAssertions()
     if resetClosedLid { queueClosedLidReset() }
     if !engine.holds.isEmpty && timer == nil && !stopped {
@@ -689,6 +724,49 @@ public struct AppSettings: Codable, Equatable, Sendable {
       message = error.localizedDescription
       return false
     }
+  }
+  private func recordHistory() {
+    let events = engine.takeHistoryEvents()
+    guard historyAvailable else { return }
+    let changedRecording = historyWasEnabled != settings.historyEnabled
+    if settings.historyEnabled {
+      if changedRecording {
+        history.receive(engine.holds.map { .init(hold: $0, at: now) }, now: now)
+      }
+      history.receive(events, now: now)
+    } else if changedRecording {
+      history.finishActive(at: now, reason: .recordingDisabled)
+    }
+    historyWasEnabled = settings.historyEnabled
+    let completed = events.contains { $0.endReason != nil }
+    historyNeedsCompaction = historyNeedsCompaction || changedRecording || completed
+    guard
+      historyNeedsCompaction || changedRecording || !events.isEmpty
+        || (!history.active.isEmpty && now.timeIntervalSince(lastHistoryCheckpoint) >= 20)
+    else { return }
+    do {
+      history = try historyStore.save(
+        history, now: now, retentionDays: settings.historyRetentionDays,
+        includingRecords: historyNeedsCompaction || changedRecording || completed)
+      historyNeedsCompaction = false
+      lastHistoryCheckpoint = now
+      historyIssue = nil
+    } catch { historyIssue = "Couldn't save history: \(error.localizedDescription)" }
+  }
+  public func clearHistory() {
+    now = Date()
+    history.clear(at: now)
+    historyAvailable = true
+    if settings.historyEnabled {
+      history.receive(engine.holds.map { .init(hold: $0, at: now) }, now: now)
+    }
+    historyNeedsCompaction = true
+    recordHistory()
+    onChange?()
+  }
+  public func exportHistory() throws -> Data {
+    guard historyAvailable else { throw HistoryError(historyIssue ?? "History is unavailable.") }
+    return try historyStore.export(history, now: Date())
   }
   private func writeSettings(_ value: AppSettings) throws {
     try FileManager.default.createDirectory(

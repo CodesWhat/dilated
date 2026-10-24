@@ -79,5 +79,21 @@ Specific processes are identified by PID and start time to avoid PID reuse.
 Global automation pause removes monitoring and polling. Network identity uses
 IP/subnet, gateway and DNS configuration without Location access.
 
+The engine emits bounded start/end events carrying the actual hold and end cause.
+`SessionHistory` tracks app-managed reasons and calculates their interval union in
+O(n log n), so concurrent holds don't multiply total requested time. It does not
+measure hardware uptime or standalone assertions while the app is unavailable.
+
+`HistoryStore` atomically compacts completed JSONL records to the selected 7/30/90
+day retention, at most 2,000 records and 2 MB. Active reasons use a separate private
+checkpoint, saved at transitions and every 20 seconds using the existing active
+hold timer. Completed history is rewritten only when it changes or retention is
+changed. No extra idle timer is created. Up to 1,024 concurrent history entries
+are retained without limiting the hold engine. Files use 0600 within the private
+application-support directory. On recovery, old entries end at the last checkpoint
+with an interrupted cause; restored timers begin new segments. Corrupt history is
+preserved until explicit Clear and never prevents stopping or starting awake work.
+Statistics provides local JSON export, source filtering, recording and clear controls.
+
 No runtime, build or test depends on `.planning/`. The private roadmap owns phase
 tracking; shipped documentation and CI use tracked files only.

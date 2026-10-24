@@ -51,6 +51,25 @@ import Testing
     #expect(bitmap.pixelsWide >= 560 && bitmap.pixelsHigh >= 600)
   }
 
+  @Test func historyRendersRealActiveAndCompletedReasons() throws {
+    _ = NSApplication.shared
+    FontRegistry.registerBundledFonts()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    model.start(duration: 60)
+    model.stopAll()
+    model.start(duration: 120)
+    let view = NSHostingView(rootView: HistorySettings(model: model).padding(28).frame(width: 700))
+    view.setFrameSize(view.fittingSize)
+    view.layoutSubtreeIfNeeded()
+    let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+    view.cacheDisplay(in: view.bounds, to: bitmap)
+    #expect(bitmap.pixelsWide >= 700)
+    #expect(model.history.records.count == 1 && model.history.active.count == 1)
+  }
+
   @Test func settingsRenderInLightAndDarkWithoutShowingAWindow() throws {
     _ = NSApplication.shared
     FontRegistry.registerBundledFonts()

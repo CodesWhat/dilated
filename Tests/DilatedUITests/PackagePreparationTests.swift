@@ -50,6 +50,7 @@ import Testing
         .uninstall, app: app, removeLoginItem: { operations.append("login") },
         removeCommandLine: { operations.append("cli") }))
     #expect(operations == ["login", "cli"])
+    #expect(model.history.records.first?.endReason?.rawValue == "packageRemoval")
     #expect(try StateStore(directory: directory).load().holds.isEmpty)
     #expect(
       (try? PackageHandoffStore(directory: directory).requirePrepared(app: app))?.intent
