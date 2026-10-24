@@ -77,6 +77,12 @@ class ReleaseGuardsTests(unittest.TestCase):
         self.assertTrue(info['SUVerifyUpdateBeforeExtraction'])
         self.assertTrue(info['DilatedUpdatesEnabled'])
         release.validate_automation_bundle(app)
+        import json
+        actions = json.loads((app / 'Contents/Resources/Metadata.appintents/extract.actionsdata').read_bytes())['actions']
+        display = next(item for item in actions['StartAwakeIntent']['parameters'] if item['name'] == 'allowDisplaySleep')
+        self.assertFalse(display['isOptional'])
+        self.assertEqual(display['typeSpecificMetadata'], [
+            'LNValueTypeSpecificMetadataKeyDefaultValue', {'int': {'wrapper': 1}}])
         linked = subprocess.check_output(['otool', '-L', str(app / 'Contents/MacOS/DilatedApp')], text=True)
         self.assertIn('@rpath/Sparkle.framework', linked)
         for binary in ['dilated', 'dilated-helper']:
@@ -88,7 +94,6 @@ class ReleaseGuardsTests(unittest.TestCase):
         self.assertTrue(helper['KeepAlive'])
         self.assertEqual(release.validate_helper_bundle(app), app / helper['BundleProgram'])
         probe = subprocess.check_output([str(app / helper['BundleProgram']), '--inspect'], text=True)
-        import json
         self.assertEqual(json.loads(probe)['protocolVersion'], 1)
         subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
         import os

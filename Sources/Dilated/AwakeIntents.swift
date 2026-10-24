@@ -12,7 +12,7 @@ struct StartAwakeIntent: AppIntent {
   @AppDependency var service: AutomationService
   @Parameter(title: "Duration in minutes", description: "Leave empty to keep awake indefinitely.")
   var minutes: Double?
-  @Parameter(title: "Allow display sleep") var allowDisplaySleep: Bool?
+  @Parameter(title: "Allow display sleep", default: true) var allowDisplaySleep: Bool
   static var parameterSummary: some ParameterSummary {
     Summary("Keep the Mac awake") {
       \.$minutes
@@ -25,7 +25,7 @@ struct StartAwakeIntent: AppIntent {
         "Duration must be positive and no more than ten years. Leave it empty for indefinite.")
     }
     let id = try await service.start(
-      duration: minutes.map { $0 * 60 }, displayAwake: allowDisplaySleep.map { !$0 })
+      duration: minutes.map { $0 * 60 }, displayAwake: !allowDisplaySleep)
     return .result(value: id.uuidString)
   }
 }
