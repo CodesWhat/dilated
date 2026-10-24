@@ -7,6 +7,39 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct MenuTests {
+  @Test func menuUsesTheStatusItemAnchorAndRestoresQuickClickHandling() throws {
+    _ = NSApplication.shared
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    var presented: [NSMenu] = []
+    let controller = MenuBarController(
+      model: model, openSettings: {},
+      presentMenu: { item in
+        if let menu = item.menu { presented.append(menu) }
+      })
+    defer { controller.stop() }
+    let button = try #require(controller.statusItem.button)
+    let action = button.action
+    let target = button.target
+    controller.showMenu()
+    try #require(presented.count == 1)
+    #expect(controller.statusItem.menu === presented[0])
+    presented[0].delegate?.menuDidClose?(presented[0])
+    #expect(controller.statusItem.menu == nil)
+    #expect(button.action == action && button.target === target)
+    model.stopAll()
+    controller.showMenu()
+    try #require(presented.count == 2)
+    #expect(controller.statusItem.menu === presented[1])
+    presented[1].delegate?.menuDidClose?(presented[1])
+    #expect(presented[0] !== presented[1])
+    #expect(presented.last?.items.contains { $0.title == "Resume automation" } == true)
+    #expect(controller.statusItem.menu == nil)
+    #expect(button.action == action && button.target === target)
+  }
+
   @Test func statusAndPauseUseNativeMenuRows() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }

@@ -5,6 +5,7 @@ import AppKit
   let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
   private let model: AppModel
   private let openSettings: () -> Void
+  private let presentMenu: @MainActor (NSStatusItem) -> Void
   private var wasAwake = false
   private var began = ProcessInfo.processInfo.systemUptime
   private var eyeMotionBegan = ProcessInfo.processInfo.systemUptime
@@ -17,9 +18,13 @@ import AppKit
   private var reducedMotion = false
   private weak var openMenu: NSMenu?
 
-  init(model: AppModel, openSettings: @escaping () -> Void) {
+  init(
+    model: AppModel, openSettings: @escaping () -> Void,
+    presentMenu: @escaping @MainActor (NSStatusItem) -> Void = { $0.button?.performClick(nil) }
+  ) {
     self.model = model
     self.openSettings = openSettings
+    self.presentMenu = presentMenu
     super.init()
     statusItem.button?.target = self
     statusItem.button?.action = #selector(clicked)
@@ -37,10 +42,11 @@ import AppKit
     showMenu()
   }
   func showMenu() {
-    guard let button = statusItem.button else { return }
+    guard statusItem.button != nil else { return }
     let menu = AwakeMenu.make(model: model, openSettings: openSettings)
     menu.delegate = self
-    menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.minY - 4), in: button)
+    statusItem.menu = menu
+    presentMenu(statusItem)
   }
   func refresh() {
     if let openMenu { AwakeMenu.refreshStatus(in: openMenu, model: model) }
@@ -101,7 +107,10 @@ import AppKit
     statusItem.button?.setAccessibilityLabel(description)
   }
   func menuWillOpen(_ menu: NSMenu) { openMenu = menu }
-  func menuDidClose(_ menu: NSMenu) { openMenu = nil }
+  func menuDidClose(_ menu: NSMenu) {
+    openMenu = nil
+    if statusItem.menu === menu { statusItem.menu = nil }
+  }
   private func animateBurst() {
     burst?.invalidate()
     eyeMotionBegan = ProcessInfo.processInfo.systemUptime
