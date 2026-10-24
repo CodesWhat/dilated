@@ -34,7 +34,8 @@ import Foundation
           throw InputError(
             "macOS hasn't confirmed sleep-disable is off. Repair the helper before continuing.")
         }
-        try await PackageHelperCheck.verifyAbsent()
+        try await PackageHelperCheck.verifyAbsent(
+          appExecutable: app.appendingPathComponent("Contents/MacOS/DilatedApp"))
         print("Package preparation verified.")
         return
       }
