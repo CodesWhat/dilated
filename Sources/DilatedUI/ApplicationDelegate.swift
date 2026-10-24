@@ -10,6 +10,7 @@ import IOKit.ps
   private var settings: SettingsWindow?
   private var dock: DockPresence?
   private let shortcuts = GlobalShortcuts()
+  private lazy var shortcutBindings = ShortcutBindings(registrar: shortcuts)
   private var powerSource: CFRunLoopSource?
   private var observers: [(NotificationCenter, NSObjectProtocol)] = []
   private var started = false
@@ -43,6 +44,7 @@ import IOKit.ps
     model.onChange = { [weak self] in
       self?.menu?.refresh()
       self?.dock?.refresh()
+      self?.refreshShortcuts()
     }
     model.onBatteryOverrideNeeded = { [weak model] duration in
       guard let model else { return }
@@ -67,9 +69,12 @@ import IOKit.ps
       NSApp.activate()
       return alert.runModal() == .alertSecondButtonReturn
     }
-    if !shortcuts.register(.toggle, action: { [weak model] in model?.toggle() }) {
-      model.message = "The global shortcut ⌃⌥⌘D is in use by another app."
+    model.onShortcutAssignment = { [weak self] configuration in
+      guard let self else { return "Dilated is quitting." }
+      return self.shortcutBindings.update(configuration) { [weak self] in self?.performShortcut($0)
+      }
     }
+    refreshShortcuts()
     powerSource = IOPSNotificationCreateRunLoopSource(
       { context in
         guard let context else { return }
@@ -107,6 +112,8 @@ import IOKit.ps
       AwakeMenu.action("Check for Updates…") { [weak self] in
         self?.model?.updater.checkForUpdates()
       })
+    appMenu.addItem(
+      AwakeMenu.action("Open Menu Bar Menu") { [weak self] in self?.menu?.showMenu() })
     appMenu.addItem(.separator())
     appMenu.addItem(AwakeMenu.action("Quit Dilated", key: "q") { NSApp.terminate(nil) })
     appItem.submenu = appMenu
@@ -122,6 +129,30 @@ import IOKit.ps
     editItem.submenu = edit
     main.addItem(editItem)
     NSApp.mainMenu = main
+  }
+  private func refreshShortcuts() {
+    guard let model else { return }
+    if model.shortcutRecording {
+      shortcutBindings.suspend()
+      return
+    }
+    if let error = shortcutBindings.update(
+      model.settings.shortcuts, action: { [weak self] in self?.performShortcut($0) })
+    {
+      model.message = error
+    }
+  }
+  private func performShortcut(_ action: ShortcutAction) {
+    guard let model else { return }
+    switch action {
+    case .toggle: model.toggle()
+    case .startDefault: model.startDefault()
+    case .stop: model.stopAll()
+    case .start15: model.start(duration: 900)
+    case .start60: model.start(duration: 3600)
+    case .toggleDisplay: model.toggleDisplaySleep()
+    case .openMenu: menu?.showMenu()
+    }
   }
   private func observe(
     _ name: Notification.Name, center: NotificationCenter, action: @escaping @MainActor () -> Void
@@ -153,7 +184,7 @@ import IOKit.ps
     guard started else { return }
     model?.shutdown()
     server?.stop()
-    shortcuts.unregisterAll()
+    shortcutBindings.stop()
     menu?.stop()
     settings?.stop()
     if let powerSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), powerSource, .commonModes) }

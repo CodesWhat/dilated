@@ -5,8 +5,8 @@ import OSLog
 
 /// System-wide key shortcuts through Carbon `RegisterEventHotKey`, which needs no extra permissions.
 @MainActor
-final class GlobalShortcuts {
-  struct Shortcut: Equatable {
+final class GlobalShortcuts: ShortcutRegistering {
+  struct Shortcut: Equatable, Hashable {
     var keyCode: Int
     var modifiers: Int
 
@@ -23,6 +23,9 @@ final class GlobalShortcuts {
   /// False when the system refused the combination (another app holds it).
   @discardableResult
   func register(_ shortcut: Shortcut, action: @escaping @MainActor () -> Void) -> Bool {
+    guard (0..<128).contains(shortcut.keyCode), shortcut.modifiers >= 0,
+      shortcut.modifiers & ~(cmdKey | controlKey | optionKey | shiftKey) == 0
+    else { return false }
     installHandlerIfNeeded()
     let id = nextID
     var ref: EventHotKeyRef?

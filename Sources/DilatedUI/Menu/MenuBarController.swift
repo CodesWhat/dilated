@@ -34,6 +34,9 @@ import AppKit
       refresh()
       return
     }
+    showMenu()
+  }
+  func showMenu() {
     guard let button = statusItem.button else { return }
     let menu = AwakeMenu.make(model: model, openSettings: openSettings)
     menu.delegate = self

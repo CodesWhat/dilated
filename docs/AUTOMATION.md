@@ -53,6 +53,26 @@ relaunched app no longer recognizes the registered ID, the runner releases its
 awake claim and lets the command finish. Renewable agent holds must likewise
 obtain a new ID after their previous hold ends; expired IDs are not resurrected.
 
+## Keyboard shortcuts
+
+Settings → Hot Keys assigns global shortcuts for start/stop, default duration,
+15 minutes, one hour, stopping all work, toggling display sleep for current holds,
+and opening the menu bar menu. The original Control-Option-Command-D toggle is
+the only default assignment. Extra actions stay unassigned until configured.
+
+Record a combination containing Control or Command, release the keys, then Save.
+Escape cancels; Clear removes the assignment. Dilated suspends its global keys
+while the recorder sheet is open so recording an existing key won't start/stop
+work. Recording uses local app events and requires no Accessibility permission.
+Conflicting Dilated assignments are rejected, and unavailable system registrations
+restore the previously working bindings. A failed save doesn't activate an
+unsaved binding. Shortcuts are stored locally with the other preferences.
+
+Use Dilated → Open Menu Bar Menu to open the same native menu from the keyboard
+or while Settings is visible. A display-sleep shortcut changes current holds;
+it reports when there are no active holds. Starts use manual hold semantics and
+remain available during the durable automation pause.
+
 ## Conditions and triggers
 
 Settings → Triggers creates named rules. All conditions inside a rule must match;

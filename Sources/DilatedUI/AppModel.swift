@@ -27,6 +27,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public var closedLidURLAutomation = false
   public var closedLidWarningSound = false
   public var presets = [15, 30, 60, 120, 240, 480]
+  public var shortcuts = AwakeShortcut.defaults
   public init() {}
   public init(from decoder: any Decoder) throws {
     self.init()
@@ -65,6 +66,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
       ?? closedLidURLAutomation
     closedLidWarningSound =
       try values.decodeIfPresent(Bool.self, forKey: .closedLidWarningSound) ?? closedLidWarningSound
+    shortcuts =
+      try values.decodeIfPresent([ShortcutAction: AwakeShortcut].self, forKey: .shortcuts)
+      ?? shortcuts
     presets = try values.decodeIfPresent([Int].self, forKey: .presets) ?? presets
     defaultMinutes = min(10080, max(0, defaultMinutes))
     batteryFloor = batteryFloor == 0 ? 0 : min(100, max(10, batteryFloor))
@@ -80,7 +84,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public var settings: AppSettings {
     didSet {
       do {
-        try JSONEncoder().encode(settings).write(to: settingsFile, options: .atomic)
+        try writeSettings(settings)
         engine.batteryFloor = settings.batteryFloor > 0 ? settings.batteryFloor : nil
         if oldValue.closedLidBatteryFloor != settings.closedLidBatteryFloor
           || oldValue.closedLidBatteryMinutes != settings.closedLidBatteryMinutes
@@ -100,6 +104,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored private var triggerMonitor: TriggerMonitor?
   @ObservationIgnored private var lastTriggerInputs = TriggerInputs()
   @ObservationIgnored private var hasBegun = false
+  @ObservationIgnored public var onShortcutAssignment:
+    (([ShortcutAction: AwakeShortcut]) -> String?)?
+  public var shortcutRecording = false { didSet { onChange?() } }
   public var message: String?
   public private(set) var now = Date()
   @ObservationIgnored public var onChange: (() -> Void)?
@@ -146,6 +153,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
     if FileManager.default.fileExists(atPath: file.path) {
       do {
         loadedSettings = try JSONDecoder().decode(AppSettings.self, from: Data(contentsOf: file))
+        if let error = ShortcutBindings.validationError(loadedSettings.shortcuts) {
+          loadedSettings.shortcuts = [:]
+          loadMessage = "Saved shortcuts were disabled: \(error)"
+        }
       } catch { loadMessage = "Couldn't read settings: \(error.localizedDescription)" }
     }
     let triggerFile = endpoint.stateDirectory.appendingPathComponent("triggers.json")
@@ -661,6 +672,42 @@ public struct AppSettings: Codable, Equatable, Sendable {
     } catch {
       message = error.localizedDescription
       return false
+    }
+  }
+  private func writeSettings(_ value: AppSettings) throws {
+    try FileManager.default.createDirectory(
+      at: endpoint.stateDirectory, withIntermediateDirectories: true,
+      attributes: [.posixPermissions: 0o700])
+    try JSONEncoder().encode(value).write(to: settingsFile, options: .atomic)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o600], ofItemAtPath: settingsFile.path)
+  }
+  public func assignShortcut(_ shortcut: AwakeShortcut?, to action: ShortcutAction) throws {
+    var configuration = settings.shortcuts
+    configuration[action] = shortcut
+    if let error = ShortcutBindings.validationError(configuration) {
+      throw InputError(error)
+    }
+    var candidate = settings
+    candidate.shortcuts = configuration
+    try writeSettings(candidate)
+    if let issue = onShortcutAssignment?(configuration) {
+      do { try writeSettings(settings) } catch {
+        throw InputError("\(issue) Couldn't restore saved shortcuts: \(error.localizedDescription)")
+      }
+      throw InputError(issue)
+    }
+    settings = candidate
+  }
+  public func toggleDisplaySleep() {
+    guard !engine.holds.isEmpty else {
+      message = "Start an awake hold first."
+      onChange?()
+      return
+    }
+    let enabled = !engine.desiredState.displayAwake
+    mutate { engine in
+      for id in engine.holds.map(\.id) { engine.setDisplayAwake(id: id, enabled: enabled) }
     }
   }
   public func saveTrigger(_ rule: TriggerRule) throws {
