@@ -8,7 +8,7 @@
     </command>
     <command name="start new session" code="amphcmOn" description="Replace only AppleScript-owned work. Other awake holds remain active. Automation must be resumed first.">
       <cocoa class="DilatedScriptCommand"/>
-      <parameter name="with options" code="optn" type="record" optional="yes" description="Optional duration and interval together, plus displaySleepAllowed. Use minutes or hours for interval. Use duration:0, interval:0 for indefinite. Missing options use current session defaults.">
+      <parameter name="with options" code="optn" type="session options" optional="yes" description="Optional duration and interval together, plus displaySleepAllowed. Use minutes or hours for interval. Use duration:0, interval:0 for indefinite. Missing options use current session defaults.">
         <cocoa key="options"/>
       </parameter>
     </command>
@@ -53,5 +53,8 @@
     <command name="disable Triggers" code="amphDsTr" description="End trigger holds and disable their master switch while preserving individual rule choices and unrelated work.">
       <cocoa class="DilatedScriptCommand"/>
     </command>
+    <value-type name="session options" code="reco">
+      <cocoa class="DilatedScriptOptionsRecord"/>
+    </value-type>
   </suite>
 </dictionary>

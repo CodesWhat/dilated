@@ -2,6 +2,18 @@ import AppKit
 import Carbon
 import DilatedControl
 
+// Cocoa needs a converter before it can deliver arbitrary record fields to the command.
+@objc(DilatedScriptOptionsRecord) final class DilatedScriptOptionsRecord: NSObject {
+  @objc let descriptor: NSAppleEventDescriptor
+  private init(descriptor: NSAppleEventDescriptor) { self.descriptor = descriptor }
+  @objc(scriptingSessionOptionsWithDescriptor:)
+  class func scriptingSessionOptions(with descriptor: NSAppleEventDescriptor)
+    -> DilatedScriptOptionsRecord
+  {
+    DilatedScriptOptionsRecord(descriptor: descriptor)
+  }
+}
+
 @MainActor @objc(DilatedScriptCommand) public final class DilatedScriptCommand: NSScriptCommand {
   public nonisolated override func performDefaultImplementation() -> Any? {
     guard Thread.isMainThread else {
