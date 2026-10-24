@@ -1,7 +1,6 @@
 // NSMenu composition follows CodesWhat/Mouthtype's DailyMenu, Scott Benson, MIT.
 import AppKit
 import DilatedCore
-import SwiftUI
 
 @MainActor private final class MenuCommand: NSObject {
   let body: () -> Void
@@ -25,11 +24,10 @@ import SwiftUI
   static func make(model: AppModel, openSettings: @escaping () -> Void) -> NSMenu {
     let menu = NSMenu()
     menu.autoenablesItems = false
-    let card = NSMenuItem()
-    let hosting = NSHostingView(rootView: AwakeCard(model: model) { menu.cancelTracking() })
-    hosting.frame = NSRect(x: 0, y: 0, width: 340, height: hosting.fittingSize.height)
-    card.view = hosting
-    menu.addItem(card)
+    menu.addItem(.sectionHeader(title: model.statusText))
+    if model.closedLid.active { menu.addItem(information("Closed-lid armed")) }
+    if model.engine.automationPaused { menu.addItem(information("Automation paused")) }
+    if let attention = model.attention { menu.addItem(information(attention)) }
     menu.addItem(.separator())
     menu.addItem(
       action(model.engine.holds.isEmpty ? "Keep Awake" : "Stop", key: "d") { model.toggle() })
@@ -51,6 +49,23 @@ import SwiftUI
     let durationItem = NSMenuItem(title: "Keep awake for", action: nil, keyEquivalent: "")
     durationItem.submenu = durations
     menu.addItem(durationItem)
+    if !model.engine.holds.isEmpty {
+      let reasons = NSMenu()
+      reasons.autoenablesItems = false
+      for hold in model.engine.holds.prefix(6) {
+        let remaining =
+          hold.expiry.map { AppModel.remaining(until: $0, now: model.now) + " left" }
+          ?? "Indefinite"
+        reasons.addItem(action("Stop \(hold.label) (\(remaining))") { model.stop(id: hold.id) })
+      }
+      if model.engine.holds.count > 6 {
+        reasons.addItem(
+          action("\(model.engine.holds.count - 6) more in Settings…", body: openSettings))
+      }
+      let item = NSMenuItem(title: "Awake reasons", action: nil, keyEquivalent: "")
+      item.submenu = reasons
+      menu.addItem(item)
+    }
     let timed = model.engine.holds.filter { $0.expiry != nil }
     if !timed.isEmpty {
       let extend = NSMenu()
@@ -100,6 +115,18 @@ import SwiftUI
     return menu
   }
 
+  static func refreshStatus(in menu: NSMenu, model: AppModel) {
+    menu.items.first?.title = model.statusText
+    menu.items.first { $0.keyEquivalent == "d" }?.title =
+      model.engine.holds.isEmpty ? "Keep Awake" : "Stop"
+  }
+
+  private static func information(_ title: String) -> NSMenuItem {
+    let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+    item.isEnabled = false
+    return item
+  }
+
   private static func prompt(model: AppModel, until: Bool) {
     let alert = NSAlert()
     alert.messageText = until ? "Keep awake until" : "Keep awake for"
@@ -121,65 +148,5 @@ import SwiftUI
         until ? try TimeInput.until(value).timeIntervalSinceNow : try TimeInput.duration(value)
       model.start(duration: duration)
     } catch { model.message = error.localizedDescription }
-  }
-}
-
-@MainActor private struct AwakeCard: View {
-  @Bindable var model: AppModel
-  var close: () -> Void
-  var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack(spacing: 10) {
-        if let eyes = Glyph.bugEyes.image(frame: Glyph.bugEyes.stillFrame) {
-          Image(nsImage: eyes).resizable().interpolation(.none)
-            .frame(width: 28, height: 26).accessibilityHidden(true)
-        }
-        Text("dilated").font(DesignFont.wordmark(28))
-        Spacer()
-      }
-      .foregroundStyle(DesignPalette.sideSelection)
-      .padding(.horizontal, 14).padding(.vertical, 6)
-      .background(DesignPalette.accent)
-      .padding(.horizontal, -14).padding(.top, -14).padding(.bottom, 4)
-      Text(model.statusText).font(DesignFont.heading(24)).fixedSize(
-        horizontal: false, vertical: true)
-      if model.closedLid.active {
-        Text("Closed-lid armed").font(DesignFont.sans(11, .medium))
-      }
-      if model.engine.automationPaused {
-        Text("Automation paused until you choose Resume automation.")
-          .font(DesignFont.sans(11)).foregroundStyle(DesignPalette.ink2)
-          .fixedSize(horizontal: false, vertical: true)
-      }
-      if let attention = model.attention {
-        Text(attention).font(DesignFont.sans(11)).foregroundStyle(DesignPalette.ink2).fixedSize(
-          horizontal: false, vertical: true)
-      }
-      ForEach(Array(model.engine.holds.prefix(6))) { hold in
-        HStack(alignment: .top) {
-          VStack(alignment: .leading, spacing: 2) {
-            Text(hold.label).font(DesignFont.sans(12)).fixedSize(horizontal: false, vertical: true)
-            Text(
-              hold.expiry.map { AppModel.remaining(until: $0, now: model.now) + " left" }
-                ?? "Indefinite"
-            )
-            .font(DesignFont.mono(10)).foregroundStyle(DesignPalette.ink2)
-          }
-          Spacer()
-          Button("Stop") {
-            close()
-            model.stop(id: hold.id)
-          }.buttonStyle(.borderless).font(DesignFont.sans(11))
-            .accessibilityLabel("Stop \(hold.label)")
-        }
-      }
-      if model.engine.holds.count > 6 {
-        Text("\(model.engine.holds.count - 6) more reasons in Settings").font(.caption)
-          .foregroundStyle(DesignPalette.ink2)
-      }
-    }
-    .padding(14).frame(width: 340, alignment: .leading)
-    .foregroundStyle(DesignPalette.ink).background(DesignPalette.surface).tint(
-      SettingsTheme.control)
   }
 }

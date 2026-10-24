@@ -7,6 +7,40 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct MenuTests {
+  @Test func statusAndPauseUseNativeMenuRows() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    model.stopAll()
+    model.message = "Helper needs attention."
+    let menu = AwakeMenu.make(model: model, openSettings: {})
+    #expect(menu.items.allSatisfy { $0.view == nil })
+    #expect(menu.items.first?.isSectionHeader == true)
+    #expect(menu.items.first?.title == model.statusText)
+    #expect(menu.items.contains { $0.title == "Automation paused" && !$0.isEnabled })
+    #expect(menu.items.contains { $0.title == model.attention && !$0.isEnabled })
+  }
+
+  @Test func nativeReasonsMenuStopsOnlyTheSelectedHold() throws {
+    _ = NSApplication.shared
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    model.stopAll()
+    model.start(duration: 60)
+    model.start()
+    let remaining = try #require(model.engine.holds.last)
+    let menu = AwakeMenu.make(model: model, openSettings: {})
+    let reasons = try #require(menu.items.first { $0.title == "Awake reasons" }?.submenu)
+    #expect(reasons.items.count == 2)
+    #expect(reasons.items.first?.title.hasPrefix("Stop Manual timer") == true)
+    reasons.performActionForItem(at: 0)
+    #expect(model.engine.holds.map(\.id) == [remaining.id])
+    #expect(model.engine.automationPaused)
+  }
+
   @Test func statusAttentionUsesAnAmberExclamationBesideTheTemplateEyes() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -31,6 +65,24 @@ import Testing
     model.stopAll()
     controller.refresh()
     #expect(button.attributedTitle.string.isEmpty)
+  }
+
+  @Test func nativeStatusUpdatesWhileMenuIsOpen() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    model.start(duration: 60)
+    let controller = MenuBarController(model: model, openSettings: {})
+    defer { controller.stop() }
+    let menu = AwakeMenu.make(model: model, openSettings: {})
+    let delegate: any NSMenuDelegate = controller
+    delegate.menuWillOpen?(menu)
+    model.stopAll()
+    controller.refresh()
+    #expect(menu.items.first?.title == model.statusText)
+    #expect(menu.items.contains { $0.title == "Keep Awake" && $0.keyEquivalent == "d" })
+    delegate.menuDidClose?(menu)
   }
 
   @Test func primaryActionAndPauseStayVisible() throws {

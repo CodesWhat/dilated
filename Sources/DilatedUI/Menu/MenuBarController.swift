@@ -15,6 +15,7 @@ import AppKit
   private var lastGlyph: Glyph?
   private var lastMotion: Motion?
   private var reducedMotion = false
+  private weak var openMenu: NSMenu?
 
   init(model: AppModel, openSettings: @escaping () -> Void) {
     self.model = model
@@ -39,6 +40,7 @@ import AppKit
     menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.minY - 4), in: button)
   }
   func refresh() {
+    if let openMenu { AwakeMenu.refreshStatus(in: openMenu, model: model) }
     let awake = !model.engine.holds.isEmpty
     let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     if awake != wasAwake || lastGlyph != model.settings.glyph || lastMotion != model.settings.motion
@@ -95,6 +97,8 @@ import AppKit
     statusItem.button?.toolTip = description
     statusItem.button?.setAccessibilityLabel(description)
   }
+  func menuWillOpen(_ menu: NSMenu) { openMenu = menu }
+  func menuDidClose(_ menu: NSMenu) { openMenu = nil }
   private func animateBurst() {
     burst?.invalidate()
     eyeMotionBegan = ProcessInfo.processInfo.systemUptime
@@ -152,6 +156,7 @@ import AppKit
     lastFrame = key
   }
   func stop() {
+    openMenu = nil
     burst?.invalidate()
     microMotion?.invalidate()
     NSStatusBar.system.removeStatusItem(statusItem)
