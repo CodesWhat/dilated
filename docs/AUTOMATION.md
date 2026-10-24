@@ -127,8 +127,9 @@ and do not resume it. Errors keep the app open and prevent package preparation.
 
 The CLI requests termination only from the app process that acknowledged the
 preparation. Homebrew's read-only `dilated package-check` rejects a running app,
-missing/expired preparation or unconfirmed off power readings. The cask also
-requires the helper job and process to be absent. Preparation lasts ten minutes
+missing/expired preparation, unconfirmed off power readings, or a remaining
+helper job/process. Fixed read-only system checks are bounded; unknown state
+refuses replacement. The cask invokes this check through declarative steps. Preparation lasts ten minutes
 and is cleared at the next app start. Reopen Dilated after upgrading. See
 [installation](INSTALLATION.md#updates) for the full sequence and remaining
 real-package checks.

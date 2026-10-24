@@ -144,25 +144,13 @@ def cask_text(manifest):
   homepage "https://dilated.codeswhat.com/"
   auto_updates true
   depends_on arch: :arm64
-  depends_on macos: ">= :tahoe"
+  depends_on macos: :tahoe
 
   app "Dilated.app"
   binary "#{{appdir}}/Dilated.app/Contents/MacOS/dilated"
 
-  uninstall_preflight do
-    system_command appdir.join("Dilated.app/Contents/MacOS/dilated"),
-                   args: ["package-check"], timeout: 10
-    helper = system_command "/bin/launchctl",
-                            args: ["print", "system/com.codeswhat.dilated.helper"],
-                            must_succeed: false, timeout: 3
-    unless helper.exit_status == 113 && helper.stderr.include?("Could not find service")
-      raise "Dilated's helper is still registered or its state is unknown. Repeat package preparation."
-    end
-    process = system_command "/usr/bin/pgrep", args: ["-x", "dilated-helper"],
-                             must_succeed: false, timeout: 3
-    unless process.exit_status == 1
-      raise "Dilated's helper is still running or its state is unknown. Wait before retrying."
-    end
+  uninstall_preflight_steps do
+    run "Dilated.app/Contents/MacOS/dilated", base: :appdir, args: ["package-check"]
   end
 
   caveats <<~EOS

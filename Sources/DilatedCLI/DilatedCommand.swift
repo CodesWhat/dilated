@@ -34,6 +34,7 @@ import Foundation
           throw InputError(
             "macOS hasn't confirmed sleep-disable is off. Repair the helper before continuing.")
         }
+        try await PackageHelperCheck.verifyAbsent()
         print("Package preparation verified.")
         return
       }

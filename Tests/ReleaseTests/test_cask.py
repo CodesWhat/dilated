@@ -19,7 +19,13 @@ class CaskFixture
   def initialize; @commands = []; end
   def cask(name); yield; end
   def version(value = nil); @version = value if value; @version; end
-  def uninstall_preflight(&block); @preflight = block; end
+  def uninstall_preflight_steps(&block); @preflight = block; end
+  def run(executable, **options)
+    raise "wrong app base" unless options[:base] == :appdir
+    raise "wrong check" unless options[:args] == ["package-check"]
+    result = system_command(executable, **options)
+    raise "package check failed" unless result.exit_status == 0
+  end
   def appdir; Pathname("/Applications"); end
   def method_missing(*args, &block); end
   def system_command(executable, **options)
@@ -28,13 +34,7 @@ class CaskFixture
     mode = ENV.fetch("DILATED_CASK_CASE")
     case name
     when "dilated"
-      raise "preparation missing" if mode == "unprepared"
-      OpenStruct.new(exit_status: 0, stderr: "")
-    when "launchctl"
-      code = mode == "registered" ? 0 : mode == "unknown" ? 5 : 113
-      OpenStruct.new(exit_status: code, stderr: 'Could not find service "com.codeswhat.dilated.helper"')
-    when "pgrep"
-      OpenStruct.new(exit_status: mode == "running" ? 0 : 1, stderr: "")
+      OpenStruct.new(exit_status: mode == "ready" ? 0 : 1, stderr: "")
     else
       raise "unexpected command"
     end
@@ -68,12 +68,18 @@ class CaskTests(unittest.TestCase):
     def test_prepared_app_without_service_or_process_can_be_replaced(self):
         result = self.run_preflight('ready')
         self.assertTrue(result['ok'], result)
-        self.assertEqual(result['commands'], ['dilated', 'launchctl', 'pgrep'])
+        self.assertEqual(result['commands'], ['dilated'])
 
     def test_unprepared_state_or_remaining_helper_stops_replacement(self):
         for mode in ['unprepared', 'registered', 'unknown', 'running']:
             with self.subTest(mode=mode):
                 self.assertFalse(self.run_preflight(mode)['ok'])
+
+    def test_recipe_uses_supported_declarative_preflight_and_modern_macos_dependency(self):
+        recipe = stage.cask_text(self.manifest)
+        self.assertIn('uninstall_preflight_steps', recipe)
+        self.assertNotIn('uninstall_preflight do', recipe)
+        self.assertIn('depends_on macos: :tahoe', recipe)
 
     def test_release_identity_is_validated_before_creating_ruby(self):
         for manifest in [{'version': '../escape', 'dmgSHA256': 'a' * 64},
