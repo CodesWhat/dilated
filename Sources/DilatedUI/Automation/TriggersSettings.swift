@@ -141,6 +141,17 @@ import UniformTypeIdentifiers
         }.keyboardShortcut(.defaultAction)
       }
     }
+    .onChange(of: rule.criteria) { old, new in
+      let hadCPU = old.contains {
+        if case .cpu = $0 { return true }
+        return false
+      }
+      let hasCPU = new.contains {
+        if case .cpu = $0 { return true }
+        return false
+      }
+      if hasCPU && !hadCPU && rule.dwellSeconds == 0 { rule.dwellSeconds = 30 }
+    }
     .padding(24).frame(width: 560, height: 600)
     .font(DesignFont.sans(13)).foregroundStyle(DesignPalette.ink).background(DesignPalette.bg)
   }
@@ -158,6 +169,9 @@ private enum TriggerKind: String, CaseIterable {
   case network = "IP address or subnet"
   case gateway = "Gateway"
   case dns = "DNS server"
+  case volume = "Mounted volume"
+  case cpu = "CPU load"
+  case idle = "Idle time"
   var initial: TriggerCriterion {
     switch self {
     case .application: .application(bundleID: "", frontmostOnly: false)
@@ -171,6 +185,9 @@ private enum TriggerKind: String, CaseIterable {
     case .network: .network(address: "")
     case .gateway: .gateway(address: "")
     case .dns: .dns(address: "")
+    case .volume: .volume(path: "")
+    case .cpu: .cpu(percent: 20, atLeast: true)
+    case .idle: .idle(seconds: 300, atLeast: false)
     }
   }
 }
@@ -191,6 +208,9 @@ private enum TriggerKind: String, CaseIterable {
     case .network: .network
     case .gateway: .gateway
     case .dns: .dns
+    case .volume: .volume
+    case .cpu: .cpu
+    case .idle: .idle
     }
   }
   var body: some View {
@@ -287,6 +307,57 @@ private enum TriggerKind: String, CaseIterable {
           isOn: Binding(
             get: { externalOnly },
             set: { criterion = .displays(minimum: minimum, maximum: maximum, externalOnly: $0) }))
+      case .volume(let path):
+        TextField(
+          "Mount path", text: Binding(get: { path }, set: { criterion = .volume(path: $0) }))
+        Menu("Choose mounted volume") {
+          let paths = NativeActivityInputs.mountedVolumes()?.sorted() ?? []
+          if paths.isEmpty { Text("No mounted volumes available") }
+          ForEach(paths, id: \.self) { path in
+            Button(path) { criterion = .volume(path: path) }
+          }
+        }
+        Text(
+          "Matches the exact mount path, including a disk image or network volume. Doesn't read or write its files."
+        ).font(.caption).foregroundStyle(.secondary)
+      case .cpu(let percent, let atLeast):
+        Picker(
+          "CPU load",
+          selection: Binding(
+            get: { atLeast }, set: { criterion = .cpu(percent: percent, atLeast: $0) })
+        ) {
+          Text("At least").tag(true)
+          Text("At most").tag(false)
+        }
+        Stepper(
+          "\(percent)%",
+          value: Binding(
+            get: { percent }, set: { criterion = .cpu(percent: $0, atLeast: atLeast) }), in: 0...100
+        )
+        Text(
+          "System-wide CPU use, sampled every five seconds. Use 30 seconds of dwell to avoid short spikes."
+        ).font(.caption).foregroundStyle(.secondary)
+      case .idle(let seconds, let atLeast):
+        Picker(
+          "Idle time",
+          selection: Binding(
+            get: { atLeast }, set: { criterion = .idle(seconds: seconds, atLeast: $0) })
+        ) {
+          Text("At least").tag(true)
+          Text("At most").tag(false)
+        }
+        HStack {
+          Text("Minutes since last input")
+          TextField(
+            "Minutes",
+            value: Binding(
+              get: { seconds / 60 }, set: { criterion = .idle(seconds: $0 * 60, atLeast: atLeast) }),
+            format: .number
+          ).frame(width: 100)
+        }
+        Text(
+          "Quartz session idle time, checked every five seconds. This reads elapsed time without recording input or changing presence."
+        ).font(.caption).foregroundStyle(.secondary)
       case .schedule(let schedule):
         scheduleEditor(schedule)
       case .network(let address), .gateway(let address), .dns(let address):
@@ -377,6 +448,10 @@ extension TriggerCriterion {
     case .network(let address): "IP address in \(address)"
     case .gateway(let address): "Gateway in \(address)"
     case .dns(let address): "DNS server in \(address)"
+    case .volume(let path): "Volume mounted at \(path)"
+    case .cpu(let percent, let atLeast): "CPU use \(atLeast ? "at least" : "at most") \(percent)%"
+    case .idle(let seconds, let atLeast):
+      "Idle \(atLeast ? "at least" : "at most") \(seconds / 60) minutes"
     }
   }
   private static func time(_ minute: Int) -> String {

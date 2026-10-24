@@ -75,6 +75,9 @@ public enum TriggerCriterion: Codable, Equatable, Sendable {
   case network(address: String)
   case gateway(address: String)
   case dns(address: String)
+  case volume(path: String)
+  case cpu(percent: Int, atLeast: Bool)
+  case idle(seconds: TimeInterval, atLeast: Bool)
 }
 
 public struct TriggerInputs: Sendable {
@@ -89,6 +92,9 @@ public struct TriggerInputs: Sendable {
   public var addresses: Set<String> = []
   public var gateways: Set<String> = []
   public var dnsServers: Set<String> = []
+  public var mountedVolumes: Set<String>?
+  public var cpuPercent: Double?
+  public var idleSeconds: TimeInterval?
   public init() {}
 }
 
@@ -144,6 +150,18 @@ public struct TriggerRule: Codable, Equatable, Identifiable, Sendable {
         return input.gateways.contains { AddressRange(address)?.contains($0) == true }
       case .dns(let address):
         return input.dnsServers.contains { AddressRange(address)?.contains($0) == true }
+      case .volume(let path):
+        return input.mountedVolumes?.contains(URL(fileURLWithPath: path).standardizedFileURL.path)
+          == true
+      case .cpu(let percent, let atLeast):
+        guard let value = input.cpuPercent, value.isFinite, (0...100).contains(value) else {
+          return false
+        }
+        return atLeast ? value >= Double(percent) : value <= Double(percent)
+      case .idle(let seconds, let atLeast):
+        guard let value = input.idleSeconds, value.isFinite, (0...315_576_000).contains(value)
+        else { return false }
+        return atLeast ? value >= seconds : value <= seconds
       }
     }
   }
@@ -165,6 +183,9 @@ extension TriggerCriterion {
       return minimum >= 0 && maximum <= 32 && minimum <= maximum
     case .network(let address), .gateway(let address), .dns(let address):
       return AddressRange(address) != nil
+    case .volume(let path): return path.hasPrefix("/") && path.count <= 1024 && !path.contains("\0")
+    case .cpu(let percent, _): return (0...100).contains(percent)
+    case .idle(let seconds, _): return seconds.isFinite && (0...315_576_000).contains(seconds)
     }
   }
 }

@@ -76,7 +76,11 @@ Schedule boundaries and dwell/grace use one-shot timers; elapsed dwell/grace is
 monotonic. Process discovery is coalesced at five seconds only while a configured
 process rule is enabled and unpaused, with kernel exit notifications for matches.
 Specific processes are identified by PID and start time to avoid PID reuse.
-Global automation pause removes monitoring and polling. Network identity uses
+CPU/idle conditions share the same five-second coalesced poll, enabled only for
+active configured criteria. CPU counters require two samples; cached results
+avoid sampling more often than four seconds during event bursts. Wake resets
+the CPU baseline. Mounted paths use Workspace mount/unmount/rename notifications
+and no file access. Global automation pause removes monitoring and polling. Network identity uses
 IP/subnet, gateway and DNS configuration without Location access.
 
 The engine emits bounded start/end events carrying the actual hold and end cause.

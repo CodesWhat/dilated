@@ -45,11 +45,17 @@ enum ProcessCatalog {
   private let changed: () -> Void
   private let readPower: () -> PowerState
   private var observers: [(NotificationCenter, NSObjectProtocol)] = []
-  private var processTimer: Timer?
+  private var pollTimer: Timer?
   private var boundaryTimer: Timer?
   private var exits: [Int32: any DispatchSourceProcess] = [:]
   private var network: SCDynamicStore?
   private var needsProcesses = false
+  private var needsCPU = false
+  private var needsIdle = false
+  private var needsVolumes = false
+  private var cpuSampler = CPUUsageSampler()
+  private var lastCPUReading: (at: TimeInterval, value: Double?)?
+  var pollingInterval: TimeInterval? { pollTimer?.timeInterval }
   private var processNames: Set<String> = []
   private var processInstances: Set<ProcessIdentity> = []
 
@@ -60,6 +66,8 @@ enum ProcessCatalog {
     for name in [
       NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification,
       NSWorkspace.didActivateApplicationNotification, NSWorkspace.didWakeNotification,
+      NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
+      NSWorkspace.didRenameVolumeNotification,
     ] { observe(name, center: workspace) }
     for name in [
       NSApplication.didChangeScreenParametersNotification, .NSSystemClockDidChange,
@@ -83,7 +91,7 @@ enum ProcessCatalog {
   }
 
   func configure(rules: [TriggerRule]) {
-    let rules = rules.filter { $0.pausedUntil.map { $0 <= Date() } ?? true }
+    let rules = rules.filter { $0.enabled && ($0.pausedUntil.map { $0 <= Date() } ?? true) }
     processNames = Set(
       rules.flatMap(\.criteria).compactMap {
         if case .process(let name) = $0 { return name }
@@ -95,16 +103,36 @@ enum ProcessCatalog {
         return nil
       })
     needsProcesses = !processNames.isEmpty || !processInstances.isEmpty
-    if needsProcesses && processTimer == nil {
+    let criteria = rules.flatMap(\.criteria)
+    needsCPU = criteria.contains {
+      if case .cpu = $0 { return true }
+      return false
+    }
+    needsIdle = criteria.contains {
+      if case .idle = $0 { return true }
+      return false
+    }
+    needsVolumes = criteria.contains {
+      if case .volume = $0 { return true }
+      return false
+    }
+    if !needsCPU {
+      cpuSampler = CPUUsageSampler()
+      lastCPUReading = nil
+    }
+    let needsPolling = needsProcesses || needsCPU || needsIdle
+    if needsPolling && pollTimer == nil {
       let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
         MainActor.assumeIsolated { self?.changed() }
       }
       timer.tolerance = 1
       RunLoop.main.add(timer, forMode: .common)
-      processTimer = timer
-    } else if !needsProcesses {
-      processTimer?.invalidate()
-      processTimer = nil
+      pollTimer = timer
+    } else if !needsPolling {
+      pollTimer?.invalidate()
+      pollTimer = nil
+    }
+    if !needsProcesses {
       for source in exits.values { source.cancel() }
       exits = [:]
     }
@@ -135,6 +163,15 @@ enum ProcessCatalog {
         if let router = value["Router"] as? String { input.gateways.insert(router) }
         input.dnsServers.formUnion(value["ServerAddresses"] as? [String] ?? [])
       }
+    }
+    if needsVolumes { input.mountedVolumes = NativeActivityInputs.mountedVolumes() }
+    if needsIdle { input.idleSeconds = NativeActivityInputs.idleSeconds() }
+    if needsCPU {
+      let uptime = ProcessInfo.processInfo.systemUptime
+      if lastCPUReading == nil || uptime - lastCPUReading!.at >= 4 {
+        lastCPUReading = (uptime, cpuSampler.sample(NativeActivityInputs.cpuTicks()))
+      }
+      input.cpuPercent = lastCPUReading?.value
     }
     if needsProcesses {
       let processes = ProcessCatalog.read()
@@ -179,9 +216,9 @@ enum ProcessCatalog {
   }
 
   func stop() {
-    processTimer?.invalidate()
+    pollTimer?.invalidate()
     boundaryTimer?.invalidate()
-    processTimer = nil
+    pollTimer = nil
     boundaryTimer = nil
     for source in exits.values { source.cancel() }
     exits = [:]
@@ -189,6 +226,12 @@ enum ProcessCatalog {
     observers = []
     if let network { SCDynamicStoreSetDispatchQueue(network, nil) }
     network = nil
+    cpuSampler = CPUUsageSampler()
+    lastCPUReading = nil
+    needsCPU = false
+    needsIdle = false
+    needsVolumes = false
+    needsProcesses = false
   }
 
   private func observe(_ name: Notification.Name, center: NotificationCenter) {
@@ -196,7 +239,13 @@ enum ProcessCatalog {
       (
         center,
         center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-          MainActor.assumeIsolated { self?.changed() }
+          MainActor.assumeIsolated {
+            if name == NSWorkspace.didWakeNotification {
+              self?.cpuSampler = CPUUsageSampler()
+              self?.lastCPUReading = nil
+            }
+            self?.changed()
+          }
         }
       ))
   }

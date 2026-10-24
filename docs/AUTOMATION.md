@@ -106,9 +106,21 @@ Resume automation, including after relaunch/reboot. Resuming an individual rule
 never overrides the global pause. Process discovery checks every five seconds
 and monitors matched process exits immediately. Global pause stops monitoring.
 
+Mounted-volume conditions match the exact mount path, including mounted disk
+images and network volumes. They observe mounts, unmounts and renames without
+reading or writing files. A different volume mounted at the same path will match.
+
+CPU load uses differences between system-wide CPU counters, including wraparound.
+The first reading is a warm-up, not zero. The editor starts a new CPU condition
+with 30 seconds of dwell when none is configured; adjust dwell/grace for noisy
+workloads. Idle time reads Quartz's combined-session elapsed input time. It does
+not record keys, move the pointer or promise another app's availability status.
+Both CPU and idle conditions are checked every five seconds only while a matching
+configured rule is enabled and unpaused. Unknown readings never match.
+
 Configuration survives app restarts, but matching holds are rebuilt from current
 conditions. A saved process/app hold is never treated as evidence the work is
-still running. Wi-Fi SSID and other device/activity criteria remain later work.
+still running. Wi-Fi SSID and USB/Bluetooth/audio-output criteria remain later work.
 
 ## Manual agent hook pattern
 

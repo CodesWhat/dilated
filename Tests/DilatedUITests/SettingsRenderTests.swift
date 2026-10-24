@@ -42,6 +42,7 @@ import Testing
       criteria: [
         .application(bundleID: "com.apple.TextEdit", frontmostOnly: true), .power(onBattery: false),
         .schedule(.init(weekdays: [2, 3, 4, 5, 6], startMinute: 540, endMinute: 1020)),
+        .volume(path: "/"), .cpu(percent: 20, atLeast: true), .idle(seconds: 300, atLeast: false),
       ])
     let view = NSHostingView(rootView: TriggerRuleEditor(rule: rule, save: { _ in }, remove: {}))
     view.setFrameSize(view.fittingSize)
