@@ -63,7 +63,21 @@ Packaging scripts verify signed/notarized app and DMG files. Public staging also
 requires acceptance records for the exact source, build and artifact checksums,
 including macOS 26/27 and a second Mac. Publication remains gated on that evidence.
 See [installation and removal](INSTALLATION.md) for the supported lifecycle and
-current limits. Triggers, AppleScript and App Intents remain later phases.
+current limits. AppleScript and App Intents remain later phases.
+
+`TriggerEvaluator` combines conditions with AND within each rule and contributes
+an independent hold for every matching rule. Stops suppress only that rule until
+conditions change or it is explicitly resumed; global Stop retains the durable
+automation pause. Condition holds are never replayed from disk. Only rule
+configuration persists, and native inputs are read again after launch/wake.
+
+`TriggerMonitor` uses Workspace, display, clock and SystemConfiguration events.
+Schedule boundaries and dwell/grace use one-shot timers; elapsed dwell/grace is
+monotonic. Process discovery is coalesced at five seconds only while a configured
+process rule is enabled and unpaused, with kernel exit notifications for matches.
+Specific processes are identified by PID and start time to avoid PID reuse.
+Global automation pause removes monitoring and polling. Network identity uses
+IP/subnet, gateway and DNS configuration without Location access.
 
 No runtime, build or test depends on `.planning/`. The private roadmap owns phase
 tracking; shipped documentation and CI use tracked files only.

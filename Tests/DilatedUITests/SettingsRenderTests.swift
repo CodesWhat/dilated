@@ -34,6 +34,23 @@ import Testing
         to: destination.appendingPathComponent("closed-lid-settings.png"))
     }
   }
+  @Test func triggerEditorRendersRealConditionsWithoutStartingAHold() throws {
+    _ = NSApplication.shared
+    FontRegistry.registerBundledFonts()
+    let rule = TriggerRule(
+      name: "Editor on AC",
+      criteria: [
+        .application(bundleID: "com.apple.TextEdit", frontmostOnly: true), .power(onBattery: false),
+        .schedule(.init(weekdays: [2, 3, 4, 5, 6], startMinute: 540, endMinute: 1020)),
+      ])
+    let view = NSHostingView(rootView: TriggerRuleEditor(rule: rule, save: { _ in }, remove: {}))
+    view.setFrameSize(view.fittingSize)
+    view.layoutSubtreeIfNeeded()
+    let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+    view.cacheDisplay(in: view.bounds, to: bitmap)
+    #expect(bitmap.pixelsWide >= 560 && bitmap.pixelsHigh >= 600)
+  }
+
   @Test func settingsRenderInLightAndDarkWithoutShowingAWindow() throws {
     _ = NSApplication.shared
     FontRegistry.registerBundledFonts()

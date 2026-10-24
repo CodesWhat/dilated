@@ -1,6 +1,6 @@
 import Foundation
 
-public enum HoldSource: String, Codable, Sendable { case manual, cli, lease, runner, url }
+public enum HoldSource: String, Codable, Sendable { case manual, cli, lease, runner, url, trigger }
 public struct Hold: Codable, Equatable, Identifiable, Sendable {
   public var id: UUID
   public var source: HoldSource
@@ -74,7 +74,7 @@ public struct WakeEngine: Sendable {
     automationPaused = snapshot.automationPaused
     holds = snapshot.holds.filter {
       guard let expiry = $0.expiry, expiry > now else { return false }
-      return $0.source != .lease && $0.source != .runner
+      return $0.source != .lease && $0.source != .runner && $0.source != .trigger
         && (!automationPaused || $0.source == .manual)
     }.map {
       var hold = $0

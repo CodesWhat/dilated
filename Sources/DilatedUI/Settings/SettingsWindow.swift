@@ -85,6 +85,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
   case keepAwake = "Keep Awake"
   case safety = "Battery & Safety"
   case closedLid = "Closed Lid"
+  case triggers = "Triggers"
   case automation = "Automation"
   case advanced = "Advanced"
   var id: String { rawValue }
@@ -96,6 +97,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case .keepAwake: "sun.max"
     case .safety: "battery.50percent"
     case .closedLid: "laptopcomputer"
+    case .triggers: "switch.2"
     case .automation: "terminal"
     case .advanced: "wrench.and.screwdriver"
     }
@@ -108,6 +110,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case .keepAwake: "Choose what happens when you start keeping awake."
     case .safety: "Set limits for battery use and Low Power Mode."
     case .closedLid: "Keep work running with the lid shut, within your safety limits."
+    case .triggers: "Keep awake while your conditions match."
     case .automation: "Keep work alive from scripts and agents."
     case .advanced: "Inspect the current state and export diagnostics."
     }
@@ -220,6 +223,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case .keepAwake: keepAwake
     case .safety: safety
     case .closedLid: ClosedLidSettings(model: model)
+    case .triggers: TriggersSettings(model: model)
     case .automation: automation
     case .advanced: advanced
     }

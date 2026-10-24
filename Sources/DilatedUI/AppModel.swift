@@ -94,6 +94,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
       onChange?()
     }
   }
+  public private(set) var triggerRules: [TriggerRule] = []
+  public private(set) var triggerStatuses: [UUID: String] = [:]
+  @ObservationIgnored private var triggerEvaluator = TriggerEvaluator()
+  @ObservationIgnored private var triggerMonitor: TriggerMonitor?
+  @ObservationIgnored private var lastTriggerInputs = TriggerInputs()
+  @ObservationIgnored private var hasBegun = false
   public var message: String?
   public private(set) var now = Date()
   @ObservationIgnored public var onChange: (() -> Void)?
@@ -142,6 +148,17 @@ public struct AppSettings: Codable, Equatable, Sendable {
         loadedSettings = try JSONDecoder().decode(AppSettings.self, from: Data(contentsOf: file))
       } catch { loadMessage = "Couldn't read settings: \(error.localizedDescription)" }
     }
+    let triggerFile = endpoint.stateDirectory.appendingPathComponent("triggers.json")
+    if FileManager.default.fileExists(atPath: triggerFile.path) {
+      do {
+        let rules = try JSONDecoder().decode(
+          [TriggerRule].self, from: Data(contentsOf: triggerFile))
+        guard rules.count <= 100, Set(rules.map(\.id)).count == rules.count,
+          rules.allSatisfy({ $0.validationMessage == nil })
+        else { throw TriggerConfigurationError("Saved triggers contain invalid rules.") }
+        triggerRules = rules
+      } catch { loadMessage = "Couldn't load triggers: \(error.localizedDescription)" }
+    }
     settings = loadedSettings
     let snapshot: EngineSnapshot
     do { snapshot = try store.load() } catch {
@@ -164,6 +181,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
 
   public func begin() {
+    hasBegun = true
     let handoff = PackageHandoffStore(directory: endpoint.stateDirectory)
     let prepared = try? handoff.requirePrepared(app: Bundle.main.bundleURL)
     let restoreHelper = prepared?.intent == .update && prepared?.helperWasApproved == true
@@ -184,6 +202,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       }
     }
     updater.start()
+    refreshTriggers()
   }
   var updateActivity: UpdateActivity {
     if helperInstallation.busy { return .helperChange }
@@ -219,7 +238,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
   public func stopAll() { mutate { $0.stopAll() } }
   public func stop(id: UUID) { mutate { $0.stop(id: id) } }
-  public func resumeAutomation() { mutate { $0.resumeAutomation() } }
+  public func resumeAutomation() {
+    let wasPaused = engine.automationPaused
+    mutate { $0.resumeAutomation() }
+    if wasPaused { triggerEvaluator = TriggerEvaluator() }
+    refreshTriggers()
+  }
   public func extend(id: UUID, seconds: TimeInterval) {
     guard allowNewWork() else { return }
     mutate { try $0.extend(id: id, by: seconds) }
@@ -447,6 +471,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public func refreshPower() {
     engine.updatePower(readPower())
     commit()
+    refreshTriggers()
   }
   public func tick() {
     now = Date()
@@ -566,6 +591,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public func shutdown() {
     guard !stopped else { return }
     stopped = true
+    triggerMonitor?.stop()
+    triggerMonitor = nil
     timer?.invalidate()
     timer = nil
     closedLid.invalidate()
@@ -601,6 +628,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
   @discardableResult private func commit(resetClosedLid: Bool = true) -> Bool {
     now = Date()
+    if engine.automationPaused {
+      triggerMonitor?.stop()
+      triggerMonitor = nil
+    }
     var saved = true
     do { try store.save(engine.snapshot) } catch {
       message = "Couldn't save awake state: \(error.localizedDescription)"
@@ -632,10 +663,92 @@ public struct AppSettings: Codable, Equatable, Sendable {
       return false
     }
   }
+  public func saveTrigger(_ rule: TriggerRule) throws {
+    if let error = rule.validationMessage { throw TriggerConfigurationError(error) }
+    var rules = triggerRules
+    if let index = rules.firstIndex(where: { $0.id == rule.id }) {
+      rules[index] = rule
+    } else {
+      rules.append(rule)
+    }
+    guard rules.count <= 100 else { throw TriggerConfigurationError("Keep up to 100 triggers.") }
+    try writeTriggers(rules)
+    refreshTriggers()
+  }
+  public func resumeTrigger(id: UUID) {
+    guard var rule = triggerRules.first(where: { $0.id == id }) else { return }
+    rule.enabled = true
+    rule.pausedUntil = nil
+    do {
+      try saveTrigger(rule)
+      triggerEvaluator.resume(id: id, engine: &engine)
+      refreshTriggers()
+    } catch { message = error.localizedDescription }
+  }
+  public func removeTrigger(id: UUID) {
+    do {
+      try writeTriggers(triggerRules.filter { $0.id != id })
+      reconcileTriggers(lastTriggerInputs)
+      refreshTriggers()
+    } catch { message = error.localizedDescription }
+  }
+  private func writeTriggers(_ rules: [TriggerRule]) throws {
+    try FileManager.default.createDirectory(
+      at: endpoint.stateDirectory, withIntermediateDirectories: true,
+      attributes: [.posixPermissions: 0o700])
+    let file = endpoint.stateDirectory.appendingPathComponent("triggers.json")
+    try JSONEncoder().encode(rules).write(to: file, options: .atomic)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    triggerRules = rules
+  }
+  func reconcileTriggers(_ input: TriggerInputs) {
+    guard !stopped, !preparingToQuit, !updater.blocksNewWork else { return }
+    var input = input
+    input.power = readPower()
+    lastTriggerInputs = input
+    let before = engine.holds
+    engine.updatePower(input.power)
+    triggerEvaluator.reconcile(rules: triggerRules, inputs: input, engine: &engine)
+    triggerStatuses = triggerEvaluator.statuses
+    if before != engine.holds { commit() }
+  }
+  private func refreshTriggers() {
+    guard hasBegun, !stopped, !preparingToQuit, !updater.blocksNewWork else { return }
+    let rules = triggerRules.filter(\.enabled)
+    guard !rules.isEmpty, !engine.automationPaused else {
+      triggerMonitor?.stop()
+      triggerMonitor = nil
+      reconcileTriggers(lastTriggerInputs)
+      return
+    }
+    if triggerMonitor == nil {
+      triggerMonitor = TriggerMonitor(readPower: readPower) { [weak self] in self?.refreshTriggers()
+      }
+    }
+    guard let triggerMonitor else { return }
+    triggerMonitor.configure(rules: rules)
+    reconcileTriggers(triggerMonitor.read())
+    let current = Date()
+    let boundary = rules.flatMap { rule -> [Date] in
+      var dates = rule.criteria.compactMap { criterion -> Date? in
+        if case .schedule(let schedule) = criterion { return schedule.nextBoundary(after: current) }
+        return nil
+      }
+      if let pause = rule.pausedUntil, pause > current { dates.append(pause) }
+      return dates
+    }.min()
+    let deadline = triggerEvaluator.nextEvaluation(now: current)
+    triggerMonitor.schedule(at: [boundary, deadline].compactMap { $0 }.min())
+  }
   public static func remaining(until date: Date, now: Date = Date()) -> String {
     let seconds = max(0, Int(ceil(date.timeIntervalSince(now))))
     return seconds >= 3600
       ? "\(seconds / 3600)h \((seconds % 3600) / 60)m"
       : seconds >= 60 ? "\((seconds + 59) / 60)m" : "\(seconds)s"
   }
+}
+
+struct TriggerConfigurationError: LocalizedError {
+  let errorDescription: String?
+  init(_ message: String) { errorDescription = message }
 }

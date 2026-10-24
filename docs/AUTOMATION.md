@@ -53,6 +53,35 @@ relaunched app no longer recognizes the registered ID, the runner releases its
 awake claim and lets the command finish. Renewable agent holds must likewise
 obtain a new ID after their previous hold ends; expired IDs are not resurrected.
 
+## Conditions and triggers
+
+Settings → Triggers creates named rules. All conditions inside a rule must match;
+each matching rule contributes its own awake reason. Rules can keep the display
+awake and explicitly override Low Power Mode. Other battery and closed-lid safety
+limits still apply. Closed-lid needs explicit enablement for the current hold.
+
+Conditions include a running or frontmost app, an exact process name/path, a
+specific process instance, weekly/overnight schedules, battery/power, display
+counts and mirroring, and IPv4/IPv6 addresses, CIDR subnets, gateways or DNS servers.
+Choose an app with the file picker or enter its bundle identifier. Process-instance
+selection records both PID and start time; it won't follow a reused PID.
+
+Dwell delays a start until conditions remain true. Grace delays the end after
+conditions stop matching. Schedule windows use local time, including overnight
+windows beginning on the selected weekday. Equal start/end times mean the whole
+selected day. Triggers cannot wake a sleeping Mac.
+
+Rules can be disabled or paused for five minutes, an hour or until tomorrow.
+An individual awake reason's Stop suppresses its rule until conditions become
+false, or Resume this trigger is chosen. Main Stop blocks every trigger until
+Resume automation, including after relaunch/reboot. Resuming an individual rule
+never overrides the global pause. Process discovery checks every five seconds
+and monitors matched process exits immediately. Global pause stops monitoring.
+
+Configuration survives app restarts, but matching holds are rebuilt from current
+conditions. A saved process/app hold is never treated as evidence the work is
+still running. Wi-Fi SSID and other device/activity criteria remain later work.
+
 ## Manual agent hook pattern
 
 Automatic hook installation is deferred. Configure your workflow to capture the

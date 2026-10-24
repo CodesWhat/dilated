@@ -7,7 +7,8 @@ battery and Low Power Mode guards, four animated menu bar glyphs, Settings,
 a global shortcut, URL automation, and a CLI with renewable agent holds.
 Closed-lid controls and their privileged helper are implemented, with hardware
 recovery and release acceptance still pending. There is no public release yet.
-Automatic agent setup and condition-based triggers remain later work.
+Condition-based triggers are implemented locally for apps, processes, schedules,
+power, displays and network identity. Automatic agent setup remains later work.
 
 Build the local app with `bash scripts/build-app.sh`, then open
 `build/Dilated.app`. This is a development build, not a notarized release. The
