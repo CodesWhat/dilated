@@ -39,6 +39,55 @@ struct EngineTests {
     #expect(engine.holds.count == 2)
   }
 
+  @Test func stopPauseSurvivesRecoveryForEverySourceAndOverride() throws {
+    let sources: [HoldSource] = [
+      .manual, .cli, .lease, .runner, .url, .trigger, .shortcut, .appleScript,
+    ]
+    for source in sources {
+      for overrides in 0..<4 {
+        let lowPowerOverride = overrides & 1 != 0
+        let batteryOverride = overrides & 2 != 0
+        var engine = WakeEngine()
+        let lease = try engine.start(source: .lease, label: "Before Stop", duration: 60, now: now)
+        engine.stopAll(now: now)
+        let manual = try engine.start(
+          source: .manual, label: "After Stop", duration: 60,
+          lowPowerOverride: lowPowerOverride, batteryOverride: batteryOverride,
+          closedLid: true, now: now)
+        let saved = try JSONEncoder().encode(engine.snapshot)
+        engine = WakeEngine(
+          snapshot: try JSONDecoder().decode(EngineSnapshot.self, from: saved),
+          now: now.addingTimeInterval(1))
+        #expect(engine.automationPaused)
+        #expect(engine.holds.map(\.id) == [manual.id])
+        #expect(engine.holds.first?.expiry == manual.expiry)
+        #expect(!engine.desiredState.closedLid)
+
+        if source == .manual {
+          _ = try engine.start(
+            source: source, label: "Explicit manual", duration: 30,
+            lowPowerOverride: lowPowerOverride, batteryOverride: batteryOverride, now: now)
+          #expect(engine.holds.count == 2)
+        } else {
+          #expect(throws: WakeError.automationPaused) {
+            try engine.start(
+              source: source, label: "Automation", duration: 30,
+              lowPowerOverride: lowPowerOverride, batteryOverride: batteryOverride,
+              closedLid: true, now: now)
+          }
+          #expect(engine.holds.map(\.id) == [manual.id])
+        }
+        #expect(engine.automationPaused)
+        #expect(throws: WakeError.automationPaused) {
+          try engine.renew(id: lease.id, duration: 30, now: now)
+        }
+        engine.stopAll(now: now)
+        #expect(engine.holds.isEmpty)
+        #expect(engine.automationPaused)
+      }
+    }
+  }
+
   @Test func restorationKeepsDeadlinesAndPauseButNotIndefiniteOrLeases() throws {
     var original = WakeEngine()
     let timer = try original.start(source: .manual, label: "Timer", duration: 600, now: now)
