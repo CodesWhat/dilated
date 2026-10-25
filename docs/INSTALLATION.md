@@ -165,5 +165,13 @@ acceptance record tied to the exact version, build, source revision, ZIP checksu
 and DMG checksum. Required checks must have a passed status and machine, macOS
 and evidence fields. Test fixtures and mock results are not hardware evidence.
 Keep failed and unavailable checks open rather than substituting them.
+Alpha, beta and release candidate versions use a scoped gate. The record must
+still list every check with a status of `passed`, `failed` or `notRun` and
+non-empty evidence, and passed checks need a machine and macOS. These three must
+pass: `macOS26ClosedLid`, `heartbeatExpiry` and `stopResume`. Anything else that
+is failed or not run stays in the record with its evidence. Staging then names
+those checks as unverified in the public release manifest, `latest.json` and the
+cask caveats, and the public manifest reports `acceptanceVerified: false` while
+any are open. A GA version keeps the full gate above, with all 14 checks passed.
 Accepted release staging also generates `dilated.rb` with the exact version and
 DMG digest as a versioned release asset. It does not publish the Homebrew tap.

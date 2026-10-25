@@ -23,6 +23,9 @@ DISTRIBUTION_CHECKS = (
     'signatureVerified', 'stapleVerified', 'extractedGatekeeperAccepted',
     'dmgSignatureVerified', 'dmgStapleVerified', 'dmgGatekeeperAccepted', 'updatesEnabled',
 )
+PRERELEASE_VERSION = re.compile(r'-(?:alpha|beta|rc)\.[1-9]\d*$')
+PRERELEASE_REQUIRED_CHECKS = ('macOS26ClosedLid', 'heartbeatExpiry', 'stopResume')
+ACCEPTANCE_STATUSES = ('passed', 'failed', 'notRun')
 ACCEPTANCE_CHECKS = (
     'macOS26ClosedLid', 'macOS27ClosedLid', 'helperCrashRecovery', 'appCrashRecovery',
     'heartbeatExpiry', 'stopResume', 'guardTransitions', 'rebootRecovery', 'approvalDenied',
@@ -59,26 +62,60 @@ def validate_acceptance(record, manifest):
         if record.get(key) != manifest.get(key):
             raise RuntimeError(f'Hardware acceptance must match this release: {key}')
     checks = record.get('checks', {})
+    prerelease = bool(PRERELEASE_VERSION.search(manifest['version']))
+    if not prerelease:
+        for key in ACCEPTANCE_CHECKS:
+            check = checks.get(key, {})
+            if check.get('status') != 'passed' or not all(
+                isinstance(check.get(field), str) and check[field].strip()
+                for field in ('machine', 'macOS', 'evidence')
+            ):
+                raise RuntimeError(f'Required acceptance check has not passed: {key}')
+        for major in ('26', '27'):
+            if not checks[f'macOS{major}ClosedLid']['macOS'].startswith(major + '.'):
+                raise RuntimeError(f'The lid check must run on macOS {major}')
+        if checks['cleanInstallSecondMac']['machine'] == checks['macOS26ClosedLid']['machine']:
+            raise RuntimeError('A clean install on a second Mac is required')
+        return {'prerelease': False, 'passed': list(ACCEPTANCE_CHECKS), 'failed': [], 'notRun': []}
+
+    def text(check, field):
+        return isinstance(check.get(field), str) and bool(check[field].strip())
+
     for key in ACCEPTANCE_CHECKS:
-        check = checks.get(key, {})
-        if check.get('status') != 'passed' or not all(
-            isinstance(check.get(field), str) and check[field].strip()
-            for field in ('machine', 'macOS', 'evidence')
-        ):
+        check = checks.get(key)
+        if not isinstance(check, dict) or check.get('status') not in ACCEPTANCE_STATUSES:
+            raise RuntimeError(f'Prerelease acceptance must record a passed, failed or notRun status: {key}')
+        if not text(check, 'evidence'):
+            raise RuntimeError(f'Prerelease acceptance must record evidence for every check: {key}')
+        if check['status'] == 'passed' and not (text(check, 'machine') and text(check, 'macOS')):
+            raise RuntimeError(f'A passed acceptance check needs a machine and macOS: {key}')
+    for key in PRERELEASE_REQUIRED_CHECKS:
+        if checks[key]['status'] != 'passed':
             raise RuntimeError(f'Required acceptance check has not passed: {key}')
-    for major in ('26', '27'):
-        if not checks[f'macOS{major}ClosedLid']['macOS'].startswith(major + '.'):
-            raise RuntimeError(f'The lid check must run on macOS {major}')
-    if checks['cleanInstallSecondMac']['machine'] == checks['macOS26ClosedLid']['machine']:
+    lid27 = checks['macOS27ClosedLid']
+    if lid27['status'] == 'passed' and not lid27['macOS'].startswith('27.'):
+        raise RuntimeError('The lid check must run on macOS 27')
+    second = checks['cleanInstallSecondMac']
+    if second['status'] == 'passed' and second['machine'] == checks['macOS26ClosedLid']['machine']:
         raise RuntimeError('A clean install on a second Mac is required')
+    return {'prerelease': True, **{
+        status: [key for key in ACCEPTANCE_CHECKS if checks[key]['status'] == status]
+        for status in ACCEPTANCE_STATUSES
+    }}
 
 
-def latest_metadata(manifest):
+def acceptance_verified(summary):
+    return not summary['prerelease'] or not (summary['failed'] or summary['notRun'])
+
+
+def latest_metadata(manifest, acceptance):
     return {
         'released': True, 'version': manifest['version'], 'build': manifest['build'],
         'downloadURL': f"./releases/{manifest['version']}/{manifest['dmg']}",
         'sha256': manifest['dmgSHA256'], 'minimumMacOS': manifest['minimumMacOS'],
         'architecture': manifest['architecture'],
+        'prerelease': acceptance['prerelease'],
+        'unverified': acceptance['failed'] + acceptance['notRun'],
     }
 
 
@@ -127,13 +164,18 @@ def validate_feed_build(feed, build):
         raise RuntimeError('The advertised download must be the newest build in the signed feed')
 
 
-def cask_text(manifest):
+def cask_text(manifest, acceptance=None):
     version = manifest.get('version')
     digest = manifest.get('dmgSHA256')
     if not isinstance(version, str) or not re.fullmatch(r'\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.[1-9]\d*)?', version):
         raise ValueError('Invalid cask version')
     if not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest):
         raise ValueError('Invalid cask DMG checksum')
+    caveats = ''
+    unverified = acceptance['failed'] + acceptance['notRun'] if acceptance and acceptance['prerelease'] else []
+    if unverified:
+        caveats = (f'    Beta release. Closed-lid mode is experimental.\n'
+                   f'    Not yet verified on hardware: {", ".join(unverified)}.\n\n')
     return f'''cask "dilated" do
   version "{version}"
   sha256 "{digest}"
@@ -154,7 +196,7 @@ def cask_text(manifest):
   end
 
   caveats <<~EOS
-    Before upgrading, run dilated prepare-update, then brew upgrade --cask dilated.
+{caveats}    Before upgrading, run dilated prepare-update, then brew upgrade --cask dilated.
     Reopen Dilated after the upgrade. Timers keep their original deadlines.
     Before removing, run dilated prepare-uninstall, then brew uninstall --cask dilated.
     Preparation expires after ten minutes. Normal uninstall preserves preferences.
@@ -174,7 +216,7 @@ def main():
     args = parser.parse_args()
     directory = args.release_directory.resolve()
     manifest = validate_archive(directory)
-    validate_acceptance(json.loads(args.acceptance.read_text()), manifest)
+    summary = validate_acceptance(json.loads(args.acceptance.read_text()), manifest)
     version = manifest['version']
     metadata = release.release_metadata(ROOT)
     source = release.verify_source(ROOT, version)
@@ -219,12 +261,14 @@ def main():
     source_digest = hashlib.sha256(source_archive.read_bytes()).hexdigest()
     (releases / f'{source_archive.name}.sha256').write_text(f'{source_digest}  {source_archive.name}\n')
     public_manifest = {**manifest, 'sourceArchive': source_archive.name, 'sourceSHA256': source_digest,
-                       'freshInstallVerified': True, 'acceptanceVerified': True}
-    cask = cask_text(manifest).encode()
+                       'freshInstallVerified': True, 'prerelease': summary['prerelease'],
+                       'acceptance': summary,
+                       'acceptanceVerified': acceptance_verified(summary)}
+    cask = cask_text(manifest, summary).encode()
     (releases / 'dilated.rb').write_bytes(cask)
     public_manifest.update(cask='dilated.rb', caskSHA256=hashlib.sha256(cask).hexdigest())
     (releases / 'release-manifest.json').write_text(json.dumps(public_manifest, indent=2) + '\n')
-    (output / 'releases/latest.json').write_text(json.dumps(latest_metadata(manifest), indent=2) + '\n')
+    (output / 'releases/latest.json').write_text(json.dumps(latest_metadata(manifest, summary), indent=2) + '\n')
     with tempfile.TemporaryDirectory(prefix='dilated-appcast-') as temporary:
         feed_directory = Path(temporary)
         shutil.copy2(archive, feed_directory / archive.name)

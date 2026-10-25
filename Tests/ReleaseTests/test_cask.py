@@ -81,6 +81,24 @@ class CaskTests(unittest.TestCase):
         self.assertNotIn('uninstall_preflight do', recipe)
         self.assertIn('depends_on macos: :tahoe', recipe)
 
+    def test_a_beta_cask_lists_the_checks_not_verified_on_hardware(self):
+        summary = {'prerelease': True, 'passed': ['macOS26ClosedLid'], 'failed': ['helperCrashRecovery'],
+                   'notRun': ['rebootRecovery']}
+        recipe = stage.cask_text(self.manifest, summary)
+        self.assertIn('''
+  caveats <<~EOS
+    Beta release. Closed-lid mode is experimental.
+    Not yet verified on hardware: helperCrashRecovery, rebootRecovery.
+
+    Before upgrading''', recipe)
+        complete = {'prerelease': True, 'passed': list(stage.ACCEPTANCE_CHECKS), 'failed': [], 'notRun': []}
+        self.assertEqual(stage.cask_text(self.manifest, complete), stage.cask_text(self.manifest))
+
+    def test_a_ga_cask_is_unchanged_by_the_acceptance_summary(self):
+        summary = {'prerelease': False, 'passed': list(stage.ACCEPTANCE_CHECKS), 'failed': [], 'notRun': []}
+        self.assertEqual(stage.cask_text(self.manifest, summary), stage.cask_text(self.manifest))
+        self.assertNotIn('Beta release', stage.cask_text(self.manifest, summary))
+
     def test_release_identity_is_validated_before_creating_ruby(self):
         for manifest in [{'version': '../escape', 'dmgSHA256': 'a' * 64},
                          {'version': '1.0.0', 'dmgSHA256': 'invalid'}]:

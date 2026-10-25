@@ -88,8 +88,110 @@ class PublicationGuardsTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'second Mac'):
             stage.validate_acceptance(record, self.manifest)
 
+    def beta_acceptance(self):
+        record = self.acceptance()
+        for key, check in record['checks'].items():
+            if key not in stage.PRERELEASE_REQUIRED_CHECKS:
+                check['status'] = 'notRun'
+                check['evidence'] = 'Not run for this beta.'
+        record['checks']['helperCrashRecovery']['status'] = 'failed'
+        return record
+
+    def use_ga_version(self):
+        self.manifest['version'] = '1.0.0'
+        self.save()
+
+    def test_a_prerelease_accepts_the_required_checks_and_names_the_rest(self):
+        summary = stage.validate_acceptance(self.beta_acceptance(), self.manifest)
+        required = list(stage.PRERELEASE_REQUIRED_CHECKS)
+        self.assertTrue(summary['prerelease'])
+        self.assertEqual(summary['passed'], [key for key in stage.ACCEPTANCE_CHECKS if key in required])
+        self.assertEqual(summary['failed'], ['helperCrashRecovery'])
+        self.assertEqual(summary['notRun'], [
+            key for key in stage.ACCEPTANCE_CHECKS if key not in required and key != 'helperCrashRecovery'])
+        full = stage.validate_acceptance(self.acceptance(), self.manifest)
+        self.assertEqual(full, {'prerelease': True, 'passed': list(stage.ACCEPTANCE_CHECKS), 'failed': [], 'notRun': []})
+
+    def test_a_prerelease_record_cannot_omit_or_skimp_on_any_check(self):
+        def without_key(record):
+            del record['checks']['rebootRecovery']
+
+        def pending(record):
+            record['checks']['rebootRecovery']['status'] = 'pending'
+
+        def empty_evidence(record):
+            record['checks']['rebootRecovery']['evidence'] = '  '
+
+        def passed_without_machine(record):
+            record['checks']['heartbeatExpiry'].pop('machine')
+
+        def passed_without_macos(record):
+            record['checks']['heartbeatExpiry']['macOS'] = ''
+
+        def required_not_run(record):
+            record['checks']['stopResume']['status'] = 'notRun'
+
+        def required_failed(record):
+            record['checks']['heartbeatExpiry']['status'] = 'failed'
+
+        for mutate in [without_key, pending, empty_evidence, passed_without_machine,
+                       passed_without_macos, required_not_run, required_failed]:
+            with self.subTest(mutate=mutate.__name__):
+                record = self.beta_acceptance()
+                mutate(record)
+                with self.assertRaisesRegex(RuntimeError, 'acceptance'):
+                    stage.validate_acceptance(record, self.manifest)
+
+    def test_a_prerelease_still_applies_the_macos_27_and_second_mac_rules_when_passed(self):
+        record = self.beta_acceptance()
+        record['checks']['macOS27ClosedLid'] = {
+            'status': 'passed', 'machine': 'second-mac', 'macOS': '26.6.2', 'evidence': 'Fixture.'}
+        with self.assertRaisesRegex(RuntimeError, 'macOS 27'):
+            stage.validate_acceptance(record, self.manifest)
+        record = self.beta_acceptance()
+        record['checks']['cleanInstallSecondMac'] = {
+            'status': 'passed', 'machine': 'primary-mac', 'macOS': '26.6.2', 'evidence': 'Fixture.'}
+        with self.assertRaisesRegex(RuntimeError, 'second Mac'):
+            stage.validate_acceptance(record, self.manifest)
+        record = self.beta_acceptance()
+        record['checks']['macOS27ClosedLid']['macOS'] = '26.6.2'
+        stage.validate_acceptance(record, self.manifest)
+
+    def test_a_prerelease_still_matches_the_exact_artifacts(self):
+        record = self.beta_acceptance()
+        record['dmgSHA256'] = 'different'
+        with self.assertRaisesRegex(RuntimeError, 'match'):
+            stage.validate_acceptance(record, self.manifest)
+
+    def test_a_ga_version_keeps_the_full_gate(self):
+        self.use_ga_version()
+        summary = stage.validate_acceptance(self.acceptance(), self.manifest)
+        self.assertEqual(summary, {'prerelease': False, 'passed': list(stage.ACCEPTANCE_CHECKS), 'failed': [], 'notRun': []})
+        with self.assertRaisesRegex(RuntimeError, 'acceptance'):
+            stage.validate_acceptance(self.beta_acceptance(), self.manifest)
+        partial = self.acceptance()
+        del partial['checks']['nativeUI']
+        with self.assertRaisesRegex(RuntimeError, 'acceptance'):
+            stage.validate_acceptance(partial, self.manifest)
+
+    def test_latest_metadata_names_the_unverified_checks(self):
+        summary = stage.validate_acceptance(self.beta_acceptance(), self.manifest)
+        latest = stage.latest_metadata(self.manifest, summary)
+        self.assertTrue(latest['prerelease'])
+        self.assertEqual(latest['unverified'], summary['failed'] + summary['notRun'])
+        self.assertIn('helperCrashRecovery', latest['unverified'])
+        self.use_ga_version()
+        ga = stage.latest_metadata(self.manifest, stage.validate_acceptance(self.acceptance(), self.manifest))
+        self.assertFalse(ga['prerelease'])
+        self.assertEqual(ga['unverified'], [])
+
+    def test_public_manifest_is_only_verified_when_nothing_is_unverified(self):
+        for record, verified in [(self.beta_acceptance(), False), (self.acceptance(), True)]:
+            summary = stage.validate_acceptance(record, self.manifest)
+            self.assertEqual(stage.acceptance_verified(summary), verified)
+
     def test_latest_metadata_uses_the_accepted_dmg(self):
-        latest = stage.latest_metadata(self.manifest)
+        latest = stage.latest_metadata(self.manifest, stage.validate_acceptance(self.acceptance(), self.manifest))
         self.assertTrue(latest['released'])
         self.assertEqual(latest['downloadURL'], './releases/1.0.0-beta.1/' + self.manifest['dmg'])
         self.assertEqual(latest['sha256'], self.manifest['dmgSHA256'])
