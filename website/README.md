@@ -2,7 +2,8 @@
 
 Gas Station is the main landing page: yellow and red packaging, Barlow Condensed
 headings, and the selected pixel-eyes app icon. Barlow Condensed is fixed for the
-selected direction. The earlier sketchbook disclosure and footer link have been
+selected direction. The masthead wordmark uses the same Barlow Condensed ExtraBold
+Italic font file as the native app. The earlier sketchbook disclosure and footer link have been
 removed; alternate layout source and icon assets remain local references.
 
 This is buildless HTML, CSS, and JavaScript. Serve `dist/` from any static HTTP
