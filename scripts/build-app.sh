@@ -72,6 +72,6 @@ for nested in "$app/Contents/Resources/"*.bundle; do
 done
 codesign --force "${sign_options[@]}" "$timestamp" --sign "$sign_as" "$app/Contents/MacOS/dilated"
 codesign --force --identifier com.codeswhat.dilated.helper "${sign_options[@]}" "$timestamp" --sign "$sign_as" "$app/Contents/MacOS/dilated-helper"
-codesign --force "${sign_options[@]}" "$timestamp" --sign "$sign_as" "$app"
+codesign --force "${sign_options[@]}" "$timestamp" --entitlements packaging/Dilated.entitlements --sign "$sign_as" "$app"
 codesign --verify --deep --strict "$app"
 echo "$app"

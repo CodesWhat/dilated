@@ -10,6 +10,7 @@
 <key>LSMinimumSystemVersion</key><string>26.0</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
+<key>NSLocationUsageDescription</key><string>Dilated needs Location access to match the Wi-Fi network names you choose for triggers. It doesn't request or record your geographic location.</string>
 <key>NSAppleScriptEnabled</key><true/>
 <key>OSAScriptingDefinition</key><string>Dilated.sdef</string>
 <key>SUFeedURL</key><string>https://dilated.codeswhat.com/updates/appcast.xml</string>

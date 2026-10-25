@@ -67,6 +67,18 @@ class ReleaseGuardsTests(unittest.TestCase):
         self.assertEqual(info['DilatedDisplayVersion'], metadata['DilatedDisplayVersion'])
         self.assertEqual(info['CFBundleVersion'], metadata['CFBundleVersion'])
         self.assertEqual(info['CFBundleIdentifier'], 'com.codeswhat.dilated')
+        self.assertIn('Wi-Fi', info['NSLocationUsageDescription'])
+        signed = subprocess.run(['codesign', '-d', '--entitlements', ':-', str(app)],
+                                capture_output=True, check=True)
+        entitlements = plistlib.loads(signed.stdout)
+        self.assertTrue(entitlements['com.apple.security.personal-information.location'])
+        self.assertNotIn('com.apple.wifi.events', entitlements)
+        for binary in ['dilated', 'dilated-helper']:
+            signed_child = subprocess.run(
+                ['codesign', '-d', '--entitlements', ':-', str(app / 'Contents/MacOS' / binary)],
+                capture_output=True, check=True)
+            self.assertNotIn(b'com.apple.wifi.events', signed_child.stdout)
+            self.assertNotIn(b'com.apple.security.personal-information.location', signed_child.stdout)
         self.assertEqual(len(info['DilatedSourceRevision']), 40)
         framework = app / 'Contents/Frameworks/Sparkle.framework'
         self.assertTrue((framework / 'Versions/B/Sparkle').is_file())
@@ -114,7 +126,7 @@ class ReleaseGuardsTests(unittest.TestCase):
                 time.sleep(0.1)
             else:
                 error = process.stderr.read() if process.poll() is not None else 'App did not start its control connection'
-                self.fail(error)
+                self.fail(error or f'App exited with status {process.poll()} before starting control')
         finally:
             if process.poll() is None:
                 process.terminate()

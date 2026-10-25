@@ -75,6 +75,7 @@ public enum TriggerCriterion: Codable, Equatable, Sendable {
   case network(address: String)
   case gateway(address: String)
   case dns(address: String)
+  case wifi(ssid: Data)
   case volume(path: String)
   case audioOutput(uid: String, name: String)
   case usb(device: USBDeviceIdentity, name: String)
@@ -94,6 +95,7 @@ public struct TriggerInputs: Sendable {
   public var addresses: Set<String> = []
   public var gateways: Set<String> = []
   public var dnsServers: Set<String> = []
+  public var wifiSSIDs: Set<Data>?
   public var mountedVolumes: Set<String>?
   public var audioOutputUID: String?
   public var usbDevices: Set<USBDeviceIdentity>?
@@ -154,6 +156,7 @@ public struct TriggerRule: Codable, Equatable, Identifiable, Sendable {
         return input.gateways.contains { AddressRange(address)?.contains($0) == true }
       case .dns(let address):
         return input.dnsServers.contains { AddressRange(address)?.contains($0) == true }
+      case .wifi(let ssid): return input.wifiSSIDs?.contains(ssid) == true
       case .volume(let path):
         return input.mountedVolumes?.contains(URL(fileURLWithPath: path).standardizedFileURL.path)
           == true
@@ -190,6 +193,7 @@ extension TriggerCriterion {
       return minimum >= 0 && maximum <= 32 && minimum <= maximum
     case .network(let address), .gateway(let address), .dns(let address):
       return AddressRange(address) != nil
+    case .wifi(let ssid): return (1...32).contains(ssid.count)
     case .volume(let path): return path.hasPrefix("/") && path.count <= 1024 && !path.contains("\0")
     case .audioOutput(let uid, let name):
       return !uid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

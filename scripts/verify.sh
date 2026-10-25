@@ -10,5 +10,6 @@ swift format lint --strict --recursive Sources Tests Package.swift design/menuba
 bash -n scripts/build-app.sh scripts/swift-test.sh scripts/verify.sh
 python3 -c 'import ast; from pathlib import Path; [ast.parse(file.read_text(), filename=str(file)) for file in Path("scripts").rglob("*.py")]'
 plutil -lint packaging/Info.plist
+plutil -lint packaging/Dilated.entitlements
 plutil -lint packaging/com.codeswhat.dilated.helper.plist
 plutil -lint packaging/Version.plist

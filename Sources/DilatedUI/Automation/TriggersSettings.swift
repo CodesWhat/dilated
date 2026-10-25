@@ -176,6 +176,7 @@ private enum TriggerKind: String, CaseIterable {
   case network = "IP address or subnet"
   case gateway = "Gateway"
   case dns = "DNS server"
+  case wifi = "Wi-Fi network"
   case volume = "Mounted volume"
   case audioOutput = "Audio output"
   case usb = "USB device"
@@ -194,6 +195,7 @@ private enum TriggerKind: String, CaseIterable {
     case .network: .network(address: "")
     case .gateway: .gateway(address: "")
     case .dns: .dns(address: "")
+    case .wifi: .wifi(ssid: Data())
     case .volume: .volume(path: "")
     case .audioOutput: .audioOutput(uid: "", name: "")
     case .usb: .usb(device: .init(vendorID: 0, productID: 0), name: "")
@@ -221,6 +223,7 @@ private enum TriggerKind: String, CaseIterable {
     case .network: .network
     case .gateway: .gateway
     case .dns: .dns
+    case .wifi: .wifi
     case .volume: .volume
     case .audioOutput: .audioOutput
     case .usb: .usb
@@ -418,6 +421,9 @@ private enum TriggerKind: String, CaseIterable {
         ).font(.caption).foregroundStyle(.secondary)
       case .schedule(let schedule):
         scheduleEditor(schedule)
+      case .wifi(let ssid):
+        WiFiConditionEditor(
+          ssid: Binding(get: { ssid }, set: { criterion = .wifi(ssid: $0) }))
       case .network(let address), .gateway(let address), .dns(let address):
         TextField(
           "IPv4, IPv6 or CIDR range",
@@ -506,6 +512,7 @@ extension TriggerCriterion {
     case .network(let address): "IP address in \(address)"
     case .gateway(let address): "Gateway in \(address)"
     case .dns(let address): "DNS server in \(address)"
+    case .wifi(let ssid): "Wi-Fi network is \(WiFiSSID.label(ssid))"
     case .volume(let path): "Volume mounted at \(path)"
     case .audioOutput(_, let name): "Sound output is \(name)"
     case .usb(let device, let name):

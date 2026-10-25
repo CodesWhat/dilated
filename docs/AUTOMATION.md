@@ -183,9 +183,27 @@ not record keys, move the pointer or promise another app's availability status.
 Both CPU and idle conditions are checked every five seconds only while a matching
 configured rule is enabled and unpaused. Unknown readings never match.
 
+Wi-Fi conditions match the exact SSID bytes, including capitalization and spaces.
+Enter a network name or choose Get current Wi-Fi network in its condition editor.
+Only the explicit Allow Location access button requests macOS permission.
+Dilated reads network names without requesting geographic coordinates or scanning
+nearby networks. Denied or unavailable names don't match; IP, gateway and DNS
+conditions still work without Location access. Network-change notifications
+refresh matching, with the shared five-second coalesced timer covering SSID
+changes that leave IP configuration unchanged. SSID polling runs only for an
+enabled, unpaused rule with Location access. Network names contain at
+most 32 bytes; an unusual non-text name selected from the current connection is
+preserved as raw bytes and displayed in hexadecimal.
+
+USB conditions select a connected device by vendor/product and serial number.
+When the device supplies no serial number, the condition matches any connected
+unit of that model. Selected sound-output conditions use the output's stable UID,
+not its friendly name, and don't require playback. Both use native change events
+without adding a polling timer.
+
 Configuration survives app restarts, but matching holds are rebuilt from current
 conditions. A saved process/app hold is never treated as evidence the work is
-still running. Wi-Fi SSID and USB/Bluetooth/audio-output criteria remain later work.
+still running. Paired Bluetooth conditions remain later work.
 
 ## Manual agent hook pattern
 

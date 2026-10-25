@@ -46,6 +46,7 @@ enum ProcessCatalog {
   private let readPower: () -> PowerState
   private let audioOutput: AudioOutputObserver
   private let usb: USBDeviceObserver
+  private let wifi: WiFiObserver
   private var observers: [(NotificationCenter, NSObjectProtocol)] = []
   private var pollTimer: Timer?
   private var boundaryTimer: Timer?
@@ -57,17 +58,22 @@ enum ProcessCatalog {
   private var needsVolumes = false
   private var needsAudioOutput = false
   private var needsUSB = false
+  private var needsWiFi = false
   private var cpuSampler = CPUUsageSampler()
   private var lastCPUReading: (at: TimeInterval, value: Double?)?
   var pollingInterval: TimeInterval? { pollTimer?.timeInterval }
   private var processNames: Set<String> = []
   private var processInstances: Set<ProcessIdentity> = []
 
-  init(readPower: @escaping () -> PowerState, changed: @escaping () -> Void) {
+  init(
+    readPower: @escaping () -> PowerState, wifiAccess: WiFiAccess? = nil,
+    readWiFi: (() -> Set<Data>?)? = nil, changed: @escaping () -> Void
+  ) {
     self.changed = changed
     self.readPower = readPower
     audioOutput = AudioOutputObserver(changed: changed)
     usb = USBDeviceObserver(changed: changed)
+    wifi = WiFiObserver(access: wifiAccess, readSSIDs: readWiFi, changed: changed)
     let workspace = NSWorkspace.shared.notificationCenter
     for name in [
       NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification,
@@ -132,11 +138,16 @@ enum ProcessCatalog {
       return false
     }
     usb.setEnabled(needsUSB)
+    needsWiFi = criteria.contains {
+      if case .wifi = $0 { return true }
+      return false
+    }
+    wifi.setEnabled(needsWiFi)
     if !needsCPU {
       cpuSampler = CPUUsageSampler()
       lastCPUReading = nil
     }
-    let needsPolling = needsProcesses || needsCPU || needsIdle
+    let needsPolling = needsProcesses || needsCPU || needsIdle || (needsWiFi && wifi.isAuthorized)
     if needsPolling && pollTimer == nil {
       let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
         MainActor.assumeIsolated { self?.changed() }
@@ -181,6 +192,7 @@ enum ProcessCatalog {
       }
     }
     if needsVolumes { input.mountedVolumes = NativeActivityInputs.mountedVolumes() }
+    if needsWiFi { input.wifiSSIDs = wifi.read() }
     if needsAudioOutput && audioOutput.isMonitoring {
       input.audioOutputUID = AudioOutputCatalog.defaultUID()
     }
@@ -240,6 +252,7 @@ enum ProcessCatalog {
   func stop() {
     audioOutput.stop()
     usb.stop()
+    wifi.stop()
     pollTimer?.invalidate()
     boundaryTimer?.invalidate()
     pollTimer = nil
@@ -257,6 +270,7 @@ enum ProcessCatalog {
     needsVolumes = false
     needsAudioOutput = false
     needsUSB = false
+    needsWiFi = false
     needsProcesses = false
   }
 

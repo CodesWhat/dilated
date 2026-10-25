@@ -105,6 +105,19 @@ the CPU baseline. Mounted paths use Workspace mount/unmount/rename notifications
 and no file access. Global automation pause removes monitoring and polling. Network identity uses
 IP/subnet, gateway and DNS configuration without Location access.
 
+Wi-Fi SSID conditions store raw name bytes and read CoreWLAN only with Location
+authorization. A lazily created authorization source requests permission only
+from the condition editor's explicit button, never from trigger evaluation.
+SystemConfiguration network-change events refresh current state. The existing
+five-second coalesced poll also runs for enabled, unpaused SSID rules with access,
+covering name changes that don't alter IP configuration. Permission loss removes
+SSID polling and blocks reads; no cached SSID can match afterward. Generation
+checks ignore queued permission callbacks after teardown. Only the app receives
+the Location entitlement; the CLI and privileged helper don't. The documented
+CoreWLAN event entitlement causes launch termination on the tested Mac with both
+ad-hoc and Developer ID signing, so it is excluded and the app does not register
+for CoreWLAN events. No geographic location updates or nearby scans are started.
+
 The engine emits bounded start/end events carrying the actual hold and end cause.
 `SessionHistory` tracks app-managed reasons and calculates their interval union in
 O(n log n), so concurrent holds don't multiply total requested time. It does not
