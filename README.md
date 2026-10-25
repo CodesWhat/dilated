@@ -21,7 +21,10 @@ App Intents metadata while the core, UI, CLI and helper remain Swift packages.
 Real Shortcuts execution requires a developer-signed build on the tested Mac;
 an ad-hoc build can appear in the action catalog but fail to run.
 
-Run the checks with `bash scripts/verify.sh`. After building the bundle, run the
+Run the checks with `bash scripts/verify.sh` using Xcode, XcodeGen, Python 3, Ruby
+and Node.js 24. This entry point runs Swift tests, release packaging checks
+(including an isolated app build/launch), website tests, and formatting/syntax
+checks. CI uses the same entry point. After building the bundle, run the
 bounded app/CLI integration check with `python3 scripts/smoke-test.py`. It uses
 disposable state and cleans up its own processes. macOS UI checks are performed
 against the actual app.

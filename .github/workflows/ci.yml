@@ -10,13 +10,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Build
-        run: swift build --arch arm64 --jobs 4
-      - name: Test
-        run: bash scripts/swift-test.sh --jobs 4
-      - name: Check formatting
-        run: swift format lint --strict --recursive Sources Tests Package.swift
-      - name: Assemble local app
-        run: |
-          brew install xcodegen
-          bash scripts/build-app.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install build tools
+        run: brew install xcodegen
+      - name: Verify
+        run: bash scripts/verify.sh
