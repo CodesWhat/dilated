@@ -52,6 +52,8 @@ python3 scripts/package-release.py --check-automation "$app"
 for bundle in "$bin_dir"/Dilated_DilatedUI.bundle; do
     test -d "$bundle"
     ditto "$bundle" "$app/Contents/Resources/$(basename "$bundle")"
+    python3 scripts/normalize-resource-bundle.py "$app/Contents/Resources/$(basename "$bundle")"
+    plutil -lint "$app/Contents/Resources/$(basename "$bundle")/Contents/Info.plist"
 done
 sign_as="${DILATED_SIGN_IDENTITY:--}"
 timestamp="--timestamp"
