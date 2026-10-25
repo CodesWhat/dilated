@@ -1,3 +1,5 @@
 Timed and indefinite keep-awake holds, display controls, renewable agent holds and a command runner.
 Closed-lid controls use a signed helper with bounded leases, power readback and battery/thermal limits.
 Updates wait for closed-lid mode to end. Unexpired timed holds keep their original deadlines after relaunch.
+Public beta: closed-lid mode is experimental; crash, reboot and update recovery are not yet verified on hardware.
+Optional resume of holds after returning from a user switch.

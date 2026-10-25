@@ -9,12 +9,17 @@ four Shortcuts actions, and
 a CLI with renewable agent holds, file/folder download watches, opt-in Drive Alive,
 notifications and sounds.
 Closed-lid controls and their privileged helper are implemented, with hardware
-recovery and release acceptance still pending. There is no public release yet.
+recovery and release acceptance still pending.
 Condition-based triggers are implemented locally for apps, processes, schedules,
 power, displays, network identity, Wi-Fi SSIDs, mounted volumes, USB and paired
 Bluetooth devices, selected audio output,
 CPU load and idle time.
 Automatic agent setup remains later work.
+
+1.0.0-beta.1 is a public beta for macOS 26+ on Apple Silicon. Install it from the
+website download or with `brew install --cask codeswhat/tap/dilated`. Closed-lid
+mode is experimental, and crash, reboot and update recovery haven't been verified
+on hardware yet. Report issues on GitHub.
 
 Build the local app with `bash scripts/build-app.sh`, then open
 `build/Dilated.app`. This is a development build, not a notarized release. The
