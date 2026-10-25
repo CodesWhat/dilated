@@ -84,6 +84,7 @@ import Testing
     var continuation: CheckedContinuation<Void, Never>?
     var pulses: [String] = []
     var schedules = 0
+    let completed = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     var overlapping = false
     var writing = false
     let controller = DriveAliveController(
@@ -96,6 +97,7 @@ import Testing
       },
       schedule: { _, _ in
         schedules += 1
+        completed.continuation.yield(())
         return {}
       })
     defer { controller.stop() }
@@ -112,10 +114,16 @@ import Testing
     #expect(pulses == ["awake"] && schedules == 0)
     continuation?.resume()
     continuation = nil
-    let deadline = ContinuousClock.now + .seconds(1)
-    while schedules == 0 && ContinuousClock.now < deadline {
-      try await Task.sleep(for: .milliseconds(1))
+    let timeout = Task {
+      do { try await Task.sleep(for: .seconds(5)) } catch { return }
+      completed.continuation.finish()
     }
+    defer {
+      timeout.cancel()
+      completed.continuation.finish()
+    }
+    var completion = completed.stream.makeAsyncIterator()
+    #expect(await completion.next() != nil)
     #expect(pulses == ["awake", always.id] && schedules == 1 && !overlapping)
     #expect(controller.statuses["awake"] == nil)
     #expect(controller.statuses[always.id] == "Active")
