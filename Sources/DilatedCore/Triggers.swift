@@ -77,6 +77,7 @@ public enum TriggerCriterion: Codable, Equatable, Sendable {
   case dns(address: String)
   case volume(path: String)
   case audioOutput(uid: String, name: String)
+  case usb(device: USBDeviceIdentity, name: String)
   case cpu(percent: Int, atLeast: Bool)
   case idle(seconds: TimeInterval, atLeast: Bool)
 }
@@ -95,6 +96,7 @@ public struct TriggerInputs: Sendable {
   public var dnsServers: Set<String> = []
   public var mountedVolumes: Set<String>?
   public var audioOutputUID: String?
+  public var usbDevices: Set<USBDeviceIdentity>?
   public var cpuPercent: Double?
   public var idleSeconds: TimeInterval?
   public init() {}
@@ -156,6 +158,8 @@ public struct TriggerRule: Codable, Equatable, Identifiable, Sendable {
         return input.mountedVolumes?.contains(URL(fileURLWithPath: path).standardizedFileURL.path)
           == true
       case .audioOutput(let uid, _): return input.audioOutputUID == uid
+      case .usb(let device, _):
+        return input.usbDevices?.contains(where: device.matches) == true
       case .cpu(let percent, let atLeast):
         guard let value = input.cpuPercent, value.isFinite, (0...100).contains(value) else {
           return false
@@ -191,6 +195,9 @@ extension TriggerCriterion {
       return !uid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         && uid.count <= 1024 && !uid.contains("\0")
         && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && name.count <= 255
+    case .usb(let device, let name):
+      return device.isValid && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        && name.count <= 255
     case .cpu(let percent, _): return (0...100).contains(percent)
     case .idle(let seconds, _): return seconds.isFinite && (0...315_576_000).contains(seconds)
     }

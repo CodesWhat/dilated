@@ -45,6 +45,7 @@ enum ProcessCatalog {
   private let changed: () -> Void
   private let readPower: () -> PowerState
   private let audioOutput: AudioOutputObserver
+  private let usb: USBDeviceObserver
   private var observers: [(NotificationCenter, NSObjectProtocol)] = []
   private var pollTimer: Timer?
   private var boundaryTimer: Timer?
@@ -55,6 +56,7 @@ enum ProcessCatalog {
   private var needsIdle = false
   private var needsVolumes = false
   private var needsAudioOutput = false
+  private var needsUSB = false
   private var cpuSampler = CPUUsageSampler()
   private var lastCPUReading: (at: TimeInterval, value: Double?)?
   var pollingInterval: TimeInterval? { pollTimer?.timeInterval }
@@ -65,6 +67,7 @@ enum ProcessCatalog {
     self.changed = changed
     self.readPower = readPower
     audioOutput = AudioOutputObserver(changed: changed)
+    usb = USBDeviceObserver(changed: changed)
     let workspace = NSWorkspace.shared.notificationCenter
     for name in [
       NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification,
@@ -124,6 +127,11 @@ enum ProcessCatalog {
       return false
     }
     audioOutput.setEnabled(needsAudioOutput)
+    needsUSB = criteria.contains {
+      if case .usb = $0 { return true }
+      return false
+    }
+    usb.setEnabled(needsUSB)
     if !needsCPU {
       cpuSampler = CPUUsageSampler()
       lastCPUReading = nil
@@ -175,6 +183,9 @@ enum ProcessCatalog {
     if needsVolumes { input.mountedVolumes = NativeActivityInputs.mountedVolumes() }
     if needsAudioOutput && audioOutput.isMonitoring {
       input.audioOutputUID = AudioOutputCatalog.defaultUID()
+    }
+    if needsUSB && usb.isMonitoring {
+      input.usbDevices = USBDeviceCatalog.read().map { Set($0.map(\.identity)) }
     }
     if needsIdle { input.idleSeconds = NativeActivityInputs.idleSeconds() }
     if needsCPU {
@@ -228,6 +239,7 @@ enum ProcessCatalog {
 
   func stop() {
     audioOutput.stop()
+    usb.stop()
     pollTimer?.invalidate()
     boundaryTimer?.invalidate()
     pollTimer = nil
@@ -244,6 +256,7 @@ enum ProcessCatalog {
     needsIdle = false
     needsVolumes = false
     needsAudioOutput = false
+    needsUSB = false
     needsProcesses = false
   }
 

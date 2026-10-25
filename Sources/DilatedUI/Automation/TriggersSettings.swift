@@ -178,6 +178,7 @@ private enum TriggerKind: String, CaseIterable {
   case dns = "DNS server"
   case volume = "Mounted volume"
   case audioOutput = "Audio output"
+  case usb = "USB device"
   case cpu = "CPU load"
   case idle = "Idle time"
   var initial: TriggerCriterion {
@@ -195,6 +196,7 @@ private enum TriggerKind: String, CaseIterable {
     case .dns: .dns(address: "")
     case .volume: .volume(path: "")
     case .audioOutput: .audioOutput(uid: "", name: "")
+    case .usb: .usb(device: .init(vendorID: 0, productID: 0), name: "")
     case .cpu: .cpu(percent: 20, atLeast: true)
     case .idle: .idle(seconds: 300, atLeast: false)
     }
@@ -205,6 +207,7 @@ private enum TriggerKind: String, CaseIterable {
   @Binding var criterion: TriggerCriterion
   @State private var processes: [NativeProcess] = []
   @State private var audioOutputs: [NativeAudioOutput] = []
+  @State private var usbDevices: [NativeUSBDevice] = []
   private var kind: TriggerKind {
     switch criterion {
     case .application: .application
@@ -220,6 +223,7 @@ private enum TriggerKind: String, CaseIterable {
     case .dns: .dns
     case .volume: .volume
     case .audioOutput: .audioOutput
+    case .usb: .usb
     case .cpu: .cpu
     case .idle: .idle
     }
@@ -351,6 +355,29 @@ private enum TriggerKind: String, CaseIterable {
         Text("Matches the Mac’s selected sound output. It doesn’t require audio to be playing.")
           .font(.caption).foregroundStyle(.secondary)
           .onAppear { audioOutputs = AudioOutputCatalog.read() ?? [] }
+      case .usb(let device, let name):
+        Picker(
+          "USB device",
+          selection: Binding(
+            get: { device },
+            set: { selected in
+              if let connected = usbDevices.first(where: { $0.identity == selected }) {
+                criterion = .usb(device: connected.identity, name: connected.name)
+              }
+            })
+        ) {
+          if !usbDevices.contains(where: { $0.identity == device }) {
+            Text(device.isValid ? "\(name) (not connected)" : "Choose a USB device").tag(device)
+          }
+          ForEach(usbDevices) { connected in Text(connected.label).tag(connected.identity) }
+        }
+        Button("Refresh devices") { usbDevices = USBDeviceCatalog.read() ?? [] }
+        Text(
+          device.serialNumber == nil
+            ? "Without a serial number, this matches any connected device of the same model."
+            : "Matches this device by its serial number, including after reconnecting to another port."
+        ).font(.caption).foregroundStyle(.secondary)
+          .onAppear { usbDevices = USBDeviceCatalog.read() ?? [] }
       case .cpu(let percent, let atLeast):
         Picker(
           "CPU load",
@@ -481,6 +508,8 @@ extension TriggerCriterion {
     case .dns(let address): "DNS server in \(address)"
     case .volume(let path): "Volume mounted at \(path)"
     case .audioOutput(_, let name): "Sound output is \(name)"
+    case .usb(let device, let name):
+      "USB connected: \(name)" + (device.serialNumber == nil ? " (any matching model)" : "")
     case .cpu(let percent, let atLeast): "CPU use \(atLeast ? "at least" : "at most") \(percent)%"
     case .idle(let seconds, let atLeast):
       "Idle \(atLeast ? "at least" : "at most") \(seconds / 60) minutes"
