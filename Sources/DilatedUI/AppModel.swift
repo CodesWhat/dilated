@@ -543,7 +543,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     do {
       try await synchronizeClosedLid()
       try await helperInstallation.remove(controller: closedLid)
-      message = "Closed-lid is off and the helper has been removed."
+      message = nil
       onChange?()
       return true
     } catch {
@@ -763,8 +763,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     return ControlResponse(
       ok: ok, snapshot: engine.snapshot,
-      message: action == .helperStatus
-        ? helperInstallation.statusText : message ?? helperInstallation.statusText,
+      message: action == .helperRemove && ok
+        ? "Closed-lid is off and the helper has been removed."
+        : action == .helperStatus
+          ? helperInstallation.statusText : message ?? helperInstallation.statusText,
       code: ok
         ? nil
         : helperInstallation.status == .requiresApproval ? "approvalRequired" : "helperFailure",

@@ -248,6 +248,37 @@ import Testing
     #expect(!restored.closedLid.active)
     #expect(!restored.engine.desiredState.closedLid)
   }
+  @Test(arguments: [false, true])
+  func successfulHelperRemovalClearsAttentionAndPreservesManualWork(control: Bool) async throws {
+    let fixture = await ControllerFixture()
+    let service = InstallationFixture(power: fixture.power)
+    service.status = .notRegistered
+    let installation = HelperInstallation(
+      service: service,
+      readPower: { .init(effectiveDisabled: false, storedDisabled: false) })
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      closedLid: fixture.controller(), helperInstallation: installation)
+    defer { model.shutdown() }
+    model.stopAll()
+    model.start(duration: 60)
+    let manual = try #require(model.engine.holds.first)
+    model.message = "An earlier helper error"
+    if control {
+      let response = await model.control(.init(action: .helperRemove))
+      #expect(response.ok && response.helperInstallation == "notRegistered")
+      #expect(response.message == "Closed-lid is off and the helper has been removed.")
+    } else {
+      #expect(await model.removeHelper())
+    }
+    #expect(model.attention == nil)
+    #expect(model.engine.automationPaused && model.engine.holds.map(\.id) == [manual.id])
+    #expect(!model.closedLid.active && !model.engine.desiredState.closedLid)
+    #expect(service.operations.isEmpty)
+  }
+
   @Test func failedRemovalNeverReturnsSuccessfulControlAcknowledgement() async throws {
     let fixture = await ControllerFixture()
     let service = InstallationFixture(power: fixture.power)
@@ -266,6 +297,7 @@ import Testing
     let response = await model.control(.init(action: .helperRemove))
     #expect(!response.ok)
     #expect(response.message?.contains("normal sleep") == true)
+    #expect(model.attention == response.message)
     #expect(service.operations.isEmpty)
   }
 
