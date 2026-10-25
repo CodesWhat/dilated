@@ -557,12 +557,20 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     SettingsGroup(eyebrow: "POWER") {
       SettingsRow(
         title: "Battery floor",
-        detail: "Ends awake holds below this level on battery. Doesn't apply on AC."
+        detail: "Ends awake holds below this level. Start Anyway overrides it for one hold."
       ) {
         Picker("Battery floor", selection: $model.settings.batteryFloor) {
           Text("Off").tag(0)
           ForEach([10, 15, 20, 25, 30, 40, 50], id: \.self) { Text("\($0)%").tag($0) }
         }.labelsHidden().fixedSize()
+      }
+      SettingsRow(
+        title: "Ignore battery floor on AC",
+        detail:
+          "Allows holds below the floor while connected to power. Closed-lid limits are separate."
+      ) {
+        Toggle("", isOn: $model.settings.batteryFloorIgnoresAC).labelsHidden()
+          .disabled(model.settings.batteryFloor == 0)
       }
       SettingsRow(
         title: "Override Low Power Mode",

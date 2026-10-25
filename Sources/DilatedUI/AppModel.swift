@@ -24,6 +24,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public var swapClicks = false
   public var lowOpacityIdle = false
   public var batteryFloor = 0
+  public var batteryFloorIgnoresAC = true
   public var overrideLowPower = false
   public var startAtLaunch = false
   public var startAfterWake = false
@@ -77,6 +78,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     lowOpacityIdle =
       try values.decodeIfPresent(Bool.self, forKey: .lowOpacityIdle) ?? lowOpacityIdle
     batteryFloor = try values.decodeIfPresent(Int.self, forKey: .batteryFloor) ?? batteryFloor
+    if values.contains(.batteryFloorIgnoresAC) {
+      batteryFloorIgnoresAC = try values.decode(Bool.self, forKey: .batteryFloorIgnoresAC)
+    }
     overrideLowPower =
       try values.decodeIfPresent(Bool.self, forKey: .overrideLowPower) ?? overrideLowPower
     startAtLaunch = try values.decodeIfPresent(Bool.self, forKey: .startAtLaunch) ?? startAtLaunch
@@ -147,6 +151,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     let old = preferences
     preferences = value
     engine.batteryFloor = value.batteryFloor > 0 ? value.batteryFloor : nil
+    engine.batteryFloorIgnoresAC = value.batteryFloorIgnoresAC
     if old.closedLidBatteryFloor != value.closedLidBatteryFloor
       || old.closedLidBatteryMinutes != value.closedLidBatteryMinutes
       || old.closedLidACOnly != value.closedLidACOnly
@@ -322,7 +327,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     engine = WakeEngine(
       snapshot: snapshot, power: power(),
-      batteryFloor: loadedSettings.batteryFloor > 0 ? loadedSettings.batteryFloor : nil)
+      batteryFloor: loadedSettings.batteryFloor > 0 ? loadedSettings.batteryFloor : nil,
+      batteryFloorIgnoresAC: loadedSettings.batteryFloorIgnoresAC)
     settingsRecoveryIssue = recoveryIssue
     message = loadMessage
     self.closedLid.onChange = { [weak self] in self?.onChange?() }
@@ -655,7 +661,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
       try await synchronizeClosedLid()
       if helperInstallation.status == .enabled { try await closedLid.disable() }
       let restored = WakeEngine(
-        snapshot: engine.snapshot, power: readPower(), batteryFloor: engine.batteryFloor)
+        snapshot: engine.snapshot, power: readPower(), batteryFloor: engine.batteryFloor,
+        batteryFloorIgnoresAC: engine.batteryFloorIgnoresAC)
       try store.save(restored.snapshot)
       savedForUpdate = true
       historyShutdownReason = .update
@@ -706,7 +713,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         }
       }
       var prepared = WakeEngine(
-        snapshot: engine.snapshot, power: readPower(), batteryFloor: engine.batteryFloor)
+        snapshot: engine.snapshot, power: readPower(), batteryFloor: engine.batteryFloor,
+        batteryFloorIgnoresAC: engine.batteryFloorIgnoresAC)
       if intent == .uninstall { prepared.quit() }
       try store.save(prepared.snapshot)
       try handoff.save(
@@ -1061,6 +1069,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     try writeSettings(defaults, recovering: true)
     preferences = defaults
     engine.batteryFloor = nil
+    engine.batteryFloorIgnoresAC = defaults.batteryFloorIgnoresAC
     settingsRecoveryIssue = nil
     message = nil
     commit()

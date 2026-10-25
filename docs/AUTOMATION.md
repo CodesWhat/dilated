@@ -262,6 +262,10 @@ A planned in-app update also restores timed holds only, with their original
 deadlines. Closed-lid requests are never restored from saved timers.
 Low Power Mode ends holds without an explicit override. Battery guard overrides
 from the app's Start Anyway prompt apply only to the approved hold.
+The ordinary battery floor is ignored on AC by default. Turn off Ignore battery
+floor on AC in Battery & Safety to enforce it while connected to power too.
+Changing this choice immediately checks existing holds. Closed-lid safety limits
+remain separate, and Stop still requires explicit Resume automation.
 
 CLI errors use stderr. Exit status 4 means automation is paused, 1 means another
 request or connection error, and `run` returns its child command's status. With

@@ -59,6 +59,7 @@ public struct WakeEngine: Sendable {
   public private(set) var attention: String?
   public private(set) var power = PowerState()
   public var batteryFloor: Int?
+  public var batteryFloorIgnoresAC: Bool
   public var desiredState: DesiredState {
     DesiredState(
       systemAwake: !holds.isEmpty, displayAwake: holds.contains { $0.displayAwake },
@@ -70,9 +71,10 @@ public struct WakeEngine: Sendable {
 
   public init(
     snapshot: EngineSnapshot = EngineSnapshot(), now: Date = Date(),
-    power: PowerState = PowerState(), batteryFloor: Int? = nil
+    power: PowerState = PowerState(), batteryFloor: Int? = nil, batteryFloorIgnoresAC: Bool = true
   ) {
     self.batteryFloor = batteryFloor
+    self.batteryFloorIgnoresAC = batteryFloorIgnoresAC
     self.power = power
     automationPaused = snapshot.automationPaused
     holds = snapshot.holds.filter {
@@ -202,7 +204,9 @@ public struct WakeEngine: Sendable {
     for index in holds.indices { holds[index].closedLid = nil }
   }
   private var batteryBlocked: Bool {
-    guard power.onBattery, let percent = power.batteryPercent, let floor = batteryFloor else {
+    guard power.onBattery || !batteryFloorIgnoresAC,
+      let percent = power.batteryPercent, let floor = batteryFloor
+    else {
       return false
     }
     return percent < floor

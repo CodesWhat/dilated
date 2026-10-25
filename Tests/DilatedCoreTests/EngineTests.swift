@@ -171,6 +171,47 @@ struct EngineTests {
       try engine.start(source: .manual, label: "Other", now: now)
     }
   }
+  @Test func acBatteryFloorHonorsTheThresholdAndPowerSourceChanges() throws {
+    var engine = WakeEngine(
+      power: .init(onBattery: false, batteryPercent: 20), batteryFloor: 20,
+      batteryFloorIgnoresAC: false)
+    try engine.start(source: .manual, label: "At the floor", duration: 120, now: now)
+    engine.updatePower(.init(onBattery: false, batteryPercent: 19), now: now)
+    #expect(engine.holds.isEmpty)
+    #expect(engine.takeHistoryEvents().last?.endReason == .lowBattery)
+    #expect(throws: WakeError.lowBattery) {
+      try engine.start(source: .lease, label: "Agent", duration: 60, now: now)
+    }
+    engine.batteryFloorIgnoresAC = true
+    try engine.start(source: .manual, label: "AC exemption", now: now)
+    engine.updatePower(.init(onBattery: true, batteryPercent: 19), now: now)
+    #expect(engine.holds.isEmpty)
+    engine.batteryFloor = nil
+    engine.batteryFloorIgnoresAC = false
+    try engine.start(source: .manual, label: "Floor off", now: now)
+    #expect(engine.holds.count == 1)
+  }
+  @Test func acBatteryOverrideRestoresOnlyItsOwnTimerAndDoesNotOverrideLowPowerMode() throws {
+    var engine = WakeEngine(batteryFloor: 20, batteryFloorIgnoresAC: false)
+    try engine.start(source: .manual, label: "Ordinary", duration: 120, now: now)
+    let approved = try engine.start(
+      source: .manual, label: "Approved", duration: 180, batteryOverride: true, now: now)
+    var restored = WakeEngine(
+      snapshot: engine.snapshot, now: now.addingTimeInterval(1),
+      power: .init(onBattery: false, batteryPercent: 15), batteryFloor: 20,
+      batteryFloorIgnoresAC: false)
+    #expect(restored.holds == [approved])
+    restored.updatePower(.init(onBattery: false, batteryPercent: 14, lowPowerMode: true), now: now)
+    #expect(restored.holds.isEmpty)
+    #expect(throws: WakeError.lowPowerMode) {
+      try restored.start(source: .manual, label: "Battery only", batteryOverride: true, now: now)
+    }
+    try restored.start(
+      source: .manual, label: "Both overrides", lowPowerOverride: true, batteryOverride: true,
+      now: now)
+    restored.stopAll(now: now)
+    #expect(restored.holds.isEmpty && restored.automationPaused)
+  }
   @Test func invalidDurationsNeverCreateHolds() {
     var engine = WakeEngine()
     for duration in [0.0, -1, .infinity, .nan] {
