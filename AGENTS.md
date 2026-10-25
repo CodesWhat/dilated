@@ -10,7 +10,9 @@ Store.
 ## Repository layout
 
 - `.planning/` is ignored local planning and evidence. It is never published,
-  and no build, test, or runtime may depend on it.
+  and no build, test, or runtime may depend on it. On Scott's machine it holds
+  the working spec (`research-dilated-spec.md`, start there), the menu bar
+  icon roster (`ROSTER.md`), and the glyph generator scripts (`glyphs*.py`).
 
 ## Commits
 

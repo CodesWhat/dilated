@@ -1,0 +1,56 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": null,
+  "installCommand": null,
+  "outputDirectory": null,
+  "routes": [
+    {
+      "src": "/(.*)",
+      "headers": {
+        "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY"
+      },
+      "continue": true
+    },
+    {
+      "src": "/updates/appcast.xml",
+      "headers": {
+        "Cache-Control": "no-store"
+      },
+      "continue": true
+    },
+    {
+      "src": "/releases/latest.json",
+      "headers": {
+        "Cache-Control": "no-store"
+      }
+    },
+    {
+      "src": "/releases/(?!latest\\.json$).*",
+      "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable"
+      },
+      "continue": true
+    },
+    {
+      "src": "/download/file",
+      "headers": {
+        "Location": "/releases/1.0.0-beta.1/Dilated-1.0.0-beta.1-macos-arm64.dmg",
+        "Cache-Control": "no-store"
+      },
+      "status": 302
+    },
+    {
+      "src": "/source",
+      "headers": {
+        "Location": "/releases/1.0.0-beta.1/Dilated-1.0.0-beta.1-source.tar.gz",
+        "Cache-Control": "no-store"
+      },
+      "status": 302
+    }
+  ]
+}

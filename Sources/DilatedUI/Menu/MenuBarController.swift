@@ -1,0 +1,203 @@
+// Status-item interaction and template image caching adapted from CodesWhat/Mouthtype, Scott Benson, MIT.
+import AppKit
+
+@MainActor final class MenuBarController: NSObject, NSMenuDelegate {
+  typealias TimerFactory =
+    @MainActor (TimeInterval, Bool, @escaping @MainActor @Sendable () -> Bool) -> Timer
+  private let makeTimer: TimerFactory
+  let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+  private let model: AppModel
+  private let openSettings: () -> Void
+  private let presentMenu: @MainActor (NSStatusItem) -> Void
+  private var wasAwake = false
+  private var began = ProcessInfo.processInfo.systemUptime
+  private var eyeMotionBegan = ProcessInfo.processInfo.systemUptime
+  private var burst: Timer?
+  private var microMotion: Timer?
+  private var cache: [String: NSImage] = [:]
+  private var lastFrame = ""
+  private var lastGlyphIdentity: String?
+  private var lastMotion: Motion?
+  private var reducedMotion = false
+  private weak var openMenu: NSMenu?
+
+  init(
+    model: AppModel, openSettings: @escaping () -> Void,
+    presentMenu: @escaping @MainActor (NSStatusItem) -> Void = { $0.button?.performClick(nil) },
+    makeTimer: @escaping TimerFactory = { interval, repeats, fire in
+      let timer = Timer(timeInterval: interval, repeats: repeats) { timer in
+        let keepRunning = MainActor.assumeIsolated { fire() }
+        if !keepRunning { timer.invalidate() }
+      }
+      timer.tolerance = min(1, interval / 5)
+      RunLoop.main.add(timer, forMode: .common)
+      return timer
+    }
+  ) {
+    self.model = model
+    self.openSettings = openSettings
+    self.presentMenu = presentMenu
+    self.makeTimer = makeTimer
+    super.init()
+    statusItem.button?.target = self
+    statusItem.button?.action = #selector(clicked)
+    statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+    statusItem.button?.setAccessibilityLabel("Dilated")
+    refresh()
+  }
+  @objc private func clicked() {
+    let right = NSApp.currentEvent?.type == .rightMouseUp
+    if right != model.settings.swapClicks {
+      model.toggle()
+      refresh()
+      return
+    }
+    showMenu()
+  }
+  func showMenu() {
+    guard statusItem.button != nil else { return }
+    let menu = AwakeMenu.make(model: model, openSettings: openSettings)
+    menu.delegate = self
+    statusItem.menu = menu
+    presentMenu(statusItem)
+  }
+  func refresh() {
+    if let openMenu { AwakeMenu.refreshStatus(in: openMenu, model: model) }
+    let awake = !model.engine.holds.isEmpty
+    let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    if lastGlyphIdentity != model.glyphSelectionID {
+      cache.removeAll(keepingCapacity: true)
+      lastFrame = ""
+    }
+    if awake != wasAwake || lastGlyphIdentity != model.glyphSelectionID
+      || lastMotion != model.settings.motion
+      || reducedMotion != reduce
+    {
+      wasAwake = awake
+      lastGlyphIdentity = model.glyphSelectionID
+      lastMotion = model.settings.motion
+      reducedMotion = reduce
+      began = ProcessInfo.processInfo.systemUptime
+      burst?.invalidate()
+      microMotion?.invalidate()
+      microMotion = nil
+      if awake && !reduce && model.settings.motion != .off && !model.settings.useCustomGlyph
+        && model.settings.glyph != .catCans
+      {
+        animateBurst()
+        let period: TimeInterval =
+          switch model.settings.glyph {
+          case .can: 8
+          case .spiralEyes: model.settings.motion == .subtle ? 12 : 6
+          default: model.settings.motion == .subtle ? 10 : 5
+          }
+        let timer = makeTimer(period, true) { [weak self] in
+          guard let self else { return false }
+          self.animateBurst()
+          return true
+        }
+        microMotion = timer
+      }
+    }
+    updateImage()
+    let expiry = model.engine.holds.compactMap(\.expiry).max()
+    let countdown =
+      model.settings.countdown && awake
+      ? " "
+        + (model.engine.holds.contains { $0.expiry == nil }
+          ? "∞"
+          : expiry.map {
+            model.settings.countdownFormat.remaining(
+              until: $0, now: model.now, seconds: model.settings.countdownSeconds,
+              hourCycle: model.settings.countdownHourCycle)
+          } ?? "")
+      : ""
+    let title = NSMutableAttributedString(string: "")
+    if model.attention != nil {
+      title.append(
+        NSAttributedString(
+          string: " !",
+          attributes: [
+            .foregroundColor: DesignPalette.NS.orange,
+            .font: NSFont.systemFont(ofSize: 12, weight: .bold),
+          ]))
+    }
+    title.append(NSAttributedString(string: countdown))
+    statusItem.button?.attributedTitle = title
+    statusItem.button?.font = .monospacedDigitSystemFont(
+      ofSize: model.settings.countdownTextSize.pointSize, weight: .regular)
+    let dimIdle =
+      model.settings.useCustomGlyph
+      ? model.settings.customGlyphDimIdle : model.settings.lowOpacityIdle
+    statusItem.button?.alphaValue = !awake && dimIdle ? 0.5 : 1
+    let description =
+      "Dilated: \(model.statusText)" + (model.closedLid.active ? ". Closed-lid armed." : "")
+      + (model.attention.map { ". \($0)" } ?? "")
+    statusItem.button?.toolTip = description
+    statusItem.button?.setAccessibilityLabel(description)
+  }
+  func menuWillOpen(_ menu: NSMenu) { openMenu = menu }
+  func menuDidClose(_ menu: NSMenu) {
+    openMenu = nil
+    if statusItem.menu === menu { statusItem.menu = nil }
+  }
+  private func animateBurst() {
+    burst?.invalidate()
+    eyeMotionBegan = ProcessInfo.processInfo.systemUptime
+    let end = ProcessInfo.processInfo.systemUptime + 2
+    let timer = makeTimer(0.125, true) { [weak self] in
+      guard let self else { return false }
+      guard ProcessInfo.processInfo.systemUptime < end else {
+        self.updateImage()
+        return false
+      }
+      self.updateImage()
+      return true
+    }
+    burst = timer
+  }
+  private func updateImage() {
+    let glyph = model.settings.glyph
+    let frame =
+      model.settings.useCustomGlyph
+      ? (model.engine.holds.isEmpty ? "off" : "on")
+      : glyph.frame(
+        awake: !model.engine.holds.isEmpty,
+        elapsed: ProcessInfo.processInfo.systemUptime
+          - (glyph == .bugEyes ? eyeMotionBegan : began),
+        motion: model.settings.motion,
+        reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+    let mark = model.closedLid.active ? "armed" : ""
+    let key = model.glyphSelectionID + frame + mark
+    guard key != lastFrame else { return }
+    if cache[key] == nil, let base = model.menuGlyphImage(frame: frame) {
+      if mark.isEmpty {
+        cache[key] = base
+      } else {
+        let image = NSImage(size: base.size, flipped: false) { rect in
+          base.draw(in: rect)
+          NSColor.black.setFill()
+          NSBezierPath(
+            roundedRect: NSRect(x: 5, y: 0, width: rect.width - 10, height: 1), xRadius: 0.5,
+            yRadius: 0.5
+          ).fill()
+          return true
+        }
+        image.isTemplate = true
+        cache[key] = image
+      }
+    }
+    guard let image = cache[key] else {
+      model.message = "The selected menu bar glyph couldn't be loaded."
+      return
+    }
+    statusItem.button?.image = image
+    lastFrame = key
+  }
+  func stop() {
+    openMenu = nil
+    burst?.invalidate()
+    microMotion?.invalidate()
+    NSStatusBar.system.removeStatusItem(statusItem)
+  }
+}

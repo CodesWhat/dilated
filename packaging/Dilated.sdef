@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+<dictionary title="Dilated Terminology">
+  <suite name="Dilated Suite" code="Amph" description="App-managed awake sessions and automation.">
+    <command name="session is active" code="amphcAct" description="Whether any awake hold is active.">
+      <cocoa class="DilatedScriptCommand"/>
+      <result type="boolean"/>
+    </command>
+    <command name="start new session" code="amphcmOn" description="Replace only AppleScript-owned work. Other awake holds remain active. Automation must be resumed first.">
+      <cocoa class="DilatedScriptCommand"/>
+      <parameter name="with options" code="optn" type="session options" optional="yes" description="Optional duration and interval together, plus displaySleepAllowed. Use minutes or hours for interval. Use duration:0, interval:0 for indefinite. Missing options use current session defaults.">
+        <cocoa key="options"/>
+      </parameter>
+    </command>
+    <command name="end session" code="amphcOff" description="Stop all app-managed holds and pause automation until Resume automation is chosen.">
+      <cocoa class="DilatedScriptCommand"/>
+    </command>
+    <command name="session time remaining" code="amphSTRm" description="Seconds until the last timed hold ends. Returns -3 when inactive, 0 for an indefinite non-trigger hold, or -1 for a trigger. Indefinite takes precedence over trigger, then timed. Until-time holds report seconds.">
+      <cocoa class="DilatedScriptCommand"/>
+      <result type="integer"/>
+    </command>
+    <command name="display sleep allowed" code="amphDSOK" description="Whether active holds allow display sleep, or the session default while inactive.">
+      <cocoa class="DilatedScriptCommand"/>
+      <result type="boolean"/>
+    </command>
+    <command name="allow display sleep" code="amphAWDS" description="Allow display sleep for current holds, or set the session default while inactive. Trigger defaults are preserved.">
+      <cocoa class="DilatedScriptCommand"/>
+    </command>
+    <command name="prevent display sleep" code="amphPTDS" description="Keep the display awake for current holds, or set the session default while inactive. Trigger defaults are preserved.">
+      <cocoa class="DilatedScriptCommand"/>
+    </command>
+    <command name="closed display mode enabled" code="amphCDMK" description="Whether the helper has confirmed closed-lid mode is enabled. Unknown helper state returns an error.">
+      <cocoa class="DilatedScriptCommand"/>
+      <result type="boolean"/>
+    </command>
+    <command name="enable closed display mode" code="amphECDM" description="Enable closed-lid for the AppleScript hold, or exactly one active hold if none is owned by AppleScript. Requires previous helper approval and any battery warning review. Never saves a future default.">
+      <cocoa class="DilatedScriptCommand"/>
+    </command>
+    <command name="disable closed display mode" code="amphDCDM" description="Disable closed-lid for the AppleScript hold, or exactly one active hold if none is owned by AppleScript. Other holds are preserved.">
+      <cocoa class="DilatedScriptCommand"/>
+    </command>
+    <command name="session is Trigger" code="amphSisT" description="Whether any active hold was started by a trigger.">
+      <cocoa class="DilatedScriptCommand"/>
+      <result type="boolean"/>
+    </command>
+    <command name="Triggers are enabled" code="amphTrEn" description="Whether the trigger master switch is enabled. Automation can still be paused by Stop.">
+      <cocoa class="DilatedScriptCommand"/>
+      <result type="boolean"/>
+    </command>
+    <command name="enable Triggers" code="amphEnTr" description="Enable selected trigger rules without resuming automation paused by Stop.">
+      <cocoa class="DilatedScriptCommand"/>
+    </command>
+    <command name="disable Triggers" code="amphDsTr" description="End trigger holds and disable their master switch while preserving individual rule choices and unrelated work.">
+      <cocoa class="DilatedScriptCommand"/>
+    </command>
+    <value-type name="session options" code="reco">
+      <cocoa class="DilatedScriptOptionsRecord"/>
+    </value-type>
+  </suite>
+</dictionary>
