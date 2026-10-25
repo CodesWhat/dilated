@@ -195,6 +195,19 @@ that workflow's runtime state, and call `dilated hold --id ID --ttl 10m` while w
 continues. Call `dilated release --id ID` when finished. Give concurrent agent
 runs separate IDs, even when their labels match.
 
+Run these commands from lifecycle hooks or a local workflow supervisor, outside
+the model conversation. They use a local Unix socket and require no model or
+network calls. Keep the ID in runtime state; don't inject heartbeat output into
+the agent's prompt. A ten-minute TTL renewed every two minutes is a reasonable
+starting configuration, not a measured performance guarantee. Renewal must
+continue through quiet long turns without relying on tool-use events. The
+supervisor must stop renewing when its associated work ends.
+
+Release by ID when one run finishes. Don't use plain `dilated off` as an agent's
+cleanup hook: it stops everyone and pauses automation. The app combines active
+holds into one native assertion per system/display level, so each extra agent
+doesn't add another system-awake assertion.
+
 Renew often enough that the TTL doesn't expire during a long turn. A missing
 renewal expires the hold automatically. An agent must treat a paused or ended
 response as an ended hold, not create a replacement that undoes the user's Stop.
