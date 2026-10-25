@@ -58,6 +58,17 @@ unwritable volumes show an error and aren't written to. Your existing files
 aren't opened for writing. A drive's own firmware or server policy may still let
 it sleep; Drive Alive doesn't wake a sleeping Mac.
 
+In **Settings → Battery & Safety**, the ordinary battery floor ignores AC power
+by default. Turn off **Ignore battery floor on AC** to enforce it while connected
+to power too. Changing the choice immediately checks existing holds. **Start
+Anyway** overrides the floor for one hold only; Low Power Mode and closed-lid
+safety limits remain separate.
+
+If settings can't be read, no saved timers restore and new holds stay blocked.
+Settings offers an explicit reset that privately backs up the unreadable file,
+saves the paused state, then writes defaults. Automation remains paused until
+you choose **Resume automation**.
+
 In **Settings → Notifications & Sounds**, enable banners to request macOS
 notification permission. Session and trigger starts/ends, safety reasons and
 periodic awake reminders are configurable. Agent/script events are excluded by

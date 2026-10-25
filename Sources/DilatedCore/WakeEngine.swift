@@ -139,6 +139,20 @@ public struct WakeEngine: Sendable {
     automationPaused = false
     attention = nil
   }
+  public mutating func restore(holds restored: [Hold], now: Date = Date()) {
+    tick(now: now)
+    var didRestore = false
+    for var hold in restored where hold.source != .trigger {
+      if let expiry = hold.expiry, expiry <= now { continue }
+      if holds.contains(where: { $0.id == hold.id }) { continue }
+      hold.closedLid = nil
+      holds.append(hold)
+      recordHistory(hold: hold, at: now)
+      didRestore = true
+    }
+    if didRestore { attention = nil }
+    updatePower(power, now: now)
+  }
   public mutating func quit(reason: HoldEndReason = .quit, now: Date = Date()) {
     for hold in holds { recordHistory(hold: hold, at: now, reason: reason) }
     holds.removeAll()

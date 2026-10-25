@@ -5,7 +5,7 @@ import Foundation
 import IOKit.ps
 import Observation
 
-public enum SystemTransition: Sendable { case sleep, userSwitch }
+public enum SystemTransition: Sendable { case sleep, userSwitch, userReturn }
 
 public struct AppSettings: Codable, Equatable, Sendable {
   public var defaultMinutes = 0
@@ -30,6 +30,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public var startAfterWake = false
   public var stopOnSystemSleep = false
   public var stopOnUserSwitch = false
+  public var resumeOnUserReturn = false
   public var triggersEnabled = true
   public var feedback = FeedbackSettings()
   public var driveAlive = DriveAliveSettings()
@@ -90,6 +91,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
       try values.decodeIfPresent(Bool.self, forKey: .stopOnSystemSleep) ?? stopOnSystemSleep
     stopOnUserSwitch =
       try values.decodeIfPresent(Bool.self, forKey: .stopOnUserSwitch) ?? stopOnUserSwitch
+    resumeOnUserReturn =
+      try values.decodeIfPresent(Bool.self, forKey: .resumeOnUserReturn) ?? resumeOnUserReturn
     triggersEnabled =
       try values.decodeIfPresent(Bool.self, forKey: .triggersEnabled) ?? triggersEnabled
     feedback = try values.decodeIfPresent(FeedbackSettings.self, forKey: .feedback) ?? feedback
@@ -203,6 +206,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored var feedback: FeedbackController
   @ObservationIgnored var driveAlive = DriveAliveController()
   @ObservationIgnored private var downloads: [UUID: DownloadMonitor] = [:]
+  private struct UserReturnRestoration {
+    var holds: [Hold]
+    var wasPaused: Bool
+  }
+  @ObservationIgnored private var pendingUserReturn: UserReturnRestoration?
   @ObservationIgnored private var timer: Timer?
   @ObservationIgnored private var lastAssertionRefresh = Date.distantPast
   @ObservationIgnored private var stopped = false
@@ -439,18 +447,46 @@ public struct AppSettings: Codable, Equatable, Sendable {
         displayAwake: !settings.allowDisplaySleep, lowPowerOverride: settings.overrideLowPower)
     }
   }
-  public func stopAll() { mutate { $0.stopAll() } }
+  public func stopAll() {
+    pendingUserReturn = nil
+    mutate { $0.stopAll() }
+  }
   public func handleSystemTransition(_ transition: SystemTransition) {
-    let shouldStop =
-      switch transition {
-      case .sleep: settings.stopOnSystemSleep
-      case .userSwitch: settings.stopOnUserSwitch
+    switch transition {
+    case .sleep:
+      guard settings.stopOnSystemSleep else { return }
+      pendingUserReturn = nil
+      mutate { $0.stopAll(reason: .sleep) }
+    case .userSwitch:
+      guard settings.stopOnUserSwitch else { return }
+      if settings.resumeOnUserReturn {
+        let holds = engine.holds.filter { $0.source != .trigger && downloads[$0.id] == nil }
+        if !holds.isEmpty || pendingUserReturn == nil {
+          pendingUserReturn = UserReturnRestoration(
+            holds: holds, wasPaused: engine.automationPaused)
+        }
+      } else {
+        pendingUserReturn = nil
       }
-    if shouldStop { mutate { $0.stopAll(reason: transition == .sleep ? .sleep : .userSwitch) } }
+      mutate { $0.stopAll(reason: .userSwitch) }
+    case .userReturn:
+      guard let pending = pendingUserReturn else { return }
+      pendingUserReturn = nil
+      guard settings.resumeOnUserReturn, settings.stopOnUserSwitch, allowNewWork() else { return }
+      mutate { engine in
+        if !pending.wasPaused { engine.resumeAutomation() }
+        engine.restore(holds: pending.holds)
+      }
+      if !pending.wasPaused {
+        triggerEvaluator = TriggerEvaluator()
+        refreshTriggers()
+      }
+    }
   }
   public func stop(id: UUID) { mutate { $0.stop(id: id) } }
   public func resumeAutomation() {
     guard allowNewWork() else { return }
+    pendingUserReturn = nil
     let wasPaused = engine.automationPaused
     mutate { $0.resumeAutomation() }
     if wasPaused { triggerEvaluator = TriggerEvaluator() }
@@ -881,6 +917,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public func shutdown() {
     guard !stopped else { return }
     stopped = true
+    pendingUserReturn = nil
     resetTriggerLidArming()
     triggerLidTask?.cancel()
     triggerMonitor?.stop()

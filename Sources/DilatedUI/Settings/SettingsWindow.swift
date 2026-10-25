@@ -383,8 +383,16 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         ) { Toggle("", isOn: $model.settings.stopOnSystemSleep).labelsHidden() }
         SettingsRow(
           title: "Stop when switching users",
-          detail: "Ends all holds and keeps automation paused when you return."
+          detail: "Ends all holds and pauses automation."
         ) { Toggle("", isOn: $model.settings.stopOnUserSwitch).labelsHidden() }
+        SettingsRow(
+          title: "Resume when you return",
+          detail:
+            "Restores the holds that were running when you switched away, with their original deadlines, and re-checks triggers. Closed-lid is never restored."
+        ) {
+          Toggle("", isOn: $model.settings.resumeOnUserReturn).labelsHidden()
+            .disabled(!model.settings.stopOnUserSwitch)
+        }
       }
       SettingsGroup(eyebrow: "UPDATES") {
         SettingsRow(title: "App updates", detail: model.updater.statusText) {

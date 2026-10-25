@@ -230,4 +230,29 @@ struct EngineTests {
     let indefinite = try engine.start(source: .manual, label: "Forever", now: now)
     #expect(throws: WakeError.notTimed) { try engine.extend(id: indefinite.id, by: 30, now: now) }
   }
+
+  @Test func restoreKeepsDeadlinesDropsExpiredAndNeverRestoresClosedLid() throws {
+    var source = WakeEngine()
+    let expired = try source.start(source: .manual, label: "Old", duration: 60, now: now)
+    let timer = try source.start(
+      source: .manual, label: "Timer", duration: 600, displayAwake: true, lowPowerOverride: true,
+      batteryOverride: true, now: now)
+    let lid = try source.start(
+      source: .cli, label: "Lid", duration: 600, closedLid: true, now: now)
+    let lease = try source.start(source: .lease, label: "Lease", duration: 600, now: now)
+    let forever = try source.start(source: .manual, label: "Forever", now: now)
+    var engine = WakeEngine()
+    engine.stopAll(now: now)
+    engine.resumeAutomation()
+    let later = now.addingTimeInterval(120)
+    engine.restore(holds: source.holds, now: later)
+    #expect(!engine.holds.contains { $0.id == expired.id })
+    #expect(engine.holds.first { $0.id == timer.id } == timer)
+    #expect(engine.holds.first { $0.id == lid.id }?.closedLid == nil)
+    #expect(engine.holds.first { $0.id == lid.id }?.expiry == lid.expiry)
+    #expect(engine.holds.contains { $0.id == lease.id })
+    #expect(engine.holds.contains { $0.id == forever.id })
+    engine.restore(holds: source.holds, now: later)
+    #expect(engine.holds.count == 4)
+  }
 }

@@ -97,6 +97,11 @@ import IOKit.ps
     ) {
       model.handleSystemTransition(.userSwitch)
     }
+    observe(
+      NSWorkspace.sessionDidBecomeActiveNotification, center: NSWorkspace.shared.notificationCenter
+    ) {
+      model.handleSystemTransition(.userReturn)
+    }
     observe(NSWorkspace.didWakeNotification, center: NSWorkspace.shared.notificationCenter) {
       model.refreshPower()
       model.tick()

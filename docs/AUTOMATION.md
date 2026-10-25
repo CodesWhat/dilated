@@ -145,6 +145,13 @@ Stop, so waking or returning to the session cannot restart matching triggers
 until Resume automation. The sleep option applies to all system sleep events.
 Manual timers remain available while paused.
 
+**Resume when you return** is a separate opt-in under the user-switching option.
+Within the same app run, it restores the holds that were running when you
+switched away, with their original deadlines, and re-evaluates triggers from
+current conditions instead of replaying them. Closed-lid is never restored. Main
+Stop, Quit, a sleep-policy stop or Resume automation while you're away cancels
+it, and a pause that existed before you switched stays in place.
+
 ## Conditions and triggers
 
 A trigger's saved **Work with the lid closed** choice requires **Arm closed-lid**
