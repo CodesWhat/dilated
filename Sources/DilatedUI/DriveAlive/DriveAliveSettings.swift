@@ -22,7 +22,8 @@ import SwiftUI
             Text("\(model.settings.driveAlive.intervalSeconds) seconds").monospacedDigit()
           }.frame(width: 170)
         }
-        SettingsRow(title: "When to write") {
+        SettingsRow(title: "Default for volumes", detail: "Each selected volume can override this.")
+        {
           Picker("When to write", selection: $model.settings.driveAlive.onlyWhileAwake) {
             Text("While Dilated keeps awake").tag(true)
             Text("Always while Dilated is open").tag(false)
@@ -54,6 +55,7 @@ import SwiftUI
             title: drive.volume.name,
             detail: drive.volume.path + "\n" + status(for: drive)
           ) {
+            if selected(drive.volume.id) { modePicker(for: drive.volume) }
             Toggle("Use \(drive.volume.name)", isOn: binding(for: drive.volume))
               .labelsHidden().disabled(
                 (drive.readOnly || ambiguous(drive.volume.id)) && !selected(drive.volume.id))
@@ -65,6 +67,7 @@ import SwiftUI
           }
         ) { saved in
           SettingsRow(title: saved.name, detail: "Not mounted. No writes.") {
+            modePicker(for: saved)
             Toggle("Use \(saved.name)", isOn: binding(for: saved)).labelsHidden()
           }
         }
@@ -85,13 +88,35 @@ import SwiftUI
         model.settings.driveAlive = settings
       })
   }
+  private func modePicker(for volume: DriveAliveVolume) -> some View {
+    Picker(
+      "When to write to \(volume.name)",
+      selection: Binding(
+        get: { model.settings.driveAlive.volumes.first { $0.id == volume.id }?.mode ?? .inherit },
+        set: { mode in
+          var settings = model.settings.driveAlive
+          guard let index = settings.volumes.firstIndex(where: { $0.id == volume.id }) else {
+            return
+          }
+          settings.volumes[index].mode = mode
+          model.settings.driveAlive = settings
+        })
+    ) {
+      ForEach(DriveAliveMode.allCases, id: \.rawValue) { Text($0.label).tag($0) }
+    }.labelsHidden().fixedSize()
+  }
   private func ambiguous(_ id: String) -> Bool { mounted.filter { $0.volume.id == id }.count > 1 }
   private func status(for drive: MountedDrive) -> String {
     if ambiguous(drive.volume.id) { return "Multiple mounts have this identity. No writes." }
     if drive.readOnly { return "Read-only. No writes." }
-    guard selected(drive.volume.id), model.settings.driveAlive.enabled else { return "Off" }
+    guard let saved = model.settings.driveAlive.volumes.first(where: { $0.id == drive.volume.id }),
+      model.settings.driveAlive.enabled
+    else { return "Off" }
     if model.engine.automationPaused { return "Paused" }
-    if model.settings.driveAlive.onlyWhileAwake && model.engine.holds.isEmpty {
+    if !saved.eligible(
+      awake: !model.engine.holds.isEmpty,
+      defaultOnlyWhileAwake: model.settings.driveAlive.onlyWhileAwake)
+    {
       return "Waiting for an awake hold"
     }
     return model.driveAlive.statuses[drive.volume.id] ?? "Waiting"

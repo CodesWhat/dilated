@@ -120,6 +120,10 @@ import Testing
     defer { try? FileManager.default.removeItem(at: directory) }
     let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
     defer { model.shutdown() }
+    model.settings.driveAlive.volumes = [
+      .init(id: "test-mode-always", name: "Always", path: "/Volumes/NotMountedA", mode: .always),
+      .init(id: "test-mode-awake", name: "Awake", path: "/Volumes/NotMountedB", mode: .awakeOnly),
+    ]
     let view = NSHostingView(
       rootView: DriveAliveSettingsView(model: model).padding(28).frame(width: 700))
     view.setFrameSize(view.fittingSize)

@@ -49,9 +49,10 @@ Download watches aren't restored after a crash, relaunch or update; choose them
 again when needed. File access is requested only through your selection.
 
 In **Settings → Drive Alive**, select volumes, enable it and choose a 30–3600
-second interval. The default writes only while Dilated has an awake hold; the
-optional always mode runs while the app is open without creating a hold. Stop
-pauses either mode until Resume automation. Each pulse creates a new hidden
+second interval. Volumes inherit the default unless you choose **While keeping
+awake** or **Always while open** for that volume. Always doesn't create an awake
+hold. Existing choices keep their previous behavior. Stop pauses every volume
+until Resume automation, and Off prevents all writes. Each pulse creates a new hidden
 8-byte file, flushes it and removes it. Removed, ambiguous, read-only or
 unwritable volumes show an error and aren't written to. Your existing files
 aren't opened for writing. A drive's own firmware or server policy may still let

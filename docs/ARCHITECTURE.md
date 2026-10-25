@@ -177,14 +177,22 @@ it. No watcher or automatic hold is recreated by Resume automation.
 ## Drive Alive
 
 Persisted Drive Alive settings default off, at a 60 second interval and only while
-Dilated has an applied awake assertion. Always mode doesn't create an assertion
-or wake the Mac. Both modes require automation unpaused. Stop, disabling, loss of
-the awake-only condition and shutdown invalidate the scheduled cycle and cancel
-pending work. A single one-shot timer is created only when eligible, with at
-least 30 seconds between cycles. A cycle writes selected volumes serially;
-configuration changes wait for an existing write before starting another cycle.
-Late results can't schedule another cycle after Stop or shutdown. An in-flight
-kernel filesystem operation can finish after cancellation, without a next pulse.
+Dilated has an applied awake assertion. Each selected volume can inherit that
+global default, require an awake hold or run while the app is open. Missing mode
+fields preserve inheritance; unknown/malformed mode values become awake-only
+without resetting unrelated settings. Always mode doesn't create an assertion
+or wake the Mac. Every volume requires the feature enabled and automation
+unpaused. Stop, disabling, loss of a volume's eligibility and shutdown prevent
+its next pulse. Kernel filesystem work can finish after cancellation.
+
+Per-volume monotonic deadlines share one one-shot timer and one serial writer.
+The configured interval is at least 30 seconds. An awake-state change only starts
+newly eligible volumes; already eligible Always volumes keep their due time.
+Losing eligibility cancels that volume's in-flight work and clears its status,
+then other due volumes continue after cleanup. Configuration changes invalidate
+the generation and wait for an existing write before applying the new schedule.
+A schedule identity rejects stale callbacks, and late results can't recreate work
+after Stop or shutdown. Failed writes wait their normal interval.
 
 Selection uses the volume UUID, or filesystem type plus mounted source when a
 UUID isn't available. A missing or ambiguous identity never falls back to its

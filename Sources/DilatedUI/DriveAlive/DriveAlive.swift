@@ -1,10 +1,42 @@
 import Darwin
 import Foundation
 
+public enum DriveAliveMode: String, Codable, CaseIterable, Sendable {
+  case inherit, awakeOnly, always
+  var label: String {
+    switch self {
+    case .inherit: "Use default"
+    case .awakeOnly: "While keeping awake"
+    case .always: "Always while open"
+    }
+  }
+}
+
 public struct DriveAliveVolume: Codable, Equatable, Identifiable, Sendable {
   public let id: String
   public let name: String
   public let path: String
+  public var mode = DriveAliveMode.inherit
+  init(id: String, name: String, path: String, mode: DriveAliveMode = .inherit) {
+    self.id = id
+    self.name = name
+    self.path = path
+    self.mode = mode
+  }
+  public init(from decoder: any Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    id = try values.decode(String.self, forKey: .id)
+    name = try values.decode(String.self, forKey: .name)
+    path = try values.decode(String.self, forKey: .path)
+    if values.contains(.mode) {
+      mode =
+        (try? values.decode(String.self, forKey: .mode))
+        .flatMap(DriveAliveMode.init(rawValue:)) ?? .awakeOnly
+    }
+  }
+  func eligible(awake: Bool, defaultOnlyWhileAwake: Bool) -> Bool {
+    awake || mode == .always || (mode == .inherit && !defaultOnlyWhileAwake)
+  }
   var isValid: Bool {
     !id.isEmpty && id.utf8.count <= 4096 && !name.isEmpty && name.count <= 255
       && path.hasPrefix("/") && !path.utf8.contains(0) && path.utf8.count <= 4096
@@ -26,6 +58,11 @@ public struct DriveAliveSettings: Codable, Equatable, Sendable {
     onlyWhileAwake =
       try values.decodeIfPresent(Bool.self, forKey: .onlyWhileAwake) ?? onlyWhileAwake
     volumes = try values.decodeIfPresent([DriveAliveVolume].self, forKey: .volumes) ?? volumes
+  }
+
+  func eligibleVolumes(awake: Bool, paused: Bool) -> [DriveAliveVolume] {
+    guard enabled, !paused, validationMessage == nil else { return [] }
+    return volumes.filter { $0.eligible(awake: awake, defaultOnlyWhileAwake: onlyWhileAwake) }
   }
 
   var validationMessage: String? {
