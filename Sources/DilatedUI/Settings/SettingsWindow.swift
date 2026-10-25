@@ -438,6 +438,19 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
             ForEach(CountdownSeconds.allCases, id: \.rawValue) { Text($0.label).tag($0) }
           }.labelsHidden().fixedSize().disabled(!model.settings.countdown)
         }
+        SettingsRow(
+          title: "End-time clock", detail: "Only changes end time, not countdown durations."
+        ) {
+          Picker("End-time clock", selection: $model.settings.countdownHourCycle) {
+            ForEach(CountdownHourCycle.allCases, id: \.rawValue) { Text($0.label).tag($0) }
+          }.labelsHidden().fixedSize().disabled(
+            !model.settings.countdown || model.settings.countdownFormat != .endTime)
+        }
+        SettingsRow(title: "Time text size", detail: "Time beside the menu bar icon.") {
+          Picker("Time text size", selection: $model.settings.countdownTextSize) {
+            ForEach(CountdownTextSize.allCases, id: \.rawValue) { Text($0.label).tag($0) }
+          }.labelsHidden().fixedSize().disabled(!model.settings.countdown)
+        }
         SettingsRow(title: "Dim the glyph when idle") {
           Toggle(
             "Dim the glyph when idle",

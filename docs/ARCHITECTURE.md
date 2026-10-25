@@ -304,7 +304,12 @@ adds seconds to compact text; hiding them rounds remaining minutes up and
 formats clock text as hours:minutes. End-time text uses an autoupdating locale
 and calendar/time zone, with a date for deadlines on another day. It uses the
 existing awake refresh timer and the latest finite deadline. Any indefinite
-hold takes precedence as ∞; hidden and idle text remain empty. These preferences
+hold takes precedence as ∞; hidden and idle text remain empty. End-time hour
+cycle can inherit the Mac or force12/24h through Locale.Components, preserving
+localized digits, date and calendar/time zone. Small/standard time uses11/12pt
+monospaced digits; the independent amber attention symbol keeps its12pt bold font.
+Old/unknown/malformed new preferences preserve Mac/standard defaults without
+resetting unrelated settings. These preferences
 do not change holds, deadlines, pause state or closed-lid behavior.
 
 ## Closed-lid trigger options

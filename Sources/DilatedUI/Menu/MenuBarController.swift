@@ -108,7 +108,8 @@ import AppKit
           ? "∞"
           : expiry.map {
             model.settings.countdownFormat.remaining(
-              until: $0, now: model.now, seconds: model.settings.countdownSeconds)
+              until: $0, now: model.now, seconds: model.settings.countdownSeconds,
+              hourCycle: model.settings.countdownHourCycle)
           } ?? "")
       : ""
     let title = NSMutableAttributedString(string: "")
@@ -123,7 +124,8 @@ import AppKit
     }
     title.append(NSAttributedString(string: countdown))
     statusItem.button?.attributedTitle = title
-    statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+    statusItem.button?.font = .monospacedDigitSystemFont(
+      ofSize: model.settings.countdownTextSize.pointSize, weight: .regular)
     let dimIdle =
       model.settings.useCustomGlyph
       ? model.settings.customGlyphDimIdle : model.settings.lowOpacityIdle

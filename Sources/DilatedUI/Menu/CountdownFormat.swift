@@ -1,5 +1,28 @@
 import Foundation
 
+public enum CountdownHourCycle: String, Codable, CaseIterable, Sendable {
+  case system, twelveHour, twentyFourHour
+  var label: String {
+    switch self {
+    case .system: "Use Mac setting"
+    case .twelveHour: "12-hour"
+    case .twentyFourHour: "24-hour"
+    }
+  }
+  func locale(_ base: Locale) -> Locale {
+    guard self != .system else { return base }
+    var components = Locale.Components(locale: base)
+    components.hourCycle = self == .twelveHour ? .oneToTwelve : .zeroToTwentyThree
+    return Locale(components: components)
+  }
+}
+
+public enum CountdownTextSize: String, Codable, CaseIterable, Sendable {
+  case small, standard
+  var label: String { self == .small ? "Small" : "Standard" }
+  var pointSize: CGFloat { self == .small ? 11 : 12 }
+}
+
 public enum CountdownSeconds: String, Codable, CaseIterable, Sendable {
   case automatic, show, hide
   var label: String {
@@ -25,13 +48,14 @@ public enum CountdownFormat: String, Codable, CaseIterable, Sendable {
 
   @MainActor func remaining(
     until date: Date, now: Date, seconds: CountdownSeconds = .automatic,
-    locale: Locale = .autoupdatingCurrent, calendar: Calendar = .autoupdatingCurrent
+    hourCycle: CountdownHourCycle = .system, locale: Locale = .autoupdatingCurrent,
+    calendar: Calendar = .autoupdatingCurrent
   ) -> String {
     if self == .endTime {
       let style = Date.FormatStyle(
         date: calendar.isDate(date, inSameDayAs: now) ? .omitted : .abbreviated,
         time: seconds == .show ? .standard : .shortened,
-        locale: locale, calendar: calendar, timeZone: calendar.timeZone)
+        locale: hourCycle.locale(locale), calendar: calendar, timeZone: calendar.timeZone)
       return date.formatted(style)
     }
     if self == .compact && seconds == .automatic {

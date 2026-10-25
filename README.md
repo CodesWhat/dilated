@@ -78,7 +78,9 @@ falls back to your bundled choice so the menu bar control stays visible.
 follow the format default, always show or stay hidden. Hidden seconds round
 remaining minutes up; the clock then reads hours:minutes. End time follows your
 Mac's locale and time zone and includes a date when the hold ends on another
-day. Indefinite holds still show ∞, and session time can be hidden entirely.
+day. Choose the Mac's clock setting or force 12/24-hour end times, plus small or
+standard time text. Countdown durations keep their usual format. Indefinite
+holds still show ∞, and session time can be hidden entirely.
 
 For a closed-lid trigger, enable **Work with the lid closed** in its editor,
 save, then choose **Arm closed-lid** on that rule. This requires the approved

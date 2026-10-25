@@ -18,6 +18,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public var countdown = false
   public var countdownFormat = CountdownFormat.compact
   public var countdownSeconds = CountdownSeconds.automatic
+  public var countdownHourCycle = CountdownHourCycle.system
+  public var countdownTextSize = CountdownTextSize.standard
   public var swapClicks = false
   public var lowOpacityIdle = false
   public var batteryFloor = 0
@@ -63,6 +65,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
     countdownSeconds =
       (try values.decodeIfPresent(String.self, forKey: .countdownSeconds))
       .flatMap(CountdownSeconds.init(rawValue:)) ?? countdownSeconds
+    countdownHourCycle =
+      (try? values.decode(String.self, forKey: .countdownHourCycle))
+      .flatMap(CountdownHourCycle.init(rawValue:)) ?? countdownHourCycle
+    countdownTextSize =
+      (try? values.decode(String.self, forKey: .countdownTextSize))
+      .flatMap(CountdownTextSize.init(rawValue:)) ?? countdownTextSize
     swapClicks = try values.decodeIfPresent(Bool.self, forKey: .swapClicks) ?? swapClicks
     lowOpacityIdle =
       try values.decodeIfPresent(Bool.self, forKey: .lowOpacityIdle) ?? lowOpacityIdle
