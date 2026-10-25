@@ -12,6 +12,7 @@ import Testing
   {
     let fixture = await ControllerFixture()
     fixture.transport.failures = [.disconnected]
+    fixture.transport.disconnectBeforeFailure = true
     let service = InstallationFixture(power: fixture.power)
     service.registrationStatus = .enabled
     let installation = HelperInstallation(
@@ -83,6 +84,7 @@ import Testing
     for (error, reading) in cases {
       let fixture = await ControllerFixture()
       fixture.transport.failures = [error]
+      fixture.transport.disconnectBeforeFailure = true
       let service = InstallationFixture(power: fixture.power)
       let installation = HelperInstallation(service: service, readPower: { reading })
       await installation.nextStep(controller: fixture.controller())
@@ -153,6 +155,7 @@ import Testing
   @Test func cancelledMaintenanceCannotUseTheOffRecoveryPath() async throws {
     let fixture = await ControllerFixture()
     fixture.transport.failures = [.disconnected]
+    fixture.transport.disconnectBeforeFailure = true
     let service = InstallationFixture(power: fixture.power)
     let installation = HelperInstallation(
       service: service,
@@ -382,17 +385,26 @@ import Testing
   }
 
   @Test func anUnavailableHelperReportsTheConnectionFailureInsteadOfCancellation() async {
-    let transport = HelperTransport(
-      serviceName: "com.codeswhat.dilated.missing.\(UUID().uuidString)")
-    let controller = ClosedLidController(transport: transport, expectedBuild: { "unused" })
-    defer { controller.invalidate() }
-    do {
-      try await controller.enable(policy: .init())
-      Issue.record("An unavailable helper enabled closed-lid.")
-    } catch {
-      #expect(error.localizedDescription.contains("disconnected"))
+    for disable in [false, true] {
+      let transport = HelperTransport(
+        serviceName: "com.codeswhat.dilated.missing.\(UUID().uuidString)")
+      let controller = ClosedLidController(transport: transport, expectedBuild: { "unused" })
+      defer { controller.invalidate() }
+      do {
+        if disable {
+          try await controller.disable()
+        } else {
+          try await controller.enable(policy: .init())
+        }
+        Issue.record("An unavailable helper completed a lid operation.")
+      } catch let failure as HelperClientError {
+        switch failure {
+        case .disconnected, .timedOut: break
+        default: Issue.record("Lost transport changed error classification: \(failure)")
+        }
+      } catch { Issue.record("Unexpected helper failure: \(error)") }
+      #expect(!controller.active && !controller.pendingEnable)
     }
-    #expect(!controller.active)
   }
 
   @Test func modelMergesLidRequestsAndStopClearsThePowerFlag() async throws {
@@ -909,6 +921,7 @@ import Testing
   var actions: [HelperAction] = []
   var delayEnableReply = false
   var failures: [HelperClientError] = []
+  var disconnectBeforeFailure = false
   private let service: ClosedLidService
   private let owner = UUID()
   private var pending: (HelperReply, CheckedContinuation<HelperReply, Never>)?
@@ -916,7 +929,11 @@ import Testing
   init(service: ClosedLidService) { self.service = service }
   func send(_ request: HelperRequest) async throws -> HelperReply {
     actions.append(request.action)
-    if !failures.isEmpty { throw failures.removeFirst() }
+    if !failures.isEmpty {
+      let error = failures.removeFirst()
+      if disconnectBeforeFailure { onDisconnect?() }
+      throw error
+    }
     let response = await service.handle(request, owner: owner)
     if request.action == .enable && delayEnableReply {
       return await withCheckedContinuation { continuation in

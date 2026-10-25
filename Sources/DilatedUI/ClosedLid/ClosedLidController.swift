@@ -15,7 +15,7 @@ import Observation
   @ObservationIgnored private var leaseGeneration: UUID?
   @ObservationIgnored private var monitoring: Task<Void, Never>?
   @ObservationIgnored private var operation = UUID()
-  @ObservationIgnored private var operationFailure: String?
+  @ObservationIgnored private var operationFailure: (any Error)?
   public var active: Bool { leaseID != nil && state?.enabled == true }
   public var hasLease: Bool { leaseID != nil }
 
@@ -71,8 +71,8 @@ import Observation
       startMonitoring()
     } catch {
       guard operation == current else {
-        if let operationFailure { throw HelperClientError.rejected(operationFailure) }
-        throw CancellationError()
+        guard let operationFailure else { throw CancellationError() }
+        throw error is CancellationError ? operationFailure : error
       }
       failed(error)
       throw error
@@ -134,8 +134,8 @@ import Observation
       lastError = nil
     } catch {
       guard operation == current else {
-        if let operationFailure { throw HelperClientError.rejected(operationFailure) }
-        throw CancellationError()
+        guard let operationFailure else { throw CancellationError() }
+        throw error is CancellationError ? operationFailure : error
       }
       failed(error)
       throw error
@@ -177,7 +177,7 @@ import Observation
     lastError = error.localizedDescription
     let hadLease = leaseID != nil
     invalidate()
-    operationFailure = error.localizedDescription
+    operationFailure = error
     if hadLease { onEnded?(error.localizedDescription) }
     onChange?()
   }
