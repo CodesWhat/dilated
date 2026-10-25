@@ -6,6 +6,36 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct TriggerModelTests {
+  @Test func audioOutputRulePersistsAndOnlyEndsItsOwnReason() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let endpoint = SocketEndpoint(stateDirectory: directory)
+    let model = AppModel(endpoint: endpoint, power: { .init() })
+    defer { model.shutdown() }
+    model.start(duration: 60)
+    let manual = try #require(model.engine.holds.first)
+    let rule = TriggerRule(
+      name: "Studio", criteria: [.audioOutput(uid: "test-output", name: "Speakers")])
+    try model.saveTrigger(rule)
+    var input = TriggerInputs()
+    input.audioOutputUID = "test-output"
+    model.reconcileTriggers(input)
+    #expect(model.engine.holds.count == 2)
+    model.reconcileTriggers(.init())
+    #expect(model.engine.holds.map(\.id) == [manual.id])
+    model.stopAll()
+    let restored = AppModel(endpoint: endpoint, power: { .init() })
+    defer { restored.shutdown() }
+    #expect(restored.triggerRules == [rule])
+    restored.reconcileTriggers(input)
+    #expect(restored.engine.automationPaused && restored.engine.holds.isEmpty)
+    restored.resumeAutomation()
+    restored.reconcileTriggers(input)
+    #expect(restored.engine.holds.count == 1)
+    restored.removeTrigger(id: rule.id)
+    #expect(restored.engine.holds.isEmpty)
+  }
+
   @Test func rulesPersistButConditionsAreReevaluatedAndStopRemainsDurable() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }

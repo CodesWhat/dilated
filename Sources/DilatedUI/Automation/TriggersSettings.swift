@@ -177,6 +177,7 @@ private enum TriggerKind: String, CaseIterable {
   case gateway = "Gateway"
   case dns = "DNS server"
   case volume = "Mounted volume"
+  case audioOutput = "Audio output"
   case cpu = "CPU load"
   case idle = "Idle time"
   var initial: TriggerCriterion {
@@ -193,6 +194,7 @@ private enum TriggerKind: String, CaseIterable {
     case .gateway: .gateway(address: "")
     case .dns: .dns(address: "")
     case .volume: .volume(path: "")
+    case .audioOutput: .audioOutput(uid: "", name: "")
     case .cpu: .cpu(percent: 20, atLeast: true)
     case .idle: .idle(seconds: 300, atLeast: false)
     }
@@ -202,6 +204,7 @@ private enum TriggerKind: String, CaseIterable {
 @MainActor private struct TriggerCriterionEditor: View {
   @Binding var criterion: TriggerCriterion
   @State private var processes: [NativeProcess] = []
+  @State private var audioOutputs: [NativeAudioOutput] = []
   private var kind: TriggerKind {
     switch criterion {
     case .application: .application
@@ -216,6 +219,7 @@ private enum TriggerKind: String, CaseIterable {
     case .gateway: .gateway
     case .dns: .dns
     case .volume: .volume
+    case .audioOutput: .audioOutput
     case .cpu: .cpu
     case .idle: .idle
     }
@@ -327,6 +331,26 @@ private enum TriggerKind: String, CaseIterable {
         Text(
           "Matches the exact mount path, including a disk image or network volume. Doesn't read or write its files."
         ).font(.caption).foregroundStyle(.secondary)
+      case .audioOutput(let uid, let name):
+        Picker(
+          "Sound output",
+          selection: Binding(
+            get: { uid },
+            set: { selected in
+              if let output = audioOutputs.first(where: { $0.uid == selected }) {
+                criterion = .audioOutput(uid: output.uid, name: output.name)
+              }
+            })
+        ) {
+          if !audioOutputs.contains(where: { $0.uid == uid }) {
+            Text(uid.isEmpty ? "Choose an output" : "\(name) (unavailable)").tag(uid)
+          }
+          ForEach(audioOutputs) { output in Text(output.name).tag(output.uid) }
+        }
+        Button("Refresh outputs") { audioOutputs = AudioOutputCatalog.read() ?? [] }
+        Text("Matches the Mac’s selected sound output. It doesn’t require audio to be playing.")
+          .font(.caption).foregroundStyle(.secondary)
+          .onAppear { audioOutputs = AudioOutputCatalog.read() ?? [] }
       case .cpu(let percent, let atLeast):
         Picker(
           "CPU load",
@@ -456,6 +480,7 @@ extension TriggerCriterion {
     case .gateway(let address): "Gateway in \(address)"
     case .dns(let address): "DNS server in \(address)"
     case .volume(let path): "Volume mounted at \(path)"
+    case .audioOutput(_, let name): "Sound output is \(name)"
     case .cpu(let percent, let atLeast): "CPU use \(atLeast ? "at least" : "at most") \(percent)%"
     case .idle(let seconds, let atLeast):
       "Idle \(atLeast ? "at least" : "at most") \(seconds / 60) minutes"
