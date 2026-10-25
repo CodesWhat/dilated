@@ -161,6 +161,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored private let store: StateStore
   @ObservationIgnored private let readPower: () -> PowerState
   @ObservationIgnored private let assertions: any AssertionControlling
+  @ObservationIgnored private var downloads: [UUID: DownloadMonitor] = [:]
   @ObservationIgnored private var timer: Timer?
   @ObservationIgnored private var lastAssertionRefresh = Date.distantPast
   @ObservationIgnored private var stopped = false
@@ -290,6 +291,45 @@ public struct AppSettings: Codable, Equatable, Sendable {
         batteryOverride: batteryOverride)
     }
     if failure == .lowBattery && !batteryOverride { onBatteryOverrideNeeded?(duration) }
+  }
+  @discardableResult func startDownload(
+    _ target: DownloadTarget, quietSeconds: TimeInterval,
+    makeMonitor: (DownloadTarget, TimeInterval, @escaping @MainActor (String?) -> Void)
+      -> DownloadMonitor = { target, seconds, finished in
+        DownloadMonitor(target: target, quietSeconds: seconds, finished: finished)
+      }
+  ) throws -> UUID {
+    guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
+    let hold: Hold
+    do {
+      engine.updatePower(readPower())
+      hold = try engine.start(
+        source: .manual, label: "Download: \(target.url.lastPathComponent)",
+        displayAwake: !settings.allowDisplaySleep, lowPowerOverride: settings.overrideLowPower)
+    } catch {
+      message = error.localizedDescription
+      commit()
+      throw error
+    }
+    let monitor = makeMonitor(target, quietSeconds) { [weak self] issue in
+      guard let self, self.downloads[hold.id] != nil else { return }
+      self.downloads.removeValue(forKey: hold.id)?.stop()
+      self.engine.stop(id: hold.id, reason: .conditionEnded)
+      if let issue { self.message = issue }
+      self.commit()
+    }
+    downloads[hold.id] = monitor
+    message = nil
+    do {
+      guard commit() else { throw InputError(message ?? "Couldn't keep the Mac awake.") }
+      try monitor.start()
+      return hold.id
+    } catch {
+      downloads.removeValue(forKey: hold.id)?.stop()
+      engine.stop(id: hold.id, reason: .conditionEnded)
+      commit()
+      throw error
+    }
   }
   public func automaticStart(label: String) {
     guard allowNewWork() else { return }
@@ -583,6 +623,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     now = Date()
     let previous = engine.holds
     engine.tick(now: now)
+    for monitor in Array(downloads.values) { monitor.tick() }
     if engine.holds != previous {
       commit()
     } else if now.timeIntervalSince(lastAssertionRefresh) >= 20 {
@@ -705,6 +746,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     timer?.invalidate()
     timer = nil
     closedLid.invalidate()
+    for monitor in downloads.values { monitor.stop() }
+    downloads.removeAll()
     engine.quit(reason: historyShutdownReason)
     now = Date()
     recordHistory()
@@ -742,6 +785,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
     resetClosedLid: Bool = true, saveState: Bool = true
   ) -> Bool {
     now = Date()
+    let activeIDs = Set(engine.holds.map(\.id))
+    for id in Array(downloads.keys) where !activeIDs.contains(id) {
+      downloads.removeValue(forKey: id)?.stop()
+    }
     if engine.automationPaused {
       triggerMonitor?.stop()
       triggerMonitor = nil

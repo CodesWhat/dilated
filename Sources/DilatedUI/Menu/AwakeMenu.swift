@@ -46,6 +46,11 @@ import DilatedCore
     durations.addItem(action("For a duration…") { prompt(model: model, until: false) })
     durations.addItem(action("Until a time…") { prompt(model: model, until: true) })
     durations.addItem(action("Indefinitely") { model.start() })
+    durations.addItem(.separator())
+    durations.addItem(
+      action("While a file downloads…") { chooseDownload(model: model, folder: false) })
+    durations.addItem(
+      action("While a folder downloads…") { chooseDownload(model: model, folder: true) })
     let durationItem = NSMenuItem(title: "Keep awake for", action: nil, keyEquivalent: "")
     durationItem.submenu = durations
     menu.addItem(durationItem)
@@ -127,6 +132,42 @@ import DilatedCore
     return item
   }
 
+  private static func chooseDownload(model: AppModel, folder: Bool) {
+    let panel = NSOpenPanel()
+    panel.title = folder ? "Choose a download folder" : "Choose a downloading file"
+    panel.message =
+      folder
+      ? "Watch .crdownload, .part, .download and .partial items in this folder."
+      : "Watch this file until it stops changing."
+    panel.canChooseFiles = !folder
+    panel.canChooseDirectories = folder
+    panel.allowsMultipleSelection = false
+    panel.prompt = "Choose"
+    NSApp.activate()
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    let alert = NSAlert()
+    alert.messageText = "Keep awake while downloading"
+    alert.informativeText =
+      "End this hold after the download stops changing for this many seconds (5–3600). "
+      + "A stalled download also ends the hold. Other awake holds keep running."
+    let input = NSTextField(string: "30")
+    input.frame = NSRect(x: 0, y: 0, width: 280, height: 24)
+    input.setAccessibilityLabel("Seconds without download activity")
+    alert.accessoryView = input
+    alert.addButton(withTitle: "Keep Awake")
+    alert.addButton(withTitle: "Cancel")
+    alert.window.initialFirstResponder = input
+    guard alert.runModal() == .alertFirstButtonReturn else { return }
+    do {
+      guard let seconds = Int(input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)),
+        (5...3600).contains(seconds)
+      else { throw DownloadInputError() }
+      try model.startDownload(
+        .init(url: url, mode: folder ? .folder : .file), quietSeconds: Double(seconds))
+    } catch { model.message = error.localizedDescription }
+    model.onChange?()
+  }
+
   private static func prompt(model: AppModel, until: Bool) {
     let alert = NSAlert()
     alert.messageText = until ? "Keep awake until" : "Keep awake for"
@@ -149,4 +190,8 @@ import DilatedCore
       model.start(duration: duration)
     } catch { model.message = error.localizedDescription }
   }
+}
+
+private struct DownloadInputError: LocalizedError {
+  var errorDescription: String? { "Choose an inactivity interval from 5 seconds to 1 hour." }
 }

@@ -7,7 +7,7 @@ battery and Low Power Mode guards, four animated menu bar glyphs, optional compa
 or clock countdowns, Settings,
 configurable global shortcuts, local history and statistics, URL automation, AppleScript,
 four Shortcuts actions, and
-a CLI with renewable agent holds.
+a CLI with renewable agent holds, and file/folder download watches.
 Closed-lid controls and their privileged helper are implemented, with hardware
 recovery and release acceptance still pending. There is no public release yet.
 Condition-based triggers are implemented locally for apps, processes, schedules,
@@ -39,3 +39,11 @@ to users is Dilated.
 See [installation and removal](docs/INSTALLATION.md),
 [automation](docs/AUTOMATION.md), [architecture](docs/ARCHITECTURE.md), and
 [third-party notices](docs/THIRD-PARTY.md). Dilated is free software under MIT.
+
+Choose **Keep awake for → While a file downloads…** or **While a folder downloads…**
+from the menu. A folder watches its `.crdownload`, `.part`, `.download` and
+`.partial` items, including browser download packages. Choose 5–3600 seconds of
+inactivity before ending the hold. Stalled downloads also end it. Completion,
+Stop, safety guards and Quit release the watch without ending separate holds.
+Download watches aren't restored after a crash, relaunch or update; choose them
+again when needed. File access is requested only through your selection.

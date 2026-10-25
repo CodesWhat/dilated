@@ -148,3 +148,28 @@ Statistics provides local JSON export, source filtering, recording and clear con
 
 No runtime, build or test depends on `.planning/`. The private roadmap owns phase
 tracking; shipped documentation and CI use tracked files only.
+
+## Download completion
+
+An explicit file/folder selection creates its own manual hold and transient
+`DownloadMonitor`. Each selection owns an FSEvents stream before its first
+metadata read. File writes, renames and root changes trigger a coalesced background
+scan; no file contents are read or changed. Folder mode includes only direct
+partial-download items, recursively inspecting partial browser packages. A
+10,000-entry scan budget rejects oversized trees, and symbolic links aren't
+followed. Unrelated completed files don't reset the quiet deadline.
+
+An unchanged snapshot ends the hold at the configured inactivity deadline. The
+existing active-hold timer requests a final rescan at that deadline, covering
+missed/coalesced events without an additional polling timer. Growth resets it;
+partial-item disappearance ends it, including a selected file renamed by a
+browser. Missing folders, permission/read errors and failed event registration
+end that hold and surface an explanation. This is an inactivity heuristic, not
+proof that a browser completed successfully. A stalled download also ends.
+
+Global Stop, individual release, power guards and shutdown dispose of the stream
+and cancel pending work. Generation checks discard late callbacks and reads.
+Separate manual/agent/trigger work continues after a download ends. Watches and
+paths aren't saved; their indefinite manual hold is excluded from timer recovery.
+A new explicit selection is allowed while automation is paused, without resuming
+it. No watcher or automatic hold is recreated by Resume automation.
