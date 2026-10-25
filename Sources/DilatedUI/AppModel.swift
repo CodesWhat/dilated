@@ -13,6 +13,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public var glyph = Glyph.bugEyes
   public var useCustomGlyph = false
   public var customGlyph: CustomGlyph?
+  public var customIdleGlyph: CustomGlyph?
   public var customGlyphDimIdle = true
   public var motion = Motion.subtle
   public var countdown = false
@@ -55,6 +56,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     useCustomGlyph =
       try values.decodeIfPresent(Bool.self, forKey: .useCustomGlyph) ?? useCustomGlyph
     customGlyph = try? values.decodeIfPresent(CustomGlyph.self, forKey: .customGlyph)
+    customIdleGlyph = try? values.decodeIfPresent(CustomGlyph.self, forKey: .customIdleGlyph)
     customGlyphDimIdle =
       try values.decodeIfPresent(Bool.self, forKey: .customGlyphDimIdle) ?? customGlyphDimIdle
     motion = try values.decodeIfPresent(Motion.self, forKey: .motion) ?? motion
@@ -210,7 +212,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   var glyphSelectionID: String {
     settings.useCustomGlyph
       ? "custom:" + (settings.customGlyph?.id.uuidString ?? "missing") + ":"
-        + settings.glyph.rawValue
+        + (settings.customIdleGlyph?.id.uuidString ?? "same") + ":" + settings.glyph.rawValue
       : "builtin:" + settings.glyph.rawValue
   }
   public var attention: String? { message ?? engine.attention ?? customGlyphIssue }
@@ -219,12 +221,25 @@ public struct AppSettings: Codable, Equatable, Sendable {
       customGlyphIssue = nil
       return settings.glyph.image(frame: frame)
     }
+    let idle = engine.holds.isEmpty
+    let store = CustomGlyphStore(directory: endpoint.stateDirectory)
     do {
-      guard let glyph = settings.customGlyph else { throw InputError("Import a custom PNG first.") }
-      let image = try CustomGlyphStore(directory: endpoint.stateDirectory).image(glyph)
+      guard
+        let glyph = idle ? settings.customIdleGlyph ?? settings.customGlyph : settings.customGlyph
+      else {
+        throw InputError("Import an active PNG first.")
+      }
+      let image = try store.image(glyph)
       customGlyphIssue = nil
       return image
     } catch {
+      if idle, settings.customIdleGlyph != nil, let active = settings.customGlyph,
+        let image = try? store.image(active)
+      {
+        customGlyphIssue =
+          "Couldn't load the idle PNG. Using the active PNG until you import it again."
+        return image
+      }
       customGlyphIssue =
         "Couldn't load the custom icon. Using \(settings.glyph.label) until you import or select another icon."
       return settings.glyph.image(frame: engine.holds.isEmpty ? "off" : settings.glyph.stillFrame)
@@ -1059,7 +1074,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     guard commit() else { throw InputError(message ?? "Couldn't apply display sleep state.") }
   }
-  func importCustomGlyph(from file: URL) async throws {
+  func importCustomGlyph(from file: URL, variant: CustomGlyphVariant = .active) async throws {
     let read = Task.detached(priority: .utility) { try CustomGlyphStore.readInput(file) }
     let data = try await withTaskCancellationHandler {
       try await read.value
@@ -1069,32 +1084,54 @@ public struct AppSettings: Codable, Equatable, Sendable {
     try Task.checkCancellation()
     guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
     let store = CustomGlyphStore(directory: endpoint.stateDirectory)
+    if variant == .idle {
+      guard let active = settings.customGlyph, (try? store.image(active)) != nil else {
+        throw InputError("Import a valid active PNG before adding an idle PNG.")
+      }
+    }
     let imported = try store.save(data, name: file.lastPathComponent)
-    let old = settings.customGlyph
+    let old = variant == .active ? settings.customGlyph : settings.customIdleGlyph
     var value = settings
-    value.customGlyph = imported
+    if variant == .active { value.customGlyph = imported } else { value.customIdleGlyph = imported }
     value.useCustomGlyph = true
     do { try applySettings(value) } catch {
       try? store.remove(imported)
       throw error
     }
     customGlyphIssue = nil
-    if let old {
-      do { try store.remove(old) } catch {
-        message =
-          "The new icon is saved, but its previous file couldn't be removed: \(error.localizedDescription)"
-      }
+    do { try removeUnusedCustomGlyphs([old]) } catch {
+      message =
+        "The new icon is saved, but its previous file couldn't be removed: \(error.localizedDescription)"
     }
     onChange?()
   }
+  private func removeUnusedCustomGlyphs(_ previous: [CustomGlyph?]) throws {
+    let retained = Set([settings.customGlyph, settings.customIdleGlyph].compactMap { $0?.id })
+    var removed: Set<UUID> = []
+    let store = CustomGlyphStore(directory: endpoint.stateDirectory)
+    for glyph in previous.compactMap({ $0 })
+    where !retained.contains(glyph.id) && removed.insert(glyph.id).inserted {
+      try store.remove(glyph)
+    }
+  }
+  func removeCustomIdleGlyph() throws {
+    let old = settings.customIdleGlyph
+    var value = settings
+    value.customIdleGlyph = nil
+    try applySettings(value)
+    customGlyphIssue = nil
+    try removeUnusedCustomGlyphs([old])
+    onChange?()
+  }
   func removeCustomGlyph() throws {
-    let old = settings.customGlyph
+    let old = [settings.customGlyph, settings.customIdleGlyph]
     var value = settings
     value.customGlyph = nil
+    value.customIdleGlyph = nil
     value.useCustomGlyph = false
     try applySettings(value)
     customGlyphIssue = nil
-    if let old { try CustomGlyphStore(directory: endpoint.stateDirectory).remove(old) }
+    try removeUnusedCustomGlyphs(old)
     onChange?()
   }
   func enableFeedbackNotifications() async -> Bool {

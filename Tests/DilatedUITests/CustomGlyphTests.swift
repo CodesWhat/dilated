@@ -8,6 +8,147 @@ import UniformTypeIdentifiers
 @testable import DilatedUI
 
 @MainActor struct CustomGlyphTests {
+  @Test func activeAndIdleImagesSwitchWithoutMotionAndMissingIdleFallsBackVisibly() async throws {
+    _ = NSApplication.shared
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    model.stopAll()
+    let input = directory.appendingPathComponent("input.png")
+    try glyphPNG().write(to: input)
+    try await model.importCustomGlyph(from: input)
+    let active = try #require(model.settings.customGlyph)
+    try glyphPNG(right: true).write(to: input)
+    try await model.importCustomGlyph(from: input, variant: .idle)
+    let idle = try #require(model.settings.customIdleGlyph)
+    var scheduled = 0
+    let controller = MenuBarController(
+      model: model, openSettings: {},
+      makeTimer: { seconds, repeats, _ in
+        scheduled += 1
+        return Timer(timeInterval: seconds, repeats: repeats) { _ in }
+      })
+    defer { controller.stop() }
+    let button = try #require(controller.statusItem.button)
+    let idleImage = try #require(button.image?.tiffRepresentation)
+    model.start(duration: 60)
+    controller.refresh()
+    let activeImage = try #require(button.image?.tiffRepresentation)
+    #expect(idleImage != activeImage && scheduled == 0)
+    model.stopAll()
+    controller.refresh()
+    #expect(button.image?.tiffRepresentation == idleImage)
+    try CustomGlyphStore(directory: directory).remove(idle)
+    model.settings.useCustomGlyph = false
+    controller.refresh()
+    model.settings.useCustomGlyph = true
+    controller.refresh()
+    #expect(button.image?.tiffRepresentation == activeImage)
+    #expect(model.customGlyphIssue?.contains("idle") == true && model.engine.automationPaused)
+    #expect(try CustomGlyphStore(directory: directory).image(active).isTemplate)
+  }
+
+  @Test func idleReplacementRollbackAndRemovalPreserveTheActiveAssetAndPause() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    model.stopAll()
+    let input = directory.appendingPathComponent("input.png")
+    try glyphPNG().write(to: input)
+    try await model.importCustomGlyph(from: input)
+    let active = try #require(model.settings.customGlyph)
+    try await model.importCustomGlyph(from: input, variant: .idle)
+    let firstIdle = try #require(model.settings.customIdleGlyph)
+    let settingsFile = directory.appendingPathComponent("settings.json")
+    try FileManager.default.removeItem(at: settingsFile)
+    try FileManager.default.createDirectory(at: settingsFile, withIntermediateDirectories: false)
+    await #expect(throws: (any Error).self) {
+      try await model.importCustomGlyph(from: input, variant: .idle)
+    }
+    #expect(throws: (any Error).self) { try model.removeCustomIdleGlyph() }
+    #expect(throws: (any Error).self) { try model.removeCustomGlyph() }
+    #expect(model.settings.customGlyph == active && model.settings.customIdleGlyph == firstIdle)
+    #expect(
+      try FileManager.default.contentsOfDirectory(
+        atPath: directory.appendingPathComponent("glyphs").path
+      ).count == 2)
+    try FileManager.default.removeItem(at: settingsFile)
+    try await model.importCustomGlyph(from: input, variant: .idle)
+    let nextIdle = try #require(model.settings.customIdleGlyph)
+    #expect(nextIdle.id != firstIdle.id)
+    let store = CustomGlyphStore(directory: directory)
+    #expect(throws: (any Error).self) { try store.image(firstIdle) }
+    #expect(try store.image(active).isTemplate)
+    let saved = try JSONDecoder().decode(AppSettings.self, from: Data(contentsOf: settingsFile))
+    #expect(saved.customIdleGlyph == nextIdle && saved.customGlyph == active)
+    try model.removeCustomIdleGlyph()
+    #expect(model.settings.useCustomGlyph && model.settings.customGlyph == active)
+    #expect(model.settings.customIdleGlyph == nil && model.engine.automationPaused)
+    #expect(throws: (any Error).self) { try store.image(nextIdle) }
+    try model.removeCustomGlyph()
+    #expect(
+      try FileManager.default.contentsOfDirectory(
+        atPath: directory.appendingPathComponent("glyphs").path
+      ).isEmpty)
+  }
+
+  @Test func activeReplacementKeepsSharedOrSeparateIdleAssetsUntilTheirLastReference() async throws
+  {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let input = directory.appendingPathComponent("input.png")
+    try glyphPNG().write(to: input)
+    try await model.importCustomGlyph(from: input)
+    let first = try #require(model.settings.customGlyph)
+    model.settings.customIdleGlyph = first
+    try await model.importCustomGlyph(from: input)
+    let second = try #require(model.settings.customGlyph)
+    let store = CustomGlyphStore(directory: directory)
+    #expect(second.id != first.id && model.settings.customIdleGlyph == first)
+    #expect(try store.image(first).isTemplate)
+    try model.removeCustomIdleGlyph()
+    #expect(throws: (any Error).self) { try store.image(first) }
+    model.settings.customIdleGlyph = second
+    try model.removeCustomIdleGlyph()
+    #expect(try store.image(second).isTemplate)
+    try await model.importCustomGlyph(from: input, variant: .idle)
+    try model.removeCustomGlyph()
+    #expect(
+      model.settings.customGlyph == nil && model.settings.customIdleGlyph == nil
+        && !model.settings.useCustomGlyph)
+    #expect(
+      try FileManager.default.contentsOfDirectory(
+        atPath: directory.appendingPathComponent("glyphs").path
+      ).isEmpty)
+  }
+
+  @Test func idleImportNeedsAnActiveImageAndCorruptIdleMetadataDoesNotResetPreferences()
+    async throws
+  {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    let input = directory.appendingPathComponent("input.png")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try glyphPNG().write(to: input)
+    await #expect(throws: (any Error).self) {
+      try await model.importCustomGlyph(from: input, variant: .idle)
+    }
+    #expect(model.settings.customIdleGlyph == nil && model.settings.customGlyph == nil)
+    #expect(
+      !FileManager.default.fileExists(atPath: directory.appendingPathComponent("glyphs").path))
+    let saved = try JSONDecoder().decode(
+      AppSettings.self,
+      from: Data(#"{"batteryFloor":30,"customIdleGlyph":{"id":"bad","name":"Old"}}"#.utf8))
+    #expect(saved.customIdleGlyph == nil && saved.batteryFloor == 30)
+  }
+
   @Test func importsProducePrivateTemplateImagesAtBothResolutions() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }

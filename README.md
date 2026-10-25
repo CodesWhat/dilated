@@ -67,12 +67,14 @@ are independent of banners, with original short cues and custom audio import
 pending feedback. Failed notification delivery or sound playback never changes
 an awake hold. Native delivery and audible playback acceptance remain pending.
 
-In **Settings → Menu Bar**, import a static PNG with a transparent background
-(up to 512 × 512 pixels and 2 MB). Dilated copies it locally and creates crisp
-menu-size template images; its colors follow macOS. Custom icons stay still and
-dim when idle by default, with a separate dim preference. Pick a bundled icon to
-switch back, or Remove to discard the imported copy. A missing or invalid copy
-falls back to your bundled choice so the menu bar control stays visible.
+In **Settings → Menu Bar**, import a static active PNG with a transparent
+background (up to 512 × 512 pixels and 2 MB). Add an optional idle PNG for a distinct
+resting state, or use the active PNG for both. Both stay still, use crisp template
+images and follow the menu bar's color. Idle dimming has a separate preference.
+Remove idle PNG returns to the active image; Remove icons discards both imported
+copies and selects the last bundled icon. Replacement/removal preserves any copy
+still used by the other state. A missing idle image falls back to the active
+image with a warning; a broken active image falls back to the bundled icon.
 
 **Settings → Menu Bar** also offers compact, clock and end-time text. Seconds can
 follow the format default, always show or stay hidden. Hidden seconds round

@@ -266,9 +266,9 @@ output and native picker/readability acceptance remain separate gates.
 ## Custom menu bar icons
 
 Custom PNG selection is separate from the four bundled glyphs. Preferences retain
-the last bundled choice, a UUID/name for the imported copy, selection state and a
-separate idle-dim option (default true). Input reads are bounded to 2 MB. ImageIO
-checks complete PNG type, one static frame and dimensions up to 512 × 512 before
+the last bundled choice, UUID/names for the active and optional idle copies,
+selection state and a separate idle-dim option (default true). Input reads are
+bounded to 2 MB. ImageIO checks complete PNG type, one static frame and dimensions up to 512 × 512 before
 decoding. Empty and fully opaque images are rejected. Rendering preserves aspect
 ratio on a 32 × 30 transparent canvas and converts visible pixels to black while
 retaining alpha. Metadata is discarded during PNG re-encoding. The owned copy
@@ -277,14 +277,18 @@ retained. The original file is read only.
 
 A template NSImage provides 16 × 15 and 32 × 30 representations. Import saves the
 asset before preferences, rolls the new file back on preference failure and
-removes the old copy only after successful replacement. Removal persists the
-bundled selection before deleting the imported copy. Corrupt reference metadata
-is isolated from unrelated preferences. Missing/corrupt assets produce a visible
-bundled fallback and a separate icon issue, without ending holds or changing pause.
+removes the previous copy only after successful replacement and when neither
+state references it. Idle import requires a valid active image. Removing idle
+persists the active fallback before deleting an unreferenced idle asset; removing
+both persists the bundled choice first and deduplicates shared IDs. Corrupt
+reference metadata is isolated from unrelated preferences. A missing/corrupt idle
+copy falls back to the active image with a separate icon issue; a broken active
+copy uses the bundled fallback. Holds and pause are unchanged.
 
-Selection identity includes the asset UUID; replacing an image clears old cached
-frames. Custom icons have no animation timer, and the static Cat cans glyph no
-longer schedules useless motion bursts. Timer delivery keeps non-Sendable Timer
+Selection identity includes both asset UUIDs; replacing either image clears old
+cached frames. Idle/active holds select their corresponding image; legacy single
+images remain the fallback for both states. Custom icons have no animation timer,
+and the static Cat cans glyph no longer schedules useless motion bursts. Timer delivery keeps non-Sendable Timer
 objects outside actor callbacks; a Boolean callback result controls invalidation.
 The regular awake timer/countdown and animated bundled glyphs retain their
 existing behavior. Custom idle dimming is independent of the bundled preference.
@@ -305,9 +309,9 @@ formats clock text as hours:minutes. End-time text uses an autoupdating locale
 and calendar/time zone, with a date for deadlines on another day. It uses the
 existing awake refresh timer and the latest finite deadline. Any indefinite
 hold takes precedence as ∞; hidden and idle text remain empty. End-time hour
-cycle can inherit the Mac or force12/24h through Locale.Components, preserving
-localized digits, date and calendar/time zone. Small/standard time uses11/12pt
-monospaced digits; the independent amber attention symbol keeps its12pt bold font.
+cycle can inherit the Mac or force a 12/24-hour clock through Locale.Components,
+preserving localized digits, date and calendar/time zone. Small and standard text
+use 11 and 12 pt monospaced digits; the independent amber symbol stays 12 pt bold.
 Old/unknown/malformed new preferences preserve Mac/standard defaults without
 resetting unrelated settings. These preferences
 do not change holds, deadlines, pause state or closed-lid behavior.

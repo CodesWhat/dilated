@@ -86,6 +86,8 @@ import Testing
     let data = try #require(bitmap.representation(using: .png, properties: [:]))
     model.settings.customGlyph = try CustomGlyphStore(directory: directory).save(
       data, name: "Imported eyes")
+    model.settings.customIdleGlyph = try CustomGlyphStore(directory: directory).save(
+      data, name: "Idle eyes")
     model.settings.useCustomGlyph = true
     let view = NSHostingView(
       rootView: CustomGlyphSettingsView(model: model).padding(28).frame(width: 700))

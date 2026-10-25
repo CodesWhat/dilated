@@ -4,6 +4,8 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
+enum CustomGlyphVariant: Sendable { case active, idle }
+
 public struct CustomGlyph: Codable, Equatable, Sendable {
   public let id: UUID
   public let name: String
