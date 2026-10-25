@@ -1,5 +1,6 @@
 import AppKit
 import DilatedCore
+import OSLog
 import Observation
 import ServiceManagement
 
@@ -133,9 +134,9 @@ import ServiceManagement
   }
 
   private func unregister(controller: ClosedLidController) async throws {
-    let mayRecoverOff =
-      !controller.hasLease && !controller.pendingEnable && !controller.busy
-      && readPower().confirmedDisabled
+    let initiallyIdle = !controller.hasLease && !controller.pendingEnable && !controller.busy
+    let initialReadback = initiallyIdle ? readPower() : nil
+    let mayRecoverOff = initialReadback?.confirmedDisabled == true
     var recoveredOff = false
     do {
       try await controller.disable()
@@ -145,8 +146,12 @@ import ServiceManagement
       case HelperClientError.disconnected, HelperClientError.timedOut: unreachable = true
       default: unreachable = false
       }
-      guard unreachable, mayRecoverOff, !controller.hasLease, !controller.pendingEnable,
-        !controller.busy, readPower().confirmedDisabled
+      let stillIdle = !controller.hasLease && !controller.pendingEnable && !controller.busy
+      let currentReadback = unreachable && mayRecoverOff && stillIdle ? readPower() : nil
+      Logger(subsystem: HelperIdentity.appID, category: "HelperMaintenance").notice(
+        "Lost helper transport during maintenance: initiallyIdle=\(initiallyIdle, privacy: .public), initialStored=\(String(describing: initialReadback?.storedDisabled), privacy: .public), initialEffective=\(String(describing: initialReadback?.effectiveDisabled), privacy: .public), stillIdle=\(stillIdle, privacy: .public), currentStored=\(String(describing: currentReadback?.storedDisabled), privacy: .public), currentEffective=\(String(describing: currentReadback?.effectiveDisabled), privacy: .public)"
+      )
+      guard unreachable, mayRecoverOff, stillIdle, currentReadback?.confirmedDisabled == true
       else { throw error }
       recoveredOff = true
     }

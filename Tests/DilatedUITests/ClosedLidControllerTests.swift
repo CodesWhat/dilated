@@ -7,6 +7,35 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct ClosedLidControllerTests {
+  @Test func appControlCanRepairAnUnreachableOffHelperWithoutChangingManualWorkOrPause()
+    async throws
+  {
+    let fixture = await ControllerFixture()
+    fixture.transport.failures = [.disconnected]
+    let service = InstallationFixture(power: fixture.power)
+    service.registrationStatus = .enabled
+    let installation = HelperInstallation(
+      service: service,
+      readPower: {
+        .init(effectiveDisabled: false, storedDisabled: false)
+      })
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      closedLid: fixture.controller(), helperInstallation: installation)
+    defer { model.shutdown() }
+    model.stopAll()
+    model.start(duration: 60)
+    let manual = try #require(model.engine.holds.first)
+    let response = await model.control(.init(action: .helperSetup))
+    #expect(response.ok && response.helper?.ready == true)
+    #expect(
+      response.snapshot?.automationPaused == true
+        && response.snapshot?.holds.map(\.id) == [manual.id])
+    #expect(service.operations == ["reset-confirmed", "unregister-completed", "register"])
+  }
+
   @Test func anUnreachableOffHelperCanBeRepairedWithoutItsAcknowledgement() async throws {
     let fixture = await ControllerFixture()
     fixture.transport.failures = [.disconnected]
