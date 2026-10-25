@@ -52,10 +52,15 @@ public struct DesiredState: Equatable, Sendable {
   public var displayAwake = false
   public var closedLid = false
 }
+public struct UserReturnRestoration: Equatable, Sendable {
+  public var holds: [Hold]
+  public var wasPaused: Bool
+}
 public struct WakeEngine: Sendable {
   public private(set) var holds: [Hold] = []
   private var historyEvents: [HoldHistoryEvent] = []
   public private(set) var automationPaused = false
+  public private(set) var userReturnRestoration: UserReturnRestoration?
   public private(set) var attention: String?
   public private(set) var power = PowerState()
   public var batteryFloor: Int?
@@ -125,6 +130,7 @@ public struct WakeEngine: Sendable {
     if historyEvents.count > 1024 { historyEvents.removeFirst(historyEvents.count - 1024) }
   }
   public mutating func stop(id: UUID, reason: HoldEndReason = .stopped, now: Date = Date()) {
+    userReturnRestoration?.holds.removeAll { $0.id == id }
     guard let hold = holds.first(where: { $0.id == id }) else { return }
     recordHistory(hold: hold, at: now, reason: reason)
     holds.removeAll { $0.id == id }
@@ -134,10 +140,32 @@ public struct WakeEngine: Sendable {
     holds.removeAll()
     automationPaused = true
     attention = nil
+    userReturnRestoration = nil
   }
+  public mutating func suspendForUserSwitch(
+    capture: Bool, excluding: Set<UUID> = [], now: Date = Date()
+  ) {
+    let record =
+      capture
+      ? UserReturnRestoration(
+        holds: holds.filter { $0.source != .trigger && !excluding.contains($0.id) },
+        wasPaused: automationPaused)
+      : nil
+    stopAll(reason: .userSwitch, now: now)
+    userReturnRestoration = record
+  }
+  public mutating func resumeAfterUserReturn(now: Date = Date()) -> UserReturnRestoration? {
+    guard let record = userReturnRestoration else { return nil }
+    userReturnRestoration = nil
+    if !record.wasPaused { resumeAutomation() }
+    restore(holds: record.holds, now: now)
+    return record
+  }
+  public mutating func discardUserReturnRestoration() { userReturnRestoration = nil }
   public mutating func resumeAutomation() {
     automationPaused = false
     attention = nil
+    userReturnRestoration = nil
   }
   public mutating func restore(holds restored: [Hold], now: Date = Date()) {
     tick(now: now)
@@ -156,6 +184,7 @@ public struct WakeEngine: Sendable {
   public mutating func quit(reason: HoldEndReason = .quit, now: Date = Date()) {
     for hold in holds { recordHistory(hold: hold, at: now, reason: reason) }
     holds.removeAll()
+    userReturnRestoration = nil
   }
   public mutating func tick(now: Date = Date()) {
     for hold in holds where hold.expiry.map({ $0 <= now }) == true {

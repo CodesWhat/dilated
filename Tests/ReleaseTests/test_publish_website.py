@@ -84,6 +84,10 @@ class PublishWebsiteTests(unittest.TestCase):
             if prefix != 'source':
                 manifest[prefix + 'Bytes'] = path.stat().st_size
         (directory / 'release-manifest.json').write_text(json.dumps(manifest))
+        (self.assets / 'releases/latest.json').write_text(json.dumps({
+            'released': True, 'version': version, 'build': build,
+            'downloadURL': f"./releases/{version}/{manifest['dmg']}",
+            'sha256': manifest['dmgSHA256'], 'prerelease': False, 'unverified': []}))
         return directory
 
     def write_feed(self, build):
@@ -180,6 +184,29 @@ class PublishWebsiteTests(unittest.TestCase):
             publish.validate(self.repo, self.assets)
         (directory / f'Dilated-{VERSION}-macos-arm64.dmg').write_bytes(b'changed')
         with self.assertRaisesRegex(RuntimeError, 'DMG checksum'):
+            publish.validate(self.repo, self.assets)
+
+    def test_latest_json_must_exist_and_describe_the_advertised_release(self):
+        latest = self.assets / 'releases/latest.json'
+        good = json.loads(latest.read_text())
+        publish.validate(self.repo, self.assets)
+        for change in [{'build': '3'}, {'sha256': '0' * 64}, {'version': '0.9.0'},
+                       {'downloadURL': './releases/other.dmg'}, {'released': False},
+                       {'prerelease': True}, {'unverified': ['helperCrashRecovery']}]:
+            with self.subTest(change=change):
+                latest.write_text(json.dumps({**good, **change}))
+                with self.assertRaisesRegex(RuntimeError, 'latest.json'):
+                    publish.validate(self.repo, self.assets)
+        latest.write_text('not json')
+        with self.assertRaisesRegex(RuntimeError, 'latest.json'):
+            publish.validate(self.repo, self.assets)
+        latest.unlink()
+        with self.assertRaisesRegex(RuntimeError, 'latest.json'):
+            publish.validate(self.repo, self.assets)
+
+    def test_release_directory_must_match_its_manifest_version(self):
+        (self.assets / 'releases' / VERSION).rename(self.assets / 'releases' / '9.9.9')
+        with self.assertRaisesRegex(RuntimeError, 'directory name'):
             publish.validate(self.repo, self.assets)
 
     def test_the_feed_must_exist_and_advertise_the_newest_build(self):

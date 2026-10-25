@@ -92,6 +92,9 @@ def validate_acceptance(record, manifest):
     for key in PRERELEASE_REQUIRED_CHECKS:
         if checks[key]['status'] != 'passed':
             raise RuntimeError(f'Required acceptance check has not passed: {key}')
+    lid26 = checks['macOS26ClosedLid']
+    if lid26['status'] == 'passed' and not lid26['macOS'].startswith('26.'):
+        raise RuntimeError('The lid check must run on macOS 26')
     lid27 = checks['macOS27ClosedLid']
     if lid27['status'] == 'passed' and not lid27['macOS'].startswith('27.'):
         raise RuntimeError('The lid check must run on macOS 27')

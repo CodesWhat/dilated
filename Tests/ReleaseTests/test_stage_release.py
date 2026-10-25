@@ -157,6 +157,18 @@ class PublicationGuardsTests(unittest.TestCase):
         record['checks']['macOS27ClosedLid']['macOS'] = '26.6.2'
         stage.validate_acceptance(record, self.manifest)
 
+    def test_the_macos_26_lid_check_must_run_on_macos_26(self):
+        record = self.beta_acceptance()
+        record['checks']['macOS26ClosedLid']['macOS'] = '27.0'
+        with self.assertRaisesRegex(RuntimeError, 'macOS 26'):
+            stage.validate_acceptance(record, self.manifest)
+        self.use_ga_version()
+        record = self.acceptance()
+        record['version'] = '1.0.0'
+        record['checks']['macOS26ClosedLid']['macOS'] = '27.0'
+        with self.assertRaisesRegex(RuntimeError, 'macOS 26'):
+            stage.validate_acceptance(record, self.manifest)
+
     def test_a_prerelease_still_matches_the_exact_artifacts(self):
         record = self.beta_acceptance()
         record['dmgSHA256'] = 'different'

@@ -27,11 +27,10 @@
       "src": "/releases/latest.json",
       "headers": {
         "Cache-Control": "no-store"
-      },
-      "continue": true
+      }
     },
     {
-      "src": "/releases/(.*)",
+      "src": "/releases/(?!latest\\.json$).*",
       "headers": {
         "Cache-Control": "public, max-age=31536000, immutable"
       },

@@ -32,6 +32,8 @@ def select_release(assets, redirects):
     selected = None
     for path in manifests:
         manifest = public.validate_archive(path.parent)
+        if path.parent.name != manifest['version']:
+            raise RuntimeError('Release directory name must match its manifest version')
         source_file = path.parent / f"Dilated-{manifest['version']}-source.tar.gz"
         if (source_file.name != manifest.get('sourceArchive') or not source_file.is_file()
                 or hashlib.sha256(source_file.read_bytes()).hexdigest() != manifest.get('sourceSHA256')):
@@ -46,11 +48,33 @@ def select_release(assets, redirects):
     return selected
 
 
+def validate_latest(assets, manifest):
+    try:
+        latest = json.loads((assets / 'releases/latest.json').read_text())
+    except (OSError, ValueError):
+        latest = None
+    acceptance = manifest.get('acceptance') or {}
+    expected = {
+        'version': manifest['version'], 'build': str(manifest['build']),
+        'sha256': manifest['dmgSHA256'],
+        'downloadURL': f"./releases/{manifest['version']}/{manifest['dmg']}",
+        'released': True, 'prerelease': bool(manifest.get('prerelease', False)),
+        'unverified': list(acceptance.get('failed', [])) + list(acceptance.get('notRun', [])),
+    }
+    if not isinstance(latest, dict):
+        raise RuntimeError('latest.json must describe the advertised release')
+    actual = {**latest, 'build': str(latest.get('build'))}
+    if any(actual.get(key) != value for key, value in expected.items()) or any(
+            latest.get(key) is not expected[key] for key in ('released', 'prerelease')):
+        raise RuntimeError('latest.json must describe the advertised release')
+
+
 def validate(root, assets):
     if run(['git', 'status', '--porcelain'], cwd=root).strip():
         raise RuntimeError('Publish from a clean reviewed checkout')
     source = run(['git', 'rev-parse', 'HEAD'], cwd=root).strip()
     selected = select_release(assets, redirect_targets(root))
+    validate_latest(assets, selected)
     feed = assets / 'updates/appcast.xml'
     if not feed.is_file():
         raise RuntimeError('The retained signed feed is required')

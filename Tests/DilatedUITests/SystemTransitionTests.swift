@@ -107,6 +107,40 @@ import Testing
     #expect(model.engine.automationPaused)
   }
 
+  @Test func commandLineOffWhileAwayCancelsRestoration() async {
+    let (model, directory) = makeModel {
+      $0.stopOnUserSwitch = true
+      $0.resumeOnUserReturn = true
+    }
+    defer { try? FileManager.default.removeItem(at: directory) }
+    defer { model.shutdown() }
+    model.start(duration: 60)
+    model.handleSystemTransition(.userSwitch)
+    #expect(await model.control(.init(action: .stopAll)).ok)
+    model.handleSystemTransition(.userReturn)
+    #expect(model.engine.holds.isEmpty)
+    #expect(model.engine.automationPaused)
+  }
+
+  @Test func leaseReleasedWhileAwayIsNotRestored() async {
+    let (model, directory) = makeModel {
+      $0.stopOnUserSwitch = true
+      $0.resumeOnUserReturn = true
+    }
+    defer { try? FileManager.default.removeItem(at: directory) }
+    defer { model.shutdown() }
+    model.start(duration: 60)
+    let lease = await model.control(.init(action: .lease, duration: 60))
+    #expect(lease.ok)
+    let ordinary = model.engine.holds.filter { $0.id != lease.id }
+    #expect(ordinary.count == 1)
+    model.handleSystemTransition(.userSwitch)
+    model.stop(id: lease.id!)
+    model.handleSystemTransition(.userReturn)
+    #expect(model.engine.holds == ordinary)
+    #expect(!model.engine.automationPaused)
+  }
+
   @Test func preExistingPauseSurvivesReturn() throws {
     let (model, directory) = makeModel {
       $0.stopOnUserSwitch = true

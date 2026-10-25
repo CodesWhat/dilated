@@ -206,11 +206,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored var feedback: FeedbackController
   @ObservationIgnored var driveAlive = DriveAliveController()
   @ObservationIgnored private var downloads: [UUID: DownloadMonitor] = [:]
-  private struct UserReturnRestoration {
-    var holds: [Hold]
-    var wasPaused: Bool
-  }
-  @ObservationIgnored private var pendingUserReturn: UserReturnRestoration?
   @ObservationIgnored private var timer: Timer?
   @ObservationIgnored private var lastAssertionRefresh = Date.distantPast
   @ObservationIgnored private var stopped = false
@@ -448,36 +443,27 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
   }
   public func stopAll() {
-    pendingUserReturn = nil
     mutate { $0.stopAll() }
   }
   public func handleSystemTransition(_ transition: SystemTransition) {
     switch transition {
     case .sleep:
       guard settings.stopOnSystemSleep else { return }
-      pendingUserReturn = nil
       mutate { $0.stopAll(reason: .sleep) }
     case .userSwitch:
       guard settings.stopOnUserSwitch else { return }
-      if settings.resumeOnUserReturn {
-        let holds = engine.holds.filter { $0.source != .trigger && downloads[$0.id] == nil }
-        if !holds.isEmpty || pendingUserReturn == nil {
-          pendingUserReturn = UserReturnRestoration(
-            holds: holds, wasPaused: engine.automationPaused)
-        }
-      } else {
-        pendingUserReturn = nil
+      mutate {
+        $0.suspendForUserSwitch(
+          capture: settings.resumeOnUserReturn, excluding: Set(downloads.keys))
       }
-      mutate { $0.stopAll(reason: .userSwitch) }
     case .userReturn:
-      guard let pending = pendingUserReturn else { return }
-      pendingUserReturn = nil
-      guard settings.resumeOnUserReturn, settings.stopOnUserSwitch, allowNewWork() else { return }
-      mutate { engine in
-        if !pending.wasPaused { engine.resumeAutomation() }
-        engine.restore(holds: pending.holds)
+      guard settings.stopOnUserSwitch, settings.resumeOnUserReturn, allowNewWork() else {
+        mutate { $0.discardUserReturnRestoration() }
+        return
       }
-      if !pending.wasPaused {
+      var restored: UserReturnRestoration?
+      mutate { restored = $0.resumeAfterUserReturn() }
+      if restored?.wasPaused == false {
         triggerEvaluator = TriggerEvaluator()
         refreshTriggers()
       }
@@ -486,7 +472,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public func stop(id: UUID) { mutate { $0.stop(id: id) } }
   public func resumeAutomation() {
     guard allowNewWork() else { return }
-    pendingUserReturn = nil
     let wasPaused = engine.automationPaused
     mutate { $0.resumeAutomation() }
     if wasPaused { triggerEvaluator = TriggerEvaluator() }
@@ -917,7 +902,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public func shutdown() {
     guard !stopped else { return }
     stopped = true
-    pendingUserReturn = nil
     resetTriggerLidArming()
     triggerLidTask?.cancel()
     triggerMonitor?.stop()

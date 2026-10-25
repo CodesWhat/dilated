@@ -256,3 +256,38 @@ struct EngineTests {
     #expect(engine.holds.count == 4)
   }
 }
+
+@Test func userReturnRestorationExcludesHoldsStoppedWhileAway() throws {
+  var engine = WakeEngine()
+  let kept = try engine.start(source: .manual, label: "kept", duration: 60)
+  let ended = try engine.start(source: .lease, label: "ended", duration: 60)
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.holds.isEmpty && engine.automationPaused)
+  #expect(engine.userReturnRestoration?.holds.count == 2)
+  engine.stop(id: ended.id)
+  let restored = engine.resumeAfterUserReturn()
+  #expect(restored?.holds == [kept] && restored?.wasPaused == false)
+  #expect(engine.holds == [kept] && !engine.automationPaused)
+  #expect(engine.userReturnRestoration == nil)
+  #expect(engine.resumeAfterUserReturn() == nil)
+}
+
+@Test func everyOtherStopPathClearsTheUserReturnRestoration() throws {
+  for clear in [
+    { (engine: inout WakeEngine) in engine.stopAll() },
+    { (engine: inout WakeEngine) in engine.quit() },
+    { (engine: inout WakeEngine) in engine.resumeAutomation() },
+  ] {
+    var engine = WakeEngine()
+    try engine.start(source: .manual, label: "a", duration: 60)
+    engine.suspendForUserSwitch(capture: true)
+    #expect(engine.userReturnRestoration != nil)
+    clear(&engine)
+    #expect(engine.userReturnRestoration == nil)
+    #expect(engine.resumeAfterUserReturn() == nil)
+  }
+  var engine = WakeEngine()
+  try engine.start(source: .manual, label: "a", duration: 60)
+  engine.suspendForUserSwitch(capture: false)
+  #expect(engine.userReturnRestoration == nil)
+}

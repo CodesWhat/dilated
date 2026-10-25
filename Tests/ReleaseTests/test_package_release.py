@@ -29,6 +29,18 @@ class ReleaseGuardsTests(unittest.TestCase):
             self.assertTrue(all(name.startswith('Dilated.app/') for name in paths), paths)
             self.assertEqual(zipped.read('Dilated.app/Contents/Info.plist'), b'fixture app metadata')
 
+    def test_a_failed_app_build_surfaces_the_log_tail(self):
+        (self.root / 'scripts').mkdir()
+        (self.root / 'scripts/build-app.sh').write_text(
+            'for i in $(seq 1 100); do echo "line $i"; done\necho "boom: signing failed" >&2\nexit 3\n')
+        with self.assertRaises(RuntimeError) as caught:
+            release.build_app(self.root, self.root / 'out', '-')
+        message = str(caught.exception)
+        self.assertIn('exit 3', message)
+        self.assertIn('boom: signing failed', message)
+        self.assertIn('line 100', message)
+        self.assertNotIn('line 30\n', message)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='dilated-release-test-')
         self.addCleanup(self.temp.cleanup)

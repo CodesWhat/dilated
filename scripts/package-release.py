@@ -223,9 +223,16 @@ def build_app(root, output, identity, enable_updates=False):
     environment['DILATED_BUILD_DIR'] = str(output)
     environment['DILATED_SIGN_IDENTITY'] = identity
     environment['DILATED_ENABLE_UPDATES'] = '1' if enable_updates else '0'
-    with (output / 'build.log').open('w') as log:
-        subprocess.run(['bash', 'scripts/build-app.sh', 'release'], cwd=root, env=environment,
-                       stdout=log, stderr=subprocess.STDOUT, check=True, timeout=1200)
+    log_path = output / 'build.log'
+    try:
+        with log_path.open('w') as log:
+            subprocess.run(['bash', 'scripts/build-app.sh', 'release'], cwd=root, env=environment,
+                           stdout=log, stderr=subprocess.STDOUT, check=True, timeout=1200)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        tail = '\n'.join(log_path.read_text(errors='replace').splitlines()[-60:])
+        status = (f'exit {error.returncode}' if isinstance(error, subprocess.CalledProcessError)
+                  else 'timed out')
+        raise RuntimeError(f'build-app.sh release failed ({status}); last lines:\n{tail}') from error
 
 
 def main():
