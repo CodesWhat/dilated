@@ -25,11 +25,15 @@ public enum HoldEndReason: String, Codable, CaseIterable, Sendable {
   }
 }
 
+public enum HoldEventKind: Sendable { case started, extended, ended }
+
 public struct HoldHistoryEvent: Sendable {
+  public let kind: HoldEventKind
   public let hold: Hold
   public let at: Date
   public let endReason: HoldEndReason?
-  public init(hold: Hold, at: Date, endReason: HoldEndReason? = nil) {
+  public init(hold: Hold, at: Date, endReason: HoldEndReason? = nil, kind: HoldEventKind? = nil) {
+    self.kind = kind ?? (endReason == nil ? .started : .ended)
     self.hold = hold
     self.at = at
     self.endReason = endReason

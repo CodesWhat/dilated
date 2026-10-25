@@ -209,3 +209,48 @@ Native checks use an owned writable HFS+ disk image and the same image remounted
 read-only, checking the actual catalog/write path and preservation of a user-file
 fixture. This doesn't prove physical enclosure spin behavior, NAS policy or
 physical unplug handling. Those acceptance checks remain separate.
+
+## Notifications and sounds
+
+`FeedbackController` receives the same committed hold events as history before
+history's recording/availability gate. Typed start/extend/end events distinguish
+an explicit extension from a lease renewal. Renewal doesn't emit feedback or
+create a new history segment. Baseline recovery is silent, and transient holds that fail before commit don't
+announce successful starts or ordinary ends. An explicit closed-lid failure can
+still report its guard reason. Event batches coalesce starts/ends; manual/trigger categories, automation
+inclusion and safety reports have independent preferences. Closed-lid guard ends
+can report their reason without ending the underlying system-awake hold. The
+existing dedicated closed-lid warning beep takes precedence over the general
+end cue, avoiding duplicate audio.
+
+Banners and start/end/extend sounds default off. Notification permission is
+requested only by an explicit Settings enable action. Ordinary events read the
+current authorization and never prompt. The native notification center is lazy
+and requires Dilated's actual installed bundle identity, so an unbundled test
+host can't accidentally request or publish notifications. Foreground delivery
+opts into banners/list; Focus, macOS permissions and preview policy still apply.
+Each of the three kinds retains at most its latest request. UUIDs and generation
+checks ensure a late send cannot cancel a newer request. Stop/final hold removal
+cancels pending start/reminder work before optional end feedback; passive idle
+refreshes preserve the completed end notice. Shutdown cancels all pending work.
+
+Reminders use monotonic deadlines checked by the existing active-hold timer.
+There are no future OS notification triggers or an additional reminder timer.
+An overdue reminder produces one current notice, then moves its deadline forward;
+it doesn't replay missed intervals after a hang. Final hold removal ends it.
+Notifications and sounds cannot alter the hold engine, automation pause or helper.
+
+Three original short WAV cues are generated deterministically by
+`design/sounds/generate.py`. Custom files are read with a 2 MB bound, decoded by
+NSSound and limited to 10 seconds, copied under the private application-support
+sounds directory using UUID filenames and mode 0600. Settings retain an ID/name,
+never an arbitrary playback path. Import rolls back the new file if saving the
+setting fails; replacing a custom choice removes the previous file only when
+no other cue references it. Audio stays local, and no microphone permission or
+helper privilege is used. Decoder checks don't establish audible output.
+
+Injected tests cover permission denial, late authorization/send/explicit-permission
+results, history-disabled delivery, source filtering, failed starts, guard reasons,
+reminder deadlines, custom import rollback and shared asset lifetime. Installed
+permission allow/deny/revoke, foreground/background/Focus delivery, actual sound
+output and native picker/readability acceptance remain separate gates.

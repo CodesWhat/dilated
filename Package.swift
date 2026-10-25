@@ -23,7 +23,7 @@ let package = Package(
       dependencies: [
         "DilatedCore", "DilatedControl", .product(name: "Sparkle", package: "Sparkle"),
       ],
-      resources: [.copy("Resources/MenuBar"), .copy("Resources/Fonts")],
+      resources: [.copy("Resources/MenuBar"), .copy("Resources/Fonts"), .copy("Resources/Sounds")],
       linkerSettings: [
         .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
       ]),

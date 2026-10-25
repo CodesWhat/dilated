@@ -7,7 +7,8 @@ battery and Low Power Mode guards, four animated menu bar glyphs, optional compa
 or clock countdowns, Settings,
 configurable global shortcuts, local history and statistics, URL automation, AppleScript,
 four Shortcuts actions, and
-a CLI with renewable agent holds, file/folder download watches and opt-in Drive Alive.
+a CLI with renewable agent holds, file/folder download watches, opt-in Drive Alive,
+notifications and sounds.
 Closed-lid controls and their privileged helper are implemented, with hardware
 recovery and release acceptance still pending. There is no public release yet.
 Condition-based triggers are implemented locally for apps, processes, schedules,
@@ -56,3 +57,12 @@ pauses either mode until Resume automation. Each pulse creates a new hidden
 unwritable volumes show an error and aren't written to. Your existing files
 aren't opened for writing. A drive's own firmware or server policy may still let
 it sleep; Drive Alive doesn't wake a sleeping Mac.
+
+In **Settings → Notifications & Sounds**, enable banners to request macOS
+notification permission. Session and trigger starts/ends, safety reasons and
+periodic awake reminders are configurable. Agent/script events are excluded by
+default, and lease renewals stay quiet. Banners and sounds default off. Sounds
+are independent of banners, with original short cues and custom audio import
+(up to 2 MB and 10 seconds). Stop/final expiry ends reminders, and Quit cancels
+pending feedback. Failed notification delivery or sound playback never changes
+an awake hold. Native delivery and audible playback acceptance remain pending.

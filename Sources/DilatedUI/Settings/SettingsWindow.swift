@@ -88,6 +88,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
   case hotKeys = "Hot Keys"
   case triggers = "Triggers"
   case driveAlive = "Drive Alive"
+  case notifications = "Notifications & Sounds"
   case statistics = "Statistics"
   case automation = "Automation"
   case advanced = "Advanced"
@@ -103,6 +104,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case .hotKeys: "command"
     case .triggers: "switch.2"
     case .driveAlive: "externaldrive"
+    case .notifications: "bell"
     case .statistics: "chart.bar"
     case .automation: "terminal"
     case .advanced: "wrench.and.screwdriver"
@@ -119,6 +121,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case .hotKeys: "Assign shortcuts to your awake controls."
     case .triggers: "Keep awake while your conditions match."
     case .driveAlive: "Keep selected drives active with small periodic writes."
+    case .notifications: "Choose when Dilated speaks up."
     case .statistics: "Recent awake reasons, end causes and local totals."
     case .automation: "Keep work alive from scripts and agents."
     case .advanced: "Inspect the current state and export diagnostics."
@@ -236,6 +239,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case .hotKeys: ShortcutsSettings(model: model)
     case .triggers: TriggersSettings(model: model)
     case .driveAlive: DriveAliveSettingsView(model: model)
+    case .notifications: FeedbackSettingsView(model: model)
     case .statistics: HistorySettings(model: model)
     case .automation: automation
     case .advanced: advanced

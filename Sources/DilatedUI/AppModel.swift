@@ -23,6 +23,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public var stopOnSystemSleep = false
   public var stopOnUserSwitch = false
   public var triggersEnabled = true
+  public var feedback = FeedbackSettings()
   public var driveAlive = DriveAliveSettings()
   public var historyEnabled = true
   public var historyRetentionDays = 30
@@ -65,6 +66,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       try values.decodeIfPresent(Bool.self, forKey: .stopOnUserSwitch) ?? stopOnUserSwitch
     triggersEnabled =
       try values.decodeIfPresent(Bool.self, forKey: .triggersEnabled) ?? triggersEnabled
+    feedback = try values.decodeIfPresent(FeedbackSettings.self, forKey: .feedback) ?? feedback
     driveAlive =
       try values.decodeIfPresent(DriveAliveSettings.self, forKey: .driveAlive) ?? driveAlive
     historyEnabled =
@@ -117,6 +119,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
   }
   private func applySettings(_ value: AppSettings) throws {
+    if let error = value.feedback.validationMessage { throw InputError(error) }
     if let error = value.driveAlive.validationMessage { throw InputError(error) }
     try writeSettings(value)
     let old = preferences
@@ -165,6 +168,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored private let store: StateStore
   @ObservationIgnored private let readPower: () -> PowerState
   @ObservationIgnored private let assertions: any AssertionControlling
+  @ObservationIgnored var feedback: FeedbackController
   @ObservationIgnored var driveAlive = DriveAliveController()
   @ObservationIgnored private var downloads: [UUID: DownloadMonitor] = [:]
   @ObservationIgnored private var timer: Timer?
@@ -197,6 +201,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     self.historyStore = HistoryStore(directory: endpoint.stateDirectory)
     self.readPower = power
     self.assertions = assertions
+    self.feedback = FeedbackController(
+      service: NativeFeedbackService(),
+      sounds: NativeFeedbackSounds(directory: endpoint.stateDirectory))
     self.closedLid = closedLid ?? ClosedLidController()
     self.helperInstallation = helperInstallation ?? HelperInstallation()
     var loadMessage: String?
@@ -244,8 +251,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
       guard let self, !self.stopped else { return }
       self.engine.clearClosedLidRequests()
       self.message = reason
-      if self.settings.closedLidWarningSound { NSSound.beep() }
       self.commit()
+      self.feedback.closedLidEnded(reason, playSound: !self.settings.closedLidWarningSound)
+      if self.settings.closedLidWarningSound { NSSound.beep() }
     }
     updater.activity = { [weak self] in self?.updateActivity ?? .starting }
   }
@@ -629,6 +637,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     let previous = engine.holds
     engine.tick(now: now)
     for monitor in Array(downloads.values) { monitor.tick() }
+    feedback.tick(uptime: ProcessInfo.processInfo.systemUptime)
     if engine.holds != previous {
       commit()
     } else if now.timeIntervalSince(lastAssertionRefresh) >= 20 {
@@ -751,6 +760,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     timer?.invalidate()
     timer = nil
     closedLid.invalidate()
+    feedback.stop()
     driveAlive.stop()
     for monitor in downloads.values { monitor.stop() }
     downloads.removeAll()
@@ -837,6 +847,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
   private func recordHistory() {
     let events = engine.takeHistoryEvents()
+    feedback.update(
+      settings: settings.feedback, events: events, holds: engine.holds,
+      uptime: ProcessInfo.processInfo.systemUptime, baseline: !hasBegun)
     guard historyAvailable else { return }
     let changedRecording = historyWasEnabled != settings.historyEnabled
     if settings.historyEnabled {
@@ -955,6 +968,53 @@ public struct AppSettings: Codable, Equatable, Sendable {
       for id in engine.holds.map(\.id) { engine.setDisplayAwake(id: id, enabled: enabled) }
     }
     guard commit() else { throw InputError(message ?? "Couldn't apply display sleep state.") }
+  }
+  func enableFeedbackNotifications() async -> Bool {
+    guard allowNewWork(), await feedback.requestPermission(), allowNewWork() else { return false }
+    var value = settings
+    value.feedback.notifications = true
+    do {
+      try applySettings(value)
+      onChange?()
+      return true
+    } catch {
+      message = "Couldn't save notification settings: \(error.localizedDescription)"
+      onChange?()
+      return false
+    }
+  }
+  func importFeedbackSound(from file: URL, for cue: FeedbackCue) async throws {
+    let read = Task.detached(priority: .utility) { try FeedbackSoundStore.readInput(file) }
+    let data = try await withTaskCancellationHandler {
+      try await read.value
+    } onCancel: {
+      read.cancel()
+    }
+    try Task.checkCancellation()
+    guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
+    let store = FeedbackSoundStore(directory: endpoint.stateDirectory)
+    let sound = try store.save(data, name: file.lastPathComponent)
+    do { try setFeedbackSound(sound, for: cue) } catch {
+      if let id = sound.customID { try? store.remove(id) }
+      throw error
+    }
+  }
+  func setFeedbackSound(_ sound: FeedbackSound, for cue: FeedbackCue) throws {
+    guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
+    let old = settings.feedback[keyPath: cue.choice]
+    var value = settings
+    value.feedback[keyPath: cue.choice] = sound
+    try applySettings(value)
+    if let id = old.customID,
+      ![value.feedback.startChoice, value.feedback.endChoice, value.feedback.extendChoice].contains(
+        where: { $0.customID == id })
+    {
+      do { try FeedbackSoundStore(directory: endpoint.stateDirectory).remove(id) } catch {
+        message =
+          "The new sound is saved, but the previous imported file couldn't be removed: \(error.localizedDescription)"
+      }
+    }
+    onChange?()
   }
   public func assignShortcut(_ shortcut: AwakeShortcut?, to action: ShortcutAction) throws {
     var configuration = settings.shortcuts

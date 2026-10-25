@@ -116,8 +116,10 @@ public struct WakeEngine: Sendable {
     historyEvents.removeAll(keepingCapacity: true)
     return events
   }
-  private mutating func recordHistory(hold: Hold, at: Date, reason: HoldEndReason? = nil) {
-    historyEvents.append(.init(hold: hold, at: at, endReason: reason))
+  private mutating func recordHistory(
+    hold: Hold, at: Date, reason: HoldEndReason? = nil, kind: HoldEventKind? = nil
+  ) {
+    historyEvents.append(.init(hold: hold, at: at, endReason: reason, kind: kind))
     if historyEvents.count > 1024 { historyEvents.removeFirst(historyEvents.count - 1024) }
   }
   public mutating func stop(id: UUID, reason: HoldEndReason = .stopped, now: Date = Date()) {
@@ -186,6 +188,7 @@ public struct WakeEngine: Sendable {
     guard let index = holds.firstIndex(where: { $0.id == id }) else { throw WakeError.holdNotFound }
     guard let expiry = holds[index].expiry else { throw WakeError.notTimed }
     holds[index].expiry = expiry.addingTimeInterval(duration)
+    recordHistory(hold: holds[index], at: now, kind: .extended)
   }
   public mutating func setDisplayAwake(id: UUID, enabled: Bool) {
     guard let index = holds.firstIndex(where: { $0.id == id }) else { return }
