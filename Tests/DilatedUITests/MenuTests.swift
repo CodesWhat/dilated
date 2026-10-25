@@ -7,6 +7,69 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct MenuTests {
+  @Test func countdownFormatPersistsWithoutChangingOtherPreferences() throws {
+    let settings = try JSONDecoder().decode(
+      AppSettings.self,
+      from: Data(#"{"countdown":true,"countdownFormat":"clock","swapClicks":true}"#.utf8))
+    let saved = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any])
+    #expect(saved["countdownFormat"] as? String == "clock")
+    #expect(settings.countdown && settings.swapClicks)
+  }
+
+  @Test func clockCountdownRoundsUpAndClampsExpiredTime() {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    for (seconds, expected) in [
+      (-1.0, "0:00"), (0, "0:00"), (0.1, "0:01"), (59, "0:59"),
+      (59.1, "1:00"), (90, "1:30"), (3599, "59:59"),
+      (3599.1, "1:00:00"), (5400, "1:30:00"), (90061, "25:01:01"),
+    ] {
+      #expect(
+        CountdownFormat.clock.remaining(until: now.addingTimeInterval(seconds), now: now)
+          == expected)
+    }
+    #expect(
+      CountdownFormat.compact.remaining(until: now.addingTimeInterval(5400), now: now)
+        == "1h 30m")
+  }
+
+  @Test func missingAndUnknownCountdownFormatsPreserveExistingSettings() throws {
+    for json in [
+      #"{"countdown":true,"swapClicks":true}"#,
+      #"{"countdown":true,"countdownFormat":"future","swapClicks":true}"#,
+    ] {
+      let settings = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+      #expect(settings.countdownFormat == .compact)
+      #expect(settings.countdown && settings.swapClicks)
+    }
+  }
+
+  @Test func clockCountdownKeepsIndefiniteAndHiddenStates() throws {
+    _ = NSApplication.shared
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try Data(#"{"countdown":true,"countdownFormat":"clock"}"#.utf8).write(
+      to: directory.appendingPathComponent("settings.json"))
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    model.start(duration: 5400)
+    let controller = MenuBarController(model: model, openSettings: {})
+    defer { controller.stop() }
+    let button = try #require(controller.statusItem.button)
+    #expect(button.attributedTitle.string.contains(":"))
+    model.start()
+    controller.refresh()
+    #expect(button.attributedTitle.string == " ∞")
+    model.settings.countdown = false
+    controller.refresh()
+    #expect(button.attributedTitle.string.isEmpty)
+    model.settings.countdown = true
+    model.stopAll()
+    controller.refresh()
+    #expect(button.attributedTitle.string.isEmpty)
+  }
+
   @Test func menuUsesTheStatusItemAnchorAndRestoresQuickClickHandling() throws {
     _ = NSApplication.shared
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

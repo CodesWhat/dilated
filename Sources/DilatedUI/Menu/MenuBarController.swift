@@ -85,7 +85,9 @@ import AppKit
       model.settings.countdown && awake
       ? " "
         + (model.engine.holds.contains { $0.expiry == nil }
-          ? "∞" : expiry.map { AppModel.remaining(until: $0, now: model.now) } ?? "") : ""
+          ? "∞"
+          : expiry.map { model.settings.countdownFormat.remaining(until: $0, now: model.now) } ?? "")
+      : ""
     let title = NSMutableAttributedString(string: "")
     if model.attention != nil {
       title.append(

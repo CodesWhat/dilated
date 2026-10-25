@@ -13,6 +13,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public var glyph = Glyph.bugEyes
   public var motion = Motion.subtle
   public var countdown = false
+  public var countdownFormat = CountdownFormat.compact
   public var swapClicks = false
   public var lowOpacityIdle = false
   public var batteryFloor = 0
@@ -45,6 +46,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     glyph = try values.decodeIfPresent(Glyph.self, forKey: .glyph) ?? glyph
     motion = try values.decodeIfPresent(Motion.self, forKey: .motion) ?? motion
     countdown = try values.decodeIfPresent(Bool.self, forKey: .countdown) ?? countdown
+    countdownFormat =
+      (try values.decodeIfPresent(String.self, forKey: .countdownFormat))
+      .flatMap(CountdownFormat.init(rawValue:)) ?? countdownFormat
     swapClicks = try values.decodeIfPresent(Bool.self, forKey: .swapClicks) ?? swapClicks
     lowOpacityIdle =
       try values.decodeIfPresent(Bool.self, forKey: .lowOpacityIdle) ?? lowOpacityIdle

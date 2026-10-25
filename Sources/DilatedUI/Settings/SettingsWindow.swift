@@ -403,6 +403,13 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         SettingsRow(title: "Show time remaining") {
           Toggle("", isOn: $model.settings.countdown).labelsHidden()
         }
+        SettingsRow(title: "Time format") {
+          Picker("Time format", selection: $model.settings.countdownFormat) {
+            ForEach(CountdownFormat.allCases, id: \.rawValue) {
+              Text($0.label).tag($0)
+            }
+          }.labelsHidden().fixedSize().disabled(!model.settings.countdown)
+        }
         SettingsRow(title: "Dim the glyph when idle") {
           Toggle("", isOn: $model.settings.lowOpacityIdle).labelsHidden()
         }
