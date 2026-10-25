@@ -25,13 +25,16 @@ import Testing
     var continuation: CheckedContinuation<DownloadSnapshot, any Error>?
     var event: (@MainActor @Sendable () -> Void)?
     var reads = 0
+    var readReturned = false
     var cancellations = 0
     var ends = 0
     let monitor = DownloadMonitor(
       target: .init(url: URL(fileURLWithPath: "/tmp/test.part"), mode: .file), quietSeconds: 30,
       read: { _ in
         reads += 1
-        return try await withCheckedThrowingContinuation { continuation = $0 }
+        let snapshot = try await withCheckedThrowingContinuation { continuation = $0 }
+        readReturned = true
+        return snapshot
       },
       subscribe: { _, changed in
         event = changed
@@ -45,7 +48,11 @@ import Testing
     monitor.stop()
     continuation?.resume(returning: DownloadFixture.initial)
     continuation = nil
-    try await Task.sleep(for: .milliseconds(10))
+    let deadline = ContinuousClock.now + .seconds(5)
+    while !readReturned && ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(1))
+    }
+    #expect(readReturned)
     event?()
     monitor.tick()
     #expect(reads == 1 && cancellations == 1 && ends == 0)
@@ -82,8 +89,12 @@ import Testing
     event?()
     continuation?.resume(returning: DownloadFixture.initial)
     continuation = nil
-    try await Task.sleep(for: .milliseconds(10))
-    #expect(ends == 0 && reads == 3)
+    let deadline = ContinuousClock.now + .seconds(5)
+    while reads < 3 && ends == 0 && ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(1))
+    }
+    #expect(ends == 0)
+    #expect(reads == 3)
   }
 
   @Test func scannerTracksOnlyPartialDownloadsAndTheirPackageContents() throws {

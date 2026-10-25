@@ -7,7 +7,7 @@ battery and Low Power Mode guards, four animated menu bar glyphs, optional compa
 or clock countdowns, Settings,
 configurable global shortcuts, local history and statistics, URL automation, AppleScript,
 four Shortcuts actions, and
-a CLI with renewable agent holds, and file/folder download watches.
+a CLI with renewable agent holds, file/folder download watches and opt-in Drive Alive.
 Closed-lid controls and their privileged helper are implemented, with hardware
 recovery and release acceptance still pending. There is no public release yet.
 Condition-based triggers are implemented locally for apps, processes, schedules,
@@ -47,3 +47,12 @@ inactivity before ending the hold. Stalled downloads also end it. Completion,
 Stop, safety guards and Quit release the watch without ending separate holds.
 Download watches aren't restored after a crash, relaunch or update; choose them
 again when needed. File access is requested only through your selection.
+
+In **Settings → Drive Alive**, select volumes, enable it and choose a 30–3600
+second interval. The default writes only while Dilated has an awake hold; the
+optional always mode runs while the app is open without creating a hold. Stop
+pauses either mode until Resume automation. Each pulse creates a new hidden
+8-byte file, flushes it and removes it. Removed, ambiguous, read-only or
+unwritable volumes show an error and aren't written to. Your existing files
+aren't opened for writing. A drive's own firmware or server policy may still let
+it sleep; Drive Alive doesn't wake a sleeping Mac.

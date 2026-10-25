@@ -23,6 +23,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public var stopOnSystemSleep = false
   public var stopOnUserSwitch = false
   public var triggersEnabled = true
+  public var driveAlive = DriveAliveSettings()
   public var historyEnabled = true
   public var historyRetentionDays = 30
   public var dockMode = "whileWindowOpen"
@@ -64,6 +65,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
       try values.decodeIfPresent(Bool.self, forKey: .stopOnUserSwitch) ?? stopOnUserSwitch
     triggersEnabled =
       try values.decodeIfPresent(Bool.self, forKey: .triggersEnabled) ?? triggersEnabled
+    driveAlive =
+      try values.decodeIfPresent(DriveAliveSettings.self, forKey: .driveAlive) ?? driveAlive
     historyEnabled =
       try values.decodeIfPresent(Bool.self, forKey: .historyEnabled) ?? historyEnabled
     historyRetentionDays =
@@ -114,6 +117,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
   }
   private func applySettings(_ value: AppSettings) throws {
+    if let error = value.driveAlive.validationMessage { throw InputError(error) }
     try writeSettings(value)
     let old = preferences
     preferences = value
@@ -161,6 +165,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored private let store: StateStore
   @ObservationIgnored private let readPower: () -> PowerState
   @ObservationIgnored private let assertions: any AssertionControlling
+  @ObservationIgnored var driveAlive = DriveAliveController()
   @ObservationIgnored private var downloads: [UUID: DownloadMonitor] = [:]
   @ObservationIgnored private var timer: Timer?
   @ObservationIgnored private var lastAssertionRefresh = Date.distantPast
@@ -746,6 +751,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     timer?.invalidate()
     timer = nil
     closedLid.invalidate()
+    driveAlive.stop()
     for monitor in downloads.values { monitor.stop() }
     downloads.removeAll()
     engine.quit(reason: historyShutdownReason)
@@ -802,6 +808,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     recordHistory()
     let applied = synchronizeAssertions()
+    driveAlive.configure(
+      settings.driveAlive, awake: applied && !engine.holds.isEmpty, paused: engine.automationPaused)
     if resetClosedLid { queueClosedLidReset() }
     if !engine.holds.isEmpty && timer == nil && !stopped {
       let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in

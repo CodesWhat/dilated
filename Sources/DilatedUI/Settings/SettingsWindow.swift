@@ -87,6 +87,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
   case closedLid = "Closed Lid"
   case hotKeys = "Hot Keys"
   case triggers = "Triggers"
+  case driveAlive = "Drive Alive"
   case statistics = "Statistics"
   case automation = "Automation"
   case advanced = "Advanced"
@@ -101,6 +102,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case .closedLid: "laptopcomputer"
     case .hotKeys: "command"
     case .triggers: "switch.2"
+    case .driveAlive: "externaldrive"
     case .statistics: "chart.bar"
     case .automation: "terminal"
     case .advanced: "wrench.and.screwdriver"
@@ -116,6 +118,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case .closedLid: "Keep work running with the lid shut, within your safety limits."
     case .hotKeys: "Assign shortcuts to your awake controls."
     case .triggers: "Keep awake while your conditions match."
+    case .driveAlive: "Keep selected drives active with small periodic writes."
     case .statistics: "Recent awake reasons, end causes and local totals."
     case .automation: "Keep work alive from scripts and agents."
     case .advanced: "Inspect the current state and export diagnostics."
@@ -232,6 +235,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case .closedLid: ClosedLidSettings(model: model)
     case .hotKeys: ShortcutsSettings(model: model)
     case .triggers: TriggersSettings(model: model)
+    case .driveAlive: DriveAliveSettingsView(model: model)
     case .statistics: HistorySettings(model: model)
     case .automation: automation
     case .advanced: advanced

@@ -15,7 +15,7 @@ ID. Main Stop is durable and blocks new automation until explicit Resume.
 `DilatedUI` adapts Mouthtype's Dock, login item, hotkeys, template image loading,
 fonts, adaptive palette and glass Settings patterns. The app delegate wires
 power, wake, clock and accessibility notifications. Idle operation has no engine
-timer; active holds use a coalesced timer for expiry/countdown and a slower native
+timer; opt-in Drive Alive has its own eligible-write schedule, and active holds use a coalesced timer for expiry/countdown and a slower native
 assertion refresh. Icon animation uses short bursts capped at 8 fps, with still
 frames for Off/Reduce Motion.
 
@@ -173,3 +173,39 @@ Separate manual/agent/trigger work continues after a download ends. Watches and
 paths aren't saved; their indefinite manual hold is excluded from timer recovery.
 A new explicit selection is allowed while automation is paused, without resuming
 it. No watcher or automatic hold is recreated by Resume automation.
+
+## Drive Alive
+
+Persisted Drive Alive settings default off, at a 60 second interval and only while
+Dilated has an applied awake assertion. Always mode doesn't create an assertion
+or wake the Mac. Both modes require automation unpaused. Stop, disabling, loss of
+the awake-only condition and shutdown invalidate the scheduled cycle and cancel
+pending work. A single one-shot timer is created only when eligible, with at
+least 30 seconds between cycles. A cycle writes selected volumes serially;
+configuration changes wait for an existing write before starting another cycle.
+Late results can't schedule another cycle after Stop or shutdown. An in-flight
+kernel filesystem operation can finish after cancellation, without a next pulse.
+
+Selection uses the volume UUID, or filesystem type plus mounted source when a
+UUID isn't available. A missing or ambiguous identity never falls back to its
+old path. The catalog uses the cached `getfsstat(MNT_NOWAIT)` mount table and
+includes hidden/no-browse mounts. Each pulse resolves the current mount, rejects
+read-only media, opens the root with `O_DIRECTORY | O_NOFOLLOW`, then rechecks its
+filesystem ID, mount point and write flag on that descriptor before creating a
+file. A changed or unmounted volume cannot silently become a directory on its
+parent filesystem.
+
+A fresh random `.dilated-drive-alive-…` file uses mode 0600, `O_CREAT | O_EXCL |
+O_NOFOLLOW`, writes 8 bytes, calls `fsync`, then unlinks that exact file relative
+to its root descriptor. Existing files and symlinks aren't overwritten or
+removed, including on a name collision. Error and cancellation paths close
+descriptors and attempt removal of only the file created by this pulse. A crash
+or failed filesystem cleanup can leave that tiny app-created file; no wildcard
+cleanup touches other files. Failures remain visible in Settings and retry only
+at the configured interval, never in a rapid loop. Settings remain mode 0600 locally.
+The helper and its privileges aren't involved.
+
+Native checks use an owned writable HFS+ disk image and the same image remounted
+read-only, checking the actual catalog/write path and preservation of a user-file
+fixture. This doesn't prove physical enclosure spin behavior, NAS policy or
+physical unplug handling. Those acceptance checks remain separate.
