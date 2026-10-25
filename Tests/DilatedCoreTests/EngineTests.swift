@@ -272,6 +272,23 @@ struct EngineTests {
   #expect(engine.resumeAfterUserReturn() == nil)
 }
 
+@Test func releasableHoldsCoverActivePendingAndExcludeManual() throws {
+  var engine = WakeEngine()
+  let manual = try engine.start(source: .manual, label: "job", duration: 60)
+  let pending = try engine.start(source: .lease, label: "job", duration: 60)
+  let other = try engine.start(source: .runner, label: "other", duration: 60)
+  #expect(engine.releasableHold(id: pending.id) && engine.releasableHold(id: manual.id))
+  #expect(engine.releasableHolds(label: "job").map(\.id) == [pending.id])
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.holds.isEmpty)
+  #expect(engine.releasableHold(id: pending.id) && engine.releasableHold(id: other.id))
+  #expect(engine.releasableHolds(label: "job").map(\.id) == [pending.id])
+  #expect(engine.releasableHolds(label: "missing").isEmpty)
+  engine.stop(id: pending.id)
+  #expect(!engine.releasableHold(id: pending.id))
+  #expect(engine.releasableHolds(label: "job").isEmpty)
+}
+
 @Test func everyOtherStopPathClearsTheUserReturnRestoration() throws {
   for clear in [
     { (engine: inout WakeEngine) in engine.stopAll() },

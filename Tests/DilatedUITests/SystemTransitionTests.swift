@@ -141,6 +141,49 @@ import Testing
     #expect(!model.engine.automationPaused)
   }
 
+  @Test func leaseReleasedThroughControlWhileAwayIsNotRestored() async {
+    let (model, directory) = makeModel {
+      $0.stopOnUserSwitch = true
+      $0.resumeOnUserReturn = true
+    }
+    defer { try? FileManager.default.removeItem(at: directory) }
+    defer { model.shutdown() }
+    model.start(duration: 60)
+    let lease = await model.control(.init(action: .lease, duration: 60))
+    #expect(lease.ok)
+    let ordinary = model.engine.holds.filter { $0.id != lease.id }
+    #expect(ordinary.count == 1)
+    model.handleSystemTransition(.userSwitch)
+    #expect(model.engine.holds.isEmpty)
+    let released = await model.control(.init(action: .release, id: lease.id))
+    #expect(released.ok)
+    model.handleSystemTransition(.userReturn)
+    #expect(model.engine.holds == ordinary)
+    #expect(!model.engine.automationPaused)
+  }
+
+  @Test func runnerReleasedByLabelWhileAwayIsNotRestored() async {
+    let (model, directory) = makeModel {
+      $0.stopOnUserSwitch = true
+      $0.resumeOnUserReturn = true
+    }
+    defer { try? FileManager.default.removeItem(at: directory) }
+    defer { model.shutdown() }
+    model.start(duration: 60)
+    let runner = await model.control(
+      .init(action: .runner, label: "agent-job", duration: 60))
+    #expect(runner.ok)
+    let ordinary = model.engine.holds.filter { $0.id != runner.id }
+    #expect(ordinary.count == 1)
+    model.handleSystemTransition(.userSwitch)
+    let released = await model.control(.init(action: .release, label: "agent-job"))
+    #expect(released.ok)
+    model.handleSystemTransition(.userReturn)
+    #expect(model.engine.holds == ordinary)
+    let missing = await model.control(.init(action: .release, label: "agent-job"))
+    #expect(!missing.ok)
+  }
+
   @Test func preExistingPauseSurvivesReturn() throws {
     let (model, directory) = makeModel {
       $0.stopOnUserSwitch = true

@@ -135,6 +135,15 @@ public struct WakeEngine: Sendable {
     recordHistory(hold: hold, at: now, reason: reason)
     holds.removeAll { $0.id == id }
   }
+  public func releasableHold(id: UUID) -> Bool {
+    holds.contains { $0.id == id } || userReturnRestoration?.holds.contains { $0.id == id } == true
+  }
+  public func releasableHolds(label: String) -> [Hold] {
+    var seen = Set<UUID>()
+    return (holds + (userReturnRestoration?.holds ?? [])).filter {
+      $0.label == label && $0.source != .manual && seen.insert($0.id).inserted
+    }
+  }
   public mutating func stopAll(reason: HoldEndReason = .stopped, now: Date = Date()) {
     for hold in holds { recordHistory(hold: hold, at: now, reason: reason) }
     holds.removeAll()

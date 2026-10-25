@@ -98,12 +98,10 @@ public enum ControlRouter {
       case .stopAll: engine.stopAll(now: now)
       case .release:
         if let selected = request.id {
-          guard engine.holds.contains(where: { $0.id == selected }) else {
-            throw WakeError.holdNotFound
-          }
+          guard engine.releasableHold(id: selected) else { throw WakeError.holdNotFound }
           engine.stop(id: selected, now: now)
         } else {
-          let matches = engine.holds.filter { $0.label == request.label && $0.source != .manual }
+          let matches = engine.releasableHolds(label: request.label)
           guard !matches.isEmpty else { throw WakeError.holdNotFound }
           for hold in matches { engine.stop(id: hold.id, now: now) }
         }
