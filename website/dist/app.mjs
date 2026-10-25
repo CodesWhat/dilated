@@ -1,6 +1,6 @@
 import { directions, readPreferences } from './state.mjs';
 import { mountMenuDemos } from './demo.mjs';
-import { loadRelease } from './release.mjs';
+import { loadRelease, releaseCopy } from './release.mjs';
 
 const root = document.documentElement;
 let current = readPreferences(location.search);
@@ -66,19 +66,23 @@ mountMenuDemos(announce);
 
 const release = await loadRelease(window.fetch.bind(window), document.baseURI);
 if (release) {
+  const copy = releaseCopy(release);
   document.querySelectorAll('[data-release-link]').forEach(link => {
     link.href = release.downloadURL;
     link.hidden = false;
-    link.querySelector('[data-release-label]').textContent = 'Download for Mac';
+    link.querySelector('[data-release-label]').textContent = copy.label;
   });
   document.querySelectorAll('[data-testing-only]').forEach(element => { element.hidden = true; });
   document.querySelector('[data-release-status]').textContent = 'ON THE SHELF.';
   document.querySelector('[data-release-heading]').replaceChildren('See you in', document.createElement('br'), 'the menu bar.');
-  document.querySelector('[data-release-copy]').textContent = `Dilated ${release.version} is ready for macOS ${release.minimumMacOS}+ on Apple Silicon. Free software from CodesWhat, under MIT.`;
+  document.querySelector('[data-release-copy]').textContent = copy.copy;
   document.querySelectorAll('[data-release-summary]').forEach(element => {
-    element.textContent = `V${release.version} · MACOS ${release.minimumMacOS}+ · APPLE SILICON · MIT LICENSE`;
+    element.textContent = copy.summary;
   });
   document.querySelector('[data-release-version]').textContent = `Version ${release.version} · Build ${release.build}`;
   document.querySelector('[data-release-checksum]').textContent = release.sha256;
+  const caveat = document.querySelector('[data-release-caveat]');
+  caveat.textContent = copy.caveat;
+  caveat.hidden = !copy.caveat;
   document.querySelector('[data-release-details]').hidden = false;
 }

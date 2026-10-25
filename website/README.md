@@ -34,6 +34,7 @@ The release pipeline owns this metadata. An accepted record must contain:
 - `sha256`, the download's 64-character hexadecimal SHA-256 checksum
 - `minimumMacOS`, a dotted version of 26.0 or later
 - `architecture: "arm64"`
+- Optional `prerelease` (boolean, default false) and `unverified` (array of strings, default empty). A prerelease relabels the download as a beta and lists the unverified checks in a caveat line.
 
 Relative download paths resolve against the page URL, not the metadata file.
 For example, `./releases/Dilated.dmg` works when the site is hosted at `/` or

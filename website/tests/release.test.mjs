@@ -26,6 +26,8 @@ test('only a complete accepted release enables the download', () => {
   assert.deepEqual(release.validateRelease(metadata, baseURL), {
     ...metadata,
     downloadURL: 'https://example.com/dilated/releases/Dilated-1.0.0.dmg',
+    prerelease: false,
+    unverified: [],
   });
 });
 
@@ -66,4 +68,30 @@ test('missing, unreadable or invalid metadata leaves the testing state available
   assert.equal(requested.url, 'https://example.com/dilated/releases/latest.json');
   assert.equal(requested.options.cache, 'no-store');
   assert.equal(found.version, '1.0.0');
+});
+
+test('prerelease and unverified checks pass through with safe defaults', () => {
+  assert.equal(release.validateRelease(metadata, baseURL).prerelease, false);
+  assert.deepEqual(release.validateRelease(metadata, baseURL).unverified, []);
+  const beta = release.validateRelease({ ...metadata, version: '1.0.0-beta.1', prerelease: true, unverified: ['rebootRecovery', 'nativeUI'] }, baseURL);
+  assert.equal(beta.prerelease, true);
+  assert.deepEqual(beta.unverified, ['rebootRecovery', 'nativeUI']);
+  for (const invalid of [{ prerelease: 'yes' }, { prerelease: 1 }, { unverified: 'nativeUI' }, { unverified: ['ok', 7] }, { unverified: [null] }, { unverified: {} }]) {
+    assert.equal(release.validateRelease({ ...metadata, ...invalid }, baseURL), null, JSON.stringify(invalid));
+  }
+});
+
+test('a beta release changes the download label, copy, summary and caveat', () => {
+  const beta = release.releaseCopy(release.validateRelease({ ...metadata, version: '1.0.0-beta.1', prerelease: true, unverified: ['rebootRecovery', 'nativeUI'] }, baseURL));
+  assert.equal(beta.label, 'Download beta for Mac');
+  assert.equal(beta.copy, 'Dilated 1.0.0-beta.1 is a public beta for macOS 26.0+ on Apple Silicon. Free software from CodesWhat, under MIT.');
+  assert.equal(beta.summary, 'BETA 1.0.0-beta.1 · MACOS 26.0+ · APPLE SILICON · MIT LICENSE');
+  assert.equal(beta.caveat, 'Closed-lid mode is experimental in this beta. Not yet verified on hardware: rebootRecovery, nativeUI.');
+  const clean = release.releaseCopy(release.validateRelease({ ...metadata, version: '1.0.0-beta.2', prerelease: true }, baseURL));
+  assert.equal(clean.caveat, '');
+  const ga = release.releaseCopy(release.validateRelease(metadata, baseURL));
+  assert.equal(ga.label, 'Download for Mac');
+  assert.equal(ga.copy, 'Dilated 1.0.0 is ready for macOS 26.0+ on Apple Silicon. Free software from CodesWhat, under MIT.');
+  assert.equal(ga.summary, 'V1.0.0 · MACOS 26.0+ · APPLE SILICON · MIT LICENSE');
+  assert.equal(ga.caveat, '');
 });
