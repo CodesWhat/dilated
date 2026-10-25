@@ -138,6 +138,9 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
   @State private var presets = ""
   @State private var loginRefresh = 0
   @State private var cliRefresh = 0
+  @State private var confirmSettingsReset = false
+  @State private var recoveryError: String?
+  @State private var recoveryNote: String?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   private let loginItem = LoginItem()
   private let cliInstallation = CommandLineInstallation()
@@ -196,15 +199,23 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
       Divider()
       ScrollView {
         VStack(alignment: .leading, spacing: 22) {
-          if !model.settings.onboardingComplete { welcome }
+          if !model.settings.onboardingComplete, model.settingsRecoveryIssue == nil { welcome }
           Text((page ?? .overview).rawValue.uppercased()).font(DesignFont.heading(34))
           Text((page ?? .overview).detail).foregroundStyle(DesignPalette.ink2).padding(.top, -14)
-          if let attention = model.attention {
-            Text(attention).fixedSize(horizontal: false, vertical: true).padding(12)
-              .frame(maxWidth: .infinity, alignment: .leading).background(
-                .quaternary, in: RoundedRectangle(cornerRadius: 10))
+          if model.settingsRecoveryIssue != nil {
+            settingsRecovery
+          } else {
+            if let recoveryNote {
+              Text(recoveryNote).textSelection(.enabled).fixedSize(
+                horizontal: false, vertical: true)
+            }
+            if let attention = model.attention {
+              Text(attention).fixedSize(horizontal: false, vertical: true).padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading).background(
+                  .quaternary, in: RoundedRectangle(cornerRadius: 10))
+            }
+            pageContent
           }
-          pageContent
         }
         .padding(.horizontal, 28).padding(.top, 12).padding(.bottom, 28)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -213,6 +224,41 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     .font(DesignFont.sans(13)).foregroundStyle(DesignPalette.ink).tint(SettingsTheme.control)
     .frame(minWidth: 860, minHeight: 600)
     .onAppear { presets = model.settings.presets.map(String.init).joined(separator: ", ") }
+  }
+  private var settingsRecovery: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("Settings couldn't be read").font(DesignFont.heading(26))
+      Text(
+        "No saved timers were restored. Holds and automation stay off until you recover settings, so unreadable battery and safety preferences can't be bypassed."
+      ).fixedSize(horizontal: false, vertical: true)
+      Text(model.settingsRecoveryIssue ?? "").foregroundStyle(DesignPalette.ink2)
+        .fixedSize(horizontal: false, vertical: true)
+      if let message = model.message, !message.hasPrefix("Couldn't read settings:") {
+        Text(message).fixedSize(horizontal: false, vertical: true)
+      }
+      Text(
+        "Reset saves a private copy of the unreadable file and restores defaults. Triggers and history are kept. Automation stays paused until you resume it."
+      ).fixedSize(horizontal: false, vertical: true)
+      if let recoveryError { Text(recoveryError).fixedSize(horizontal: false, vertical: true) }
+      Button("Reset unreadable settings…") { confirmSettingsReset = true }
+        .buttonStyle(.borderedProminent)
+        .alert("Reset unreadable settings?", isPresented: $confirmSettingsReset) {
+          Button("Reset settings", role: .destructive) {
+            do {
+              let backup = try model.resetUnreadableSettings()
+              recoveryError = nil
+              recoveryNote =
+                "Settings reset. Automation is paused. Previous settings: \(backup.path)"
+            } catch { recoveryError = error.localizedDescription }
+          }
+          Button("Cancel", role: .cancel) {}
+        } message: {
+          Text(
+            "Your previous file will be saved privately before defaults are written. Saved timers won't restart. Review Battery & Safety before starting another hold."
+          )
+        }
+    }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
+      .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
   }
   private var welcome: some View {
     VStack(alignment: .leading, spacing: 10) {

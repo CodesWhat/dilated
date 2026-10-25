@@ -209,13 +209,19 @@ public struct AppSettings: Codable, Equatable, Sendable {
     (operation: UUID, id: UUID, policy: ClosedLidPolicy, automated: Bool)?
   private var settingsFile: URL { endpoint.stateDirectory.appendingPathComponent("settings.json") }
   public private(set) var customGlyphIssue: String?
+  public private(set) var settingsRecoveryIssue: String?
   var glyphSelectionID: String {
     settings.useCustomGlyph
       ? "custom:" + (settings.customGlyph?.id.uuidString ?? "missing") + ":"
         + (settings.customIdleGlyph?.id.uuidString ?? "same") + ":" + settings.glyph.rawValue
       : "builtin:" + settings.glyph.rawValue
   }
-  public var attention: String? { message ?? engine.attention ?? customGlyphIssue }
+  public var attention: String? {
+    message ?? engine.attention
+      ?? (settingsRecoveryIssue == nil
+        ? nil : "Couldn't read settings. Open Settings to recover before starting a hold.")
+      ?? customGlyphIssue
+  }
   func menuGlyphImage(frame: String) -> NSImage? {
     guard settings.useCustomGlyph else {
       customGlyphIssue = nil
@@ -270,6 +276,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     self.closedLid = closedLid ?? ClosedLidController()
     self.helperInstallation = helperInstallation ?? HelperInstallation()
     var loadMessage: String?
+    var recoveryIssue: String?
     var loadedSettings = AppSettings()
     let file = endpoint.stateDirectory.appendingPathComponent("settings.json")
     if FileManager.default.fileExists(atPath: file.path) {
@@ -279,7 +286,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
           loadedSettings.shortcuts = [:]
           loadMessage = "Saved shortcuts were disabled: \(error)"
         }
-      } catch { loadMessage = "Couldn't read settings: \(error.localizedDescription)" }
+      } catch {
+        recoveryIssue = error.localizedDescription
+        loadMessage = "Couldn't read settings: \(error.localizedDescription)"
+      }
     }
     let triggerFile = endpoint.stateDirectory.appendingPathComponent("triggers.json")
     if FileManager.default.fileExists(atPath: triggerFile.path) {
@@ -301,13 +311,19 @@ public struct AppSettings: Codable, Equatable, Sendable {
       historyAvailable = false
     }
     let snapshot: EngineSnapshot
-    do { snapshot = try store.load() } catch {
+    if recoveryIssue != nil {
       snapshot = EngineSnapshot(automationPaused: true)
-      loadMessage = "Couldn't read saved holds. Automation is paused: \(error.localizedDescription)"
+    } else {
+      do { snapshot = try store.load() } catch {
+        snapshot = EngineSnapshot(automationPaused: true)
+        loadMessage =
+          "Couldn't read saved holds. Automation is paused: \(error.localizedDescription)"
+      }
     }
     engine = WakeEngine(
       snapshot: snapshot, power: power(),
       batteryFloor: loadedSettings.batteryFloor > 0 ? loadedSettings.batteryFloor : nil)
+    settingsRecoveryIssue = recoveryIssue
     message = loadMessage
     self.closedLid.onChange = { [weak self] in self?.onChange?() }
     self.closedLid.onEnded = { [weak self] reason in
@@ -428,6 +444,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
   public func stop(id: UUID) { mutate { $0.stop(id: id) } }
   public func resumeAutomation() {
+    guard allowNewWork() else { return }
     let wasPaused = engine.automationPaused
     mutate { $0.resumeAutomation() }
     if wasPaused { triggerEvaluator = TriggerEvaluator() }
@@ -584,7 +601,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     onChange?()
   }
   @discardableResult public func removeHelper() async -> Bool {
-    guard allowNewWork() else { return false }
+    guard allowNewWork(allowSettingsRecovery: true) else { return false }
     resetTriggerLidArming()
     engine.clearClosedLidRequests()
     commit()
@@ -742,6 +759,16 @@ public struct AppSettings: Codable, Equatable, Sendable {
       return ControlResponse(
         ok: false, message: "Dilated is installing an update.", code: "unavailable")
     }
+    if settingsRecoveryIssue != nil,
+      ![
+        .status, .stopAll, .release, .helperStatus, .helperRemove, .prepareUpdate,
+        .prepareUninstall,
+      ]
+      .contains(request.action)
+    {
+      return ControlResponse(
+        ok: false, snapshot: engine.snapshot, message: attention, code: "settingsRecovery")
+    }
     if request.action == .prepareUpdate || request.action == .prepareUninstall {
       let ready = await prepareForPackage(request.action == .prepareUpdate ? .update : .uninstall)
       return ControlResponse(
@@ -787,6 +814,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     response.snapshot = engine.snapshot
     response.helper = closedLid.state
+    if response.ok, request.action == .status, settingsRecoveryIssue != nil {
+      response.message = attention
+    }
     return response
   }
   private func controlHelper(_ action: ControlAction) async -> ControlResponse {
@@ -864,9 +894,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     assertions.releaseAll()
   }
-  private func allowNewWork() -> Bool {
+  private func allowNewWork(allowSettingsRecovery: Bool = false) -> Bool {
     guard !stopped, !preparingToQuit, !updater.blocksNewWork else {
       message = "Dilated is finishing an update or quitting."
+      onChange?()
+      return false
+    }
+    if settingsRecoveryIssue != nil && !allowSettingsRecovery {
+      message = "Couldn't read settings. Open Settings to recover before starting a hold."
       onChange?()
       return false
     }
@@ -944,6 +979,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
   private func recordHistory() {
     let events = engine.takeHistoryEvents()
+    guard settingsRecoveryIssue == nil else { return }
     if events.contains(where: { $0.endReason == .lowBattery || $0.endReason == .lowPowerMode }),
       !armedClosedLidTriggers.isEmpty || armingClosedLidTrigger != nil
     {
@@ -996,13 +1032,39 @@ public struct AppSettings: Codable, Equatable, Sendable {
     guard historyAvailable else { throw HistoryError(historyIssue ?? "History is unavailable.") }
     return try historyStore.export(history, now: Date())
   }
-  private func writeSettings(_ value: AppSettings) throws {
+  private func writeSettings(_ value: AppSettings, recovering: Bool = false) throws {
+    guard settingsRecoveryIssue == nil || recovering else {
+      throw InputError("Recover unreadable settings in Settings before making changes.")
+    }
     try FileManager.default.createDirectory(
       at: endpoint.stateDirectory, withIntermediateDirectories: true,
       attributes: [.posixPermissions: 0o700])
     try JSONEncoder().encode(value).write(to: settingsFile, options: .atomic)
     try FileManager.default.setAttributes(
       [.posixPermissions: 0o600], ofItemAtPath: settingsFile.path)
+  }
+  @discardableResult func resetUnreadableSettings() throws -> URL {
+    guard settingsRecoveryIssue != nil else { throw InputError("Settings don't need recovery.") }
+    guard allowNewWork(allowSettingsRecovery: true) else {
+      throw InputError(message ?? "Dilated is unavailable.")
+    }
+    let original = try Data(contentsOf: settingsFile)
+    let directory = endpoint.stateDirectory.appendingPathComponent("recovery", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+    let backup = directory.appendingPathComponent("settings-\(UUID().uuidString).json")
+    try original.write(to: backup, options: .atomic)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
+    try store.save(engine.snapshot)
+    let defaults = AppSettings()
+    try writeSettings(defaults, recovering: true)
+    preferences = defaults
+    engine.batteryFloor = nil
+    settingsRecoveryIssue = nil
+    message = nil
+    commit()
+    return backup
   }
   func startScript(_ options: ScriptStartOptions) async throws -> UUID {
     guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
@@ -1382,7 +1444,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     triggerRules = rules
   }
   func reconcileTriggers(_ input: TriggerInputs) {
-    guard !stopped, !preparingToQuit, !updater.blocksNewWork else { return }
+    guard !stopped, !preparingToQuit, !updater.blocksNewWork, settingsRecoveryIssue == nil else {
+      return
+    }
     var input = input
     input.power = readPower()
     lastTriggerInputs = input

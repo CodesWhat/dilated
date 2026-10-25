@@ -18,6 +18,12 @@ Stop ends app holds and pauses automation until Resume automation is chosen.
 That pause survives relaunch and reboot. A manual hold remains available while
 automation is paused.
 
+If saved settings can't be read, Dilated restores no timers and keeps automation
+paused. Open Settings and choose Reset unreadable settings to recover. Reset
+saves the original file privately under Application Support/Dilated/recovery,
+persists the pause, then writes defaults. Review Battery & Safety before starting
+another hold. Automation still requires an explicit Resume automation afterward.
+
 For helper setup, use a signed, notarized candidate copied to
 `/Applications/Dilated.app`. Launch that copy rather than the app on a mounted
 disk image. A bare SwiftPM executable or an ad-hoc development bundle does not

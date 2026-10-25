@@ -8,6 +8,35 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct SettingsRenderTests {
+  @Test func unreadableSettingsShowRecoveryWithoutChangingTheOriginalFile() throws {
+    _ = NSApplication.shared
+    FontRegistry.registerBundledFonts()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let file = directory.appendingPathComponent("settings.json")
+    let original = Data("broken".utf8)
+    try original.write(to: file)
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    let size = SettingsTheme.windowSize
+    let view = NSHostingView(
+      rootView: SettingsContent(model: model, solid: true).frame(
+        width: size.width, height: size.height))
+    view.setFrameSize(size)
+    view.layoutSubtreeIfNeeded()
+    let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+    view.cacheDisplay(in: view.bounds, to: bitmap)
+    #expect(bitmap.pixelsWide >= 900 && bitmap.pixelsHigh >= 620)
+    #expect(model.settingsRecoveryIssue != nil && model.engine.holds.isEmpty)
+    #expect(try Data(contentsOf: file) == original)
+    if let output = ProcessInfo.processInfo.environment["DILATED_SETTINGS_PREVIEWS"] {
+      let destination = URL(fileURLWithPath: output)
+      try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+      try #require(bitmap.representation(using: .png, properties: [:])).write(
+        to: destination.appendingPathComponent("settings-recovery.png"))
+    }
+  }
   @Test func closedLidSettingsRenderWithoutInstallingOrStartingTheHelper() throws {
     _ = NSApplication.shared
     FontRegistry.registerBundledFonts()

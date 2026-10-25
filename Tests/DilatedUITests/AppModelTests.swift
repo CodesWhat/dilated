@@ -110,6 +110,135 @@ import Testing
     #expect(corrupt.engine.automationPaused)
     #expect(corrupt.message != nil)
   }
+  @Test func unreadableSettingsDoNotRestoreTimersWithoutTheirSafetyPreferences() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var saved = WakeEngine()
+    try saved.start(source: .manual, label: "Saved timer", duration: 600)
+    try StateStore(directory: directory).save(saved.snapshot)
+    let file = directory.appendingPathComponent("settings.json")
+    let original = Data(#"{"batteryFloor":30,"glyph":"#.utf8)
+    try original.write(to: file)
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory),
+      power: { .init(onBattery: true, batteryPercent: 15) })
+    defer { model.shutdown() }
+    #expect(model.engine.holds.isEmpty)
+    #expect(model.engine.automationPaused)
+    #expect(model.attention != nil)
+    #expect(try Data(contentsOf: file) == original)
+  }
+  @Test func unreadableSettingsBlockStartsAndChangesButStillAcceptStop() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let file = directory.appendingPathComponent("settings.json")
+    let original = Data("broken".utf8)
+    try original.write(to: file)
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: RecoveryAssertions())
+    defer { model.shutdown() }
+    model.begin()
+    model.start(duration: 60, batteryOverride: true)
+    model.automaticStart(label: "At launch")
+    model.resumeAutomation()
+    model.settings.batteryFloor = 10
+    #expect(model.settings.batteryFloor == 0)
+    for origin in [ControlOrigin.commandLine, .url, .shortcut] {
+      for action in [ControlAction.start, .lease, .runner, .renew, .toggle, .helperSetup] {
+        let response = await model.control(.init(action: action, duration: 60), origin: origin)
+        #expect(!response.ok)
+        #expect(response.code == "settingsRecovery")
+      }
+    }
+    for action in [ControlAction.status, .stopAll] {
+      #expect(await model.control(.init(action: action)).ok)
+    }
+    let status = await model.control(.init(action: .status))
+    #expect(status.message == model.attention)
+    await #expect(throws: (any Error).self) {
+      try await model.startScript(.init(duration: 60))
+    }
+    model.message = "Couldn't reset closed-lid."
+    #expect(model.attention == model.message)
+    model.stopAll()
+    #expect(model.engine.holds.isEmpty && model.engine.automationPaused)
+    #expect(model.attention?.contains("settings") == true)
+    #expect(try Data(contentsOf: file) == original)
+    let persisted = try StateStore(directory: directory).load()
+    #expect(persisted.holds.isEmpty && persisted.automationPaused)
+  }
+  @Test func settingsResetPreservesOriginalAndLeavesAutomationPaused() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let file = directory.appendingPathComponent("settings.json")
+    let original = Data("broken".utf8)
+    try original.write(to: file)
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: RecoveryAssertions())
+    defer { model.shutdown() }
+    let backup = try model.resetUnreadableSettings()
+    #expect(try Data(contentsOf: backup) == original)
+    let attributes = try FileManager.default.attributesOfItem(atPath: backup.path)
+    #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+    #expect(
+      try JSONDecoder().decode(AppSettings.self, from: Data(contentsOf: file)) == AppSettings())
+    #expect(model.settingsRecoveryIssue == nil && model.attention == nil)
+    #expect(model.engine.holds.isEmpty && model.engine.automationPaused)
+    let persisted = try StateStore(directory: directory).load()
+    #expect(persisted.holds.isEmpty && persisted.automationPaused)
+    model.start(duration: 60)
+    #expect(model.engine.holds.count == 1 && model.engine.automationPaused)
+  }
+  @Test func settingsResetFailurePreservesOriginalAndRecoveryGate() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let file = directory.appendingPathComponent("settings.json")
+    let original = Data("broken".utf8)
+    try original.write(to: file)
+    try Data("occupied".utf8).write(to: directory.appendingPathComponent("recovery"))
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: RecoveryAssertions())
+    defer { model.shutdown() }
+    #expect(throws: (any Error).self) { try model.resetUnreadableSettings() }
+    #expect(model.settingsRecoveryIssue != nil)
+    model.start(duration: 60)
+    model.resumeAutomation()
+    #expect(model.engine.holds.isEmpty && model.engine.automationPaused)
+    #expect(try Data(contentsOf: file) == original)
+  }
+  @Test func settingsResetCannotPublishDefaultsBeforePersistingThePause() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let file = directory.appendingPathComponent("settings.json")
+    let original = Data("broken".utf8)
+    try original.write(to: file)
+    try FileManager.default.createDirectory(
+      at: StateStore(directory: directory).file, withIntermediateDirectories: true)
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: RecoveryAssertions())
+    defer { model.shutdown() }
+    #expect(throws: (any Error).self) { try model.resetUnreadableSettings() }
+    #expect(model.settingsRecoveryIssue != nil)
+    #expect(try Data(contentsOf: file) == original)
+    let backups = try FileManager.default.contentsOfDirectory(
+      at: directory.appendingPathComponent("recovery"), includingPropertiesForKeys: nil)
+    #expect(backups.count == 1)
+    #expect(try Data(contentsOf: #require(backups.first)) == original)
+  }
+}
+
+@MainActor private final class RecoveryAssertions: AssertionControlling {
+  var activeTypes: Set<String> { [] }
+  func synchronize(holds: [Hold], now: Date) throws {}
+  func releaseAll() {}
 }
 
 @MainActor private final class UnavailableAssertions: AssertionControlling {

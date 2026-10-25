@@ -269,6 +269,10 @@ request or connection error, and `run` returns its child command's status. With
 `code`/`message`; timestamps are Unix seconds. A false `ok` is a failure even when
 the response also includes diagnostic state.
 
+Unreadable app settings block new holds and renewals with `code: "settingsRecovery"`.
+Status and Stop remain available. Recover settings in the app before retrying;
+resetting them keeps automation paused and doesn't restore saved timers.
+
 ## Local history
 
 Settings → Statistics shows recent app-managed awake reasons, sources, durations
