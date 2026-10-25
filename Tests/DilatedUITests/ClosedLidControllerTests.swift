@@ -7,6 +7,352 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct ClosedLidControllerTests {
+  @Test func triggerClosedLidRequiresArmingAfterReconstructionAndStop() async throws {
+    let fixture = await ControllerFixture()
+    let service = InstallationFixture(power: fixture.power)
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let endpoint = SocketEndpoint(stateDirectory: directory)
+    let model = AppModel(
+      endpoint: endpoint, power: { .init() }, assertions: ControllerAssertions(),
+      closedLid: fixture.controller(), helperInstallation: HelperInstallation(service: service))
+    defer { model.shutdown() }
+    var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
+    rule.closedLid = true
+    try model.saveTrigger(rule)
+    var input = TriggerInputs()
+    input.processNames = ["make"]
+    model.reconcileTriggers(input)
+    #expect(!model.closedLid.active && fixture.transport.actions.isEmpty)
+    try await model.armClosedLidTrigger(id: rule.id)
+    #expect(model.closedLid.active && model.engine.desiredState.closedLid)
+    #expect(model.armedClosedLidTriggers == [rule.id])
+    model.stopAll()
+    try await model.synchronizeClosedLid()
+    #expect(model.armedClosedLidTriggers.isEmpty && model.engine.automationPaused)
+    model.resumeAutomation()
+    model.reconcileTriggers(input)
+    #expect(model.engine.holds.count == 1 && !model.engine.desiredState.closedLid)
+    let enables = fixture.transport.actions.filter { $0 == .enable }.count
+    let restored = AppModel(
+      endpoint: endpoint, power: { .init() }, assertions: ControllerAssertions(),
+      closedLid: fixture.controller(), helperInstallation: HelperInstallation(service: service))
+    defer { restored.shutdown() }
+    restored.reconcileTriggers(input)
+    #expect(restored.triggerRules == [rule] && restored.engine.holds.count == 1)
+    #expect(restored.armedClosedLidTriggers.isEmpty && !restored.closedLid.active)
+    #expect(fixture.transport.actions.filter { $0 == .enable }.count == enables)
+  }
+
+  @Test func twoArmedTriggersShareTheLeaseAndDisarmingOneKeepsTheOther() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: ControllerAssertions(),
+      closedLid: fixture.controller(),
+      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+    defer { model.shutdown() }
+    var build = TriggerRule(name: "Build", criteria: [.process(name: "make")])
+    build.closedLid = true
+    var upload = TriggerRule(name: "Upload", criteria: [.process(name: "upload")])
+    upload.closedLid = true
+    upload.graceSeconds = 60
+    try model.saveTrigger(build)
+    try model.saveTrigger(upload)
+    var input = TriggerInputs()
+    input.processNames = ["make", "upload"]
+    model.reconcileTriggers(input)
+    try await model.armClosedLidTrigger(id: build.id)
+    try await model.armClosedLidTrigger(id: upload.id)
+    #expect(model.engine.holds.allSatisfy { $0.closedLid == true })
+    #expect(fixture.transport.actions.filter { $0 == .enable }.count == 1)
+    let first = try #require(model.engine.holds.first { $0.label == "Build" })
+    try await model.setClosedLid(id: first.id, enabled: false)
+    model.reconcileTriggers(input)
+    #expect(model.armedClosedLidTriggers == [upload.id])
+    #expect(model.closedLid.active && model.engine.holds.count == 2)
+    #expect(model.engine.holds.first { $0.id == first.id }?.closedLid != true)
+    try await model.disarmClosedLidTrigger(id: upload.id)
+    #expect(!model.closedLid.active && !model.engine.desiredState.closedLid)
+    #expect(model.engine.holds.count == 2 && model.armedClosedLidTriggers.isEmpty)
+    #expect(await fixture.power.readback().confirmedDisabled)
+    input.processNames = ["make"]
+    model.reconcileTriggers(input)
+    #expect(model.triggerStatuses[upload.id]?.contains("Ending after grace period") == true)
+  }
+
+  @Test func aTriggerSafetyStopCannotRearmWhenConditionsOrTemperatureRecover() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: ControllerAssertions(),
+      closedLid: fixture.controller(),
+      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+    defer { model.shutdown() }
+    var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
+    rule.closedLid = true
+    try model.saveTrigger(rule)
+    var input = TriggerInputs()
+    input.processNames = ["make"]
+    model.reconcileTriggers(input)
+    try await model.armClosedLidTrigger(id: rule.id)
+    fixture.inputs.overheat()
+    await fixture.service.tick()
+    try await model.closedLid.refresh()
+    #expect(model.armedClosedLidTriggers.isEmpty && !model.closedLid.active)
+    #expect(model.engine.holds.count == 1 && !model.engine.desiredState.closedLid)
+    fixture.inputs.cool()
+    model.reconcileTriggers(.init())
+    model.reconcileTriggers(input)
+    #expect(fixture.transport.actions.filter { $0 == .enable }.count == 1)
+    try await model.armClosedLidTrigger(id: rule.id)
+    #expect(model.closedLid.active)
+    #expect(fixture.transport.actions.filter { $0 == .enable }.count == 2)
+  }
+
+  @Test func stopDuringTriggerEnableCannotRearmAfterAnImmediateResume() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: ControllerAssertions(),
+      closedLid: fixture.controller(),
+      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+    defer { model.shutdown() }
+    var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
+    rule.closedLid = true
+    try model.saveTrigger(rule)
+    var input = TriggerInputs()
+    input.processNames = ["make"]
+    model.reconcileTriggers(input)
+    fixture.transport.delayEnableReply = true
+    let enabling = Task { try await model.armClosedLidTrigger(id: rule.id) }
+    await fixture.transport.waitForEnableReply()
+    model.stopAll()
+    model.resumeAutomation()
+    model.reconcileTriggers(input)
+    fixture.transport.releaseReply()
+    await #expect(throws: (any Error).self) { try await enabling.value }
+    try await model.synchronizeClosedLid()
+    #expect(model.armedClosedLidTriggers.isEmpty && !model.engine.desiredState.closedLid)
+    #expect(model.engine.holds.count == 1)
+    #expect(await fixture.power.readback().confirmedDisabled)
+    #expect(fixture.transport.actions.filter { $0 == .enable }.count == 1)
+  }
+
+  @Test(arguments: [false, true])
+  func aNormalHoldPowerGuardAlsoDisarmsClosedLidTriggers(lowPower: Bool) async throws {
+    let fixture = await ControllerFixture()
+    var power = PowerState()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { power },
+      assertions: ControllerAssertions(),
+      closedLid: fixture.controller(),
+      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+    defer { model.shutdown() }
+    model.settings.batteryFloor = 50
+    model.settings.historyEnabled = false
+    var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
+    rule.closedLid = true
+    try model.saveTrigger(rule)
+    var input = TriggerInputs()
+    input.processNames = ["make"]
+    model.reconcileTriggers(input)
+    try await model.armClosedLidTrigger(id: rule.id)
+    power = lowPower ? .init(lowPowerMode: true) : .init(onBattery: true, batteryPercent: 40)
+    model.refreshPower()
+    try await model.synchronizeClosedLid()
+    #expect(model.armedClosedLidTriggers.isEmpty && !model.closedLid.active)
+    power = .init()
+    model.refreshPower()
+    model.reconcileTriggers(.init())
+    model.reconcileTriggers(input)
+    #expect(fixture.transport.actions.filter { $0 == .enable }.count == 1)
+    #expect(model.engine.holds.count == 1 && !model.engine.desiredState.closedLid)
+  }
+
+  @Test func anArmedTriggerCanStartLaterAndRestartAfterAnOrdinaryConditionEnd() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: ControllerAssertions(),
+      closedLid: fixture.controller(),
+      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+    defer { model.shutdown() }
+    var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
+    rule.closedLid = true
+    try model.saveTrigger(rule)
+    try await model.armClosedLidTrigger(id: rule.id)
+    #expect(model.engine.holds.isEmpty && !model.closedLid.active)
+    var input = TriggerInputs()
+    input.processNames = ["make"]
+    model.reconcileTriggers(input)
+    try await waitForTriggerLid { model.engine.desiredState.closedLid }
+    model.reconcileTriggers(.init())
+    try await model.synchronizeClosedLid()
+    #expect(!model.closedLid.active && model.armedClosedLidTriggers == [rule.id])
+    model.reconcileTriggers(input)
+    try await waitForTriggerLid { model.engine.desiredState.closedLid }
+    #expect(fixture.transport.actions.filter { $0 == .enable }.count == 2)
+    #expect(model.engine.holds.count == 1)
+  }
+
+  @Test func aManualEnableCanFinishBeforeQueuedTriggerWorkWithoutDisarmingTheTrigger() async throws
+  {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: ControllerAssertions(),
+      closedLid: fixture.controller(),
+      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+    defer { model.shutdown() }
+    var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
+    rule.closedLid = true
+    try model.saveTrigger(rule)
+    try await model.armClosedLidTrigger(id: rule.id)
+    model.start(duration: 60)
+    let manual = try #require(model.engine.holds.first)
+    var input = TriggerInputs()
+    input.processNames = ["make"]
+    model.reconcileTriggers(input)
+    try await model.setClosedLid(id: manual.id, enabled: true)
+    #expect(model.armedClosedLidTriggers == [rule.id])
+    try await waitForTriggerLid { model.engine.holds.allSatisfy { $0.closedLid == true } }
+    #expect(model.engine.holds.count == 2)
+    #expect(fixture.transport.actions.filter { $0 == .enable }.count == 1)
+  }
+
+  @Test func aFailedQuitDisarmsTriggersWaitingForFutureConditions() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: ControllerAssertions(),
+      closedLid: fixture.controller(),
+      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+    defer { model.shutdown() }
+    var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
+    rule.closedLid = true
+    try model.saveTrigger(rule)
+    try await model.armClosedLidTrigger(id: rule.id)
+    await fixture.power.denyReset()
+    #expect(await model.prepareToQuit() == false)
+    #expect(model.armedClosedLidTriggers.isEmpty)
+    await fixture.power.allowReset()
+  }
+
+  @Test(arguments: [false, true])
+  func disarmingOrEditingDuringTriggerEnableCannotRestoreItsPermission(edit: Bool) async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: ControllerAssertions(),
+      closedLid: fixture.controller(),
+      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+    defer { model.shutdown() }
+    var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
+    rule.closedLid = true
+    try model.saveTrigger(rule)
+    var input = TriggerInputs()
+    input.processNames = ["make"]
+    model.reconcileTriggers(input)
+    fixture.transport.delayEnableReply = true
+    let enabling = Task { try await model.armClosedLidTrigger(id: rule.id) }
+    await fixture.transport.waitForEnableReply()
+    if edit {
+      rule.name = "Edited build"
+      try model.saveTrigger(rule)
+      model.reconcileTriggers(input)
+    } else {
+      try await model.disarmClosedLidTrigger(id: rule.id)
+    }
+    fixture.transport.releaseReply()
+    await #expect(throws: (any Error).self) { try await enabling.value }
+    try await model.synchronizeClosedLid()
+    #expect(model.armedClosedLidTriggers.isEmpty && !model.engine.desiredState.closedLid)
+    #expect(model.engine.holds.count == 1 && model.engine.holds[0].label == rule.name)
+    #expect(await fixture.power.readback().confirmedDisabled)
+    #expect(fixture.transport.actions.filter { $0 == .enable }.count == 1)
+  }
+
+  @Test func anUnsafeInitialTriggerEnableDisarmsUntilExplicitlyRequestedAgain() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: ControllerAssertions(),
+      closedLid: fixture.controller(),
+      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+    defer { model.shutdown() }
+    var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
+    rule.closedLid = true
+    try model.saveTrigger(rule)
+    var input = TriggerInputs()
+    input.processNames = ["make"]
+    model.reconcileTriggers(input)
+    fixture.inputs.overheat()
+    await #expect(throws: (any Error).self) { try await model.armClosedLidTrigger(id: rule.id) }
+    #expect(model.armedClosedLidTriggers.isEmpty && !model.engine.desiredState.closedLid)
+    #expect(model.engine.holds.count == 1 && model.attention?.contains("hot") == true)
+    fixture.inputs.cool()
+    model.reconcileTriggers(input)
+    #expect(fixture.transport.actions.filter { $0 == .enable }.count == 1)
+    #expect(await fixture.power.readback().confirmedDisabled)
+  }
+
+  @Test func closedLidMovesBetweenArmedTriggersWithoutWaitingForAnotherInputEvent() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: ControllerAssertions(),
+      closedLid: fixture.controller(),
+      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+    defer { model.shutdown() }
+    var build = TriggerRule(name: "Build", criteria: [.process(name: "make")])
+    build.closedLid = true
+    var upload = TriggerRule(name: "Upload", criteria: [.process(name: "upload")])
+    upload.closedLid = true
+    try model.saveTrigger(build)
+    try model.saveTrigger(upload)
+    try await model.armClosedLidTrigger(id: build.id)
+    try await model.armClosedLidTrigger(id: upload.id)
+    var input = TriggerInputs()
+    input.processNames = ["make"]
+    model.reconcileTriggers(input)
+    try await waitForTriggerLid { model.engine.desiredState.closedLid }
+    input.processNames = ["upload"]
+    model.reconcileTriggers(input)
+    try await waitForTriggerLid { model.engine.desiredState.closedLid }
+    #expect(model.engine.holds.count == 1 && model.engine.holds[0].label == "Upload")
+    #expect(model.armedClosedLidTriggers == [build.id, upload.id])
+    #expect(fixture.transport.actions.filter { $0 == .enable }.count == 2)
+  }
+
+  private func waitForTriggerLid(_ condition: () -> Bool) async throws {
+    let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+    while !condition() && ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(condition())
+  }
+
   @Test func appControlCanRepairAnUnreachableOffHelperWithoutChangingManualWorkOrPause()
     async throws
   {

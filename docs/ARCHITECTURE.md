@@ -298,3 +298,26 @@ and calendar/time zone, with a date for deadlines on another day. It uses the
 existing awake refresh timer and the latest finite deadline. Any indefinite
 hold takes precedence as ∞; hidden and idle text remain empty. These preferences
 do not change holds, deadlines, pause state or closed-lid behavior.
+
+## Closed-lid trigger options
+
+A rule persists its closed-lid preference, defaulting to off for older files.
+The core evaluator exposes rule-to-hold IDs but never sets a closed-lid request
+from a saved preference. The UI model owns an explicit, non-persisted set of
+armed rules. Arming checks current helper readiness and the battery warning.
+Eligible matching holds pass through the same acknowledged enable/heartbeat,
+policy, persistence and pending-request validation as manual/automation requests.
+One finite task handles a snapshot of eligible holds serially, with no polling
+or retries. New matching holds schedule work from existing commits. Helper busy
+work finishes before queued trigger work proceeds; all requests share one lease.
+
+Stop, quit/update preparation, helper maintenance, policy changes and helper
+safety/lost-lease events revoke arming. Ordinary battery/Low Power Mode hold
+stops also revoke trigger arming, independently of history preferences. Rule edits
+revoke that rule's permission only after the configuration is saved. Disarming
+a rule or turning off its active hold's closed-lid option preserves base awake
+holds and other requests. Conditions may end/restart requests during the same
+armed run; crash/relaunch never restore arming. Pending replies cannot restore
+permission after Stop/Resume, disarm or edit. Helper failures remain visible and
+require a new explicit arm. The native helper and installed UI acceptance gates
+remain separate from injected tests and offscreen rendering.

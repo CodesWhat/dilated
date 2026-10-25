@@ -78,3 +78,10 @@ follow the format default, always show or stay hidden. Hidden seconds round
 remaining minutes up; the clock then reads hours:minutes. End time follows your
 Mac's locale and time zone and includes a date when the hold ends on another
 day. Indefinite holds still show ∞, and session time can be hidden entirely.
+
+For a closed-lid trigger, enable **Work with the lid closed** in its editor,
+save, then choose **Arm closed-lid** on that rule. This requires the approved
+helper. Arming applies only to this app run; relaunch, Stop, rule edits, helper
+changes and safety stops disarm it. Ordinary condition changes can start/end
+that trigger's own closed-lid request while it stays armed. Disarming one rule
+keeps other awake reasons running. Physical helper/trigger acceptance is pending.

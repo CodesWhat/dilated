@@ -6,6 +6,27 @@ import Testing
 struct TriggerTests {
   private let start = Date(timeIntervalSince1970: 1_800_000_000)
 
+  @Test func legacyRulesDefaultClosedLidOffAndExposeIndependentActiveHoldIDs() throws {
+    var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
+    rule.closedLid = true
+    let data = try JSONEncoder().encode(rule)
+    var legacy = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    legacy.removeValue(forKey: "closedLid")
+    let restored = try JSONDecoder().decode(
+      TriggerRule.self, from: JSONSerialization.data(withJSONObject: legacy))
+    #expect(!restored.closedLid)
+    #expect(try JSONDecoder().decode(TriggerRule.self, from: data) == rule)
+    var evaluator = TriggerEvaluator()
+    var engine = WakeEngine(now: start)
+    var input = TriggerInputs()
+    input.processNames = ["make"]
+    evaluator.reconcile(rules: [rule], inputs: input, engine: &engine, now: start)
+    #expect(evaluator.activeHoldIDs[rule.id] == engine.holds.first?.id)
+    #expect(!engine.desiredState.closedLid)
+    evaluator.reconcile(rules: [], inputs: input, engine: &engine, now: start)
+    #expect(evaluator.activeHoldIDs.isEmpty && engine.holds.isEmpty)
+  }
+
   @Test func everyMatchingRuleOwnsItsHoldAndOptionsMerge() throws {
     let app = TriggerRule(
       name: "Editor", criteria: [.application(bundleID: "test.editor", frontmostOnly: false)])

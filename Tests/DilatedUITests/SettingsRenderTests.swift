@@ -38,7 +38,7 @@ import Testing
     _ = NSApplication.shared
     FontRegistry.registerBundledFonts()
     let bluetooth = try #require(BluetoothDeviceIdentity(address: "01:23:45:67:89:ab"))
-    let rule = TriggerRule(
+    var rule = TriggerRule(
       name: "Editor on AC",
       criteria: [
         .application(bundleID: "com.apple.TextEdit", frontmostOnly: true), .power(onBattery: false),
@@ -46,12 +46,33 @@ import Testing
         .volume(path: "/"), .cpu(percent: 20, atLeast: true), .idle(seconds: 300, atLeast: false),
         .bluetooth(device: bluetooth, name: "Saved studio device"),
       ])
+    rule.closedLid = true
     let view = NSHostingView(rootView: TriggerRuleEditor(rule: rule, save: { _ in }, remove: {}))
     view.setFrameSize(view.fittingSize)
     view.layoutSubtreeIfNeeded()
     let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
     view.cacheDisplay(in: view.bounds, to: bitmap)
     #expect(bitmap.pixelsWide >= 560 && bitmap.pixelsHigh >= 600)
+  }
+
+  @Test func savedClosedLidTriggerControlsRenderWithoutArmingOrStartingAHelper() throws {
+    _ = NSApplication.shared
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
+    rule.closedLid = true
+    try model.saveTrigger(rule)
+    let view = NSHostingView(
+      rootView: TriggersSettings(model: model).padding(28).frame(width: 700))
+    view.setFrameSize(view.fittingSize)
+    view.layoutSubtreeIfNeeded()
+    let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+    view.cacheDisplay(in: view.bounds, to: bitmap)
+    #expect(bitmap.pixelsWide >= 700)
+    #expect(model.armedClosedLidTriggers.isEmpty && model.engine.holds.isEmpty)
+    #expect(model.closedLid.state == nil && !model.closedLid.pendingEnable)
   }
 
   @Test func customGlyphControlsRenderWithAnImportedImage() throws {

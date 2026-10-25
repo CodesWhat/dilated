@@ -147,10 +147,17 @@ Manual timers remain available while paused.
 
 ## Conditions and triggers
 
+A trigger's saved **Work with the lid closed** choice requires **Arm closed-lid**
+in Settings for the current app run. Saving a rule or launching Dilated cannot
+arm it. Stop, safety stops, rule edits, helper changes and relaunch revoke that
+permission. CLI/AppleScript/Shortcuts closed-lid requests still target their
+specified current holds through their existing gates; they don't arm future
+triggers.
+
 Settings → Triggers creates named rules. All conditions inside a rule must match;
 each matching rule contributes its own awake reason. Rules can keep the display
 awake and explicitly override Low Power Mode. Other battery and closed-lid safety
-limits still apply. Closed-lid needs explicit enablement for the current hold.
+limits still apply. Closed-lid follows the explicit arming and helper checks above.
 
 Conditions include a running or frontmost app, an exact process name/path, a
 specific process instance, weekly/overnight schedules, battery/power, display

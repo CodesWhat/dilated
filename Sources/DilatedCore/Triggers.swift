@@ -112,6 +112,7 @@ public struct TriggerRule: Codable, Equatable, Identifiable, Sendable {
   public var enabled = true
   public var criteria: [TriggerCriterion]
   public var displayAwake = false
+  public var closedLid = false
   public var lowPowerOverride = false
   public var dwellSeconds: TimeInterval = 0
   public var graceSeconds: TimeInterval = 0
@@ -119,6 +120,19 @@ public struct TriggerRule: Codable, Equatable, Identifiable, Sendable {
   public init(name: String, criteria: [TriggerCriterion]) {
     self.name = name
     self.criteria = criteria
+  }
+  public init(from decoder: any Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    id = try values.decode(UUID.self, forKey: .id)
+    name = try values.decode(String.self, forKey: .name)
+    enabled = try values.decode(Bool.self, forKey: .enabled)
+    criteria = try values.decode([TriggerCriterion].self, forKey: .criteria)
+    displayAwake = try values.decode(Bool.self, forKey: .displayAwake)
+    closedLid = try values.decodeIfPresent(Bool.self, forKey: .closedLid) ?? false
+    lowPowerOverride = try values.decode(Bool.self, forKey: .lowPowerOverride)
+    dwellSeconds = try values.decode(TimeInterval.self, forKey: .dwellSeconds)
+    graceSeconds = try values.decode(TimeInterval.self, forKey: .graceSeconds)
+    pausedUntil = try values.decodeIfPresent(Date.self, forKey: .pausedUntil)
   }
   public var validationMessage: String? {
     if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name.count > 100 {
@@ -256,6 +270,12 @@ public struct TriggerEvaluator: Sendable {
   }
   private var runtime: [UUID: Runtime] = [:]
   public private(set) var statuses: [UUID: String] = [:]
+  public var activeHoldIDs: [UUID: UUID] {
+    Dictionary(
+      uniqueKeysWithValues: runtime.compactMap { id, state in
+        state.holdID.map { (id, $0) }
+      })
+  }
   public init() {}
   public func nextEvaluation(
     now: Date = Date(), uptime: TimeInterval = ProcessInfo.processInfo.systemUptime

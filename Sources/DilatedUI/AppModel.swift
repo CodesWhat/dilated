@@ -142,6 +142,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       || old.closedLidACOnly != value.closedLidACOnly
       || old.overrideLowPower != value.overrideLowPower
     {
+      resetTriggerLidArming()
       engine.clearClosedLidRequests()
     }
     if old.historyEnabled != value.historyEnabled
@@ -161,6 +162,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored private let historyStore: HistoryStore
   public private(set) var triggerRules: [TriggerRule] = []
   public private(set) var triggerStatuses: [UUID: String] = [:]
+  public private(set) var armedClosedLidTriggers: Set<UUID> = []
+  public private(set) var armingClosedLidTrigger: UUID?
+  @ObservationIgnored private var triggerLidRevision = UUID()
+  @ObservationIgnored private var triggerLidTask: Task<Void, Never>?
   @ObservationIgnored private var triggerEvaluator = TriggerEvaluator()
   @ObservationIgnored private var triggerMonitor: TriggerMonitor?
   @ObservationIgnored private var lastTriggerInputs = TriggerInputs()
@@ -284,6 +289,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     self.closedLid.onChange = { [weak self] in self?.onChange?() }
     self.closedLid.onEnded = { [weak self] reason in
       guard let self, !self.stopped else { return }
+      self.resetTriggerLidArming()
       self.engine.clearClosedLidRequests()
       self.message = reason
       self.commit()
@@ -426,6 +432,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     guard engine.holds.contains(where: { $0.id == id }) else { throw WakeError.holdNotFound }
     if enabled && requireAutomation && engine.automationPaused { throw WakeError.automationPaused }
     if !enabled {
+      if let ruleID = triggerRuleID(for: id) { resetTriggerLidArming(ids: [ruleID]) }
       if pendingLidRequest?.id == id { pendingLidRequest = nil }
       engine.setClosedLid(id: id, enabled: false)
       let committed = commit()
@@ -436,18 +443,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
     guard pendingLidRequest == nil, !closedLid.busy else {
       throw HelperClientError.rejected("Closed-lid is already changing. Wait for it to finish.")
     }
-    if readPower().onBattery && !settings.closedLidBatteryWarningAccepted {
-      guard allowPrompt, onClosedLidBatteryWarning?() == true else {
-        throw HelperClientError.rejected(
-          "Enable closed-lid from the menu once to review the battery warning.")
-      }
-      settings.closedLidBatteryWarningAccepted = true
-    }
+    try confirmClosedLidBatteryWarning(allowPrompt: allowPrompt)
     let operation = UUID()
     let policy = closedLidPolicy
     pendingLidRequest = (operation, id, policy, requireAutomation)
     defer {
       if pendingLidRequest?.operation == operation { pendingLidRequest = nil }
+      queueTriggerClosedLid()
     }
     do {
       if closedLid.hasLease {
@@ -474,6 +476,17 @@ public struct AppSettings: Codable, Equatable, Sendable {
       throw error
     }
   }
+  private func confirmClosedLidBatteryWarning(allowPrompt: Bool) throws {
+    if readPower().onBattery && !settings.closedLidBatteryWarningAccepted {
+      guard allowPrompt, onClosedLidBatteryWarning?() == true else {
+        throw HelperClientError.rejected(
+          "Enable closed-lid from the menu once to review the battery warning.")
+      }
+      var value = settings
+      value.closedLidBatteryWarningAccepted = true
+      try applySettings(value)
+    }
+  }
   public func synchronizeClosedLid() async throws {
     queueClosedLidReset()
     try await lidChange?.value
@@ -489,8 +502,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
     else { return }
     lidChange = Task { [weak self] in
       guard let self else { return }
-      defer { self.lidChange = nil }
+      defer {
+        self.lidChange = nil
+        self.queueTriggerClosedLid()
+      }
       do { try await self.closedLid.disable() } catch {
+        self.resetTriggerLidArming()
         if !self.stopped {
           self.message = error.localizedDescription
           self.onChange?()
@@ -501,7 +518,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
   private var validPendingLidRequest: Bool {
     guard let request = pendingLidRequest else { return false }
-    return !stopped && !preparingToQuit && !updater.blocksNewWork
+    let triggerAllowed =
+      !request.automated
+      || triggerRuleID(for: request.id).map {
+        armedClosedLidTriggers.contains($0)
+      } ?? true
+    return triggerAllowed && !stopped && !preparingToQuit && !updater.blocksNewWork
       && request.policy == closedLidPolicy
       && (!request.automated || !engine.automationPaused)
       && engine.holds.contains {
@@ -509,6 +531,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       }
   }
   public func sleepNow() async {
+    resetTriggerLidArming()
     engine.stopAll(reason: .sleep)
     commit(resetClosedLid: false)
     do {
@@ -526,6 +549,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
   public func setupHelper() async {
     guard allowNewWork() else { return }
+    resetTriggerLidArming()
     engine.clearClosedLidRequests()
     commit()
     do { try await synchronizeClosedLid() } catch {
@@ -538,6 +562,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
   @discardableResult public func removeHelper() async -> Bool {
     guard allowNewWork() else { return false }
+    resetTriggerLidArming()
     engine.clearClosedLidRequests()
     commit()
     do {
@@ -556,6 +581,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     guard !stopped else { return true }
     guard !preparingToQuit else { return false }
     preparingToQuit = true
+    resetTriggerLidArming()
     defer { preparingToQuit = false }
     engine.clearClosedLidRequests()
     commit()
@@ -583,6 +609,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       return false
     }
     preparingToQuit = true
+    resetTriggerLidArming()
     defer { preparingToQuit = false }
     do {
       try await synchronizeClosedLid()
@@ -612,6 +639,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       return false
     }
     preparingToQuit = true
+    resetTriggerLidArming()
     defer { preparingToQuit = false }
     let handoff = PackageHandoffStore(directory: endpoint.stateDirectory)
     do {
@@ -792,6 +820,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public func shutdown() {
     guard !stopped else { return }
     stopped = true
+    resetTriggerLidArming()
+    triggerLidTask?.cancel()
     triggerMonitor?.stop()
     triggerMonitor = nil
     timer?.invalidate()
@@ -838,6 +868,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     resetClosedLid: Bool = true, saveState: Bool = true
   ) -> Bool {
     now = Date()
+    if engine.automationPaused || !settings.triggersEnabled {
+      if !armedClosedLidTriggers.isEmpty || armingClosedLidTrigger != nil {
+        resetTriggerLidArming()
+      }
+    }
     let activeIDs = Set(engine.holds.map(\.id))
     for id in Array(downloads.keys) where !activeIDs.contains(id) {
       downloads.removeValue(forKey: id)?.stop()
@@ -869,6 +904,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
       timer?.invalidate()
       timer = nil
     }
+    updateTriggerLidStatuses()
+    if saved && applied { queueTriggerClosedLid() }
     onChange?()
     return saved && applied
   }
@@ -884,6 +921,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
   private func recordHistory() {
     let events = engine.takeHistoryEvents()
+    if events.contains(where: { $0.endReason == .lowBattery || $0.endReason == .lowPowerMode }),
+      !armedClosedLidTriggers.isEmpty || armingClosedLidTrigger != nil
+    {
+      resetTriggerLidArming()
+      for hold in engine.holds where hold.source == .trigger {
+        engine.setClosedLid(id: hold.id, enabled: false)
+      }
+    }
     feedback.update(
       settings: settings.feedback, events: events, holds: engine.holds,
       uptime: ProcessInfo.processInfo.systemUptime, baseline: !hasBegun)
@@ -1119,6 +1164,133 @@ public struct AppSettings: Codable, Equatable, Sendable {
       for id in engine.holds.map(\.id) { engine.setDisplayAwake(id: id, enabled: enabled) }
     }
   }
+  public func armClosedLidTrigger(id: UUID) async throws {
+    guard allowNewWork(), armingClosedLidTrigger == nil, !helperInstallation.busy,
+      !closedLid.busy, pendingLidRequest == nil
+    else {
+      throw InputError("Finish the current helper operation before arming a trigger.")
+    }
+    guard !engine.automationPaused else { throw WakeError.automationPaused }
+    guard settings.triggersEnabled,
+      let rule = triggerRules.first(where: { $0.id == id }), rule.enabled, rule.closedLid,
+      rule.pausedUntil.map({ $0 > Date() }) != true
+    else {
+      throw InputError("Enable this trigger and its closed-lid option first.")
+    }
+    helperInstallation.refreshStatus()
+    guard helperInstallation.status == .enabled else {
+      throw InputError("Set up and approve the closed-lid helper in Dilated first.")
+    }
+    armingClosedLidTrigger = id
+    let revision = triggerLidRevision
+    defer {
+      armingClosedLidTrigger = nil
+      onChange?()
+    }
+    try confirmClosedLidBatteryWarning(allowPrompt: true)
+    try await closedLid.refresh()
+    guard !Task.isCancelled, revision == triggerLidRevision, !stopped, !preparingToQuit,
+      !updater.blocksNewWork, !engine.automationPaused, settings.triggersEnabled,
+      triggerRules.first(where: { $0.id == id }) == rule
+    else { throw CancellationError() }
+    guard closedLid.state?.ready == true else {
+      throw InputError("The helper isn't ready. Check Closed Lid settings before arming a trigger.")
+    }
+    guard commit() else { throw InputError(message ?? "Couldn't save awake state.") }
+    armedClosedLidTriggers.insert(id)
+    message = nil
+    updateTriggerLidStatuses()
+    queueTriggerClosedLid()
+    onChange?()
+    await triggerLidTask?.value
+    guard armedClosedLidTriggers.contains(id) else {
+      throw InputError(message ?? "Closed-lid disarmed. Arm this trigger again to continue.")
+    }
+  }
+  public func disarmClosedLidTrigger(id: UUID) async throws {
+    resetTriggerLidArming(ids: [id])
+    if let holdID = triggerEvaluator.activeHoldIDs[id] {
+      engine.setClosedLid(id: holdID, enabled: false)
+    }
+    let committed = commit()
+    try await synchronizeClosedLid()
+    if !committed { throw InputError(message ?? "Couldn't save closed-lid state.") }
+  }
+  private func resetTriggerLidArming(ids: Set<UUID>? = nil) {
+    if let ids {
+      if ids.isDisjoint(with: armedClosedLidTriggers)
+        && armingClosedLidTrigger.map({ !ids.contains($0) }) != false
+      {
+        return
+      }
+      armedClosedLidTriggers.subtract(ids)
+    } else {
+      armedClosedLidTriggers.removeAll()
+    }
+    triggerLidRevision = UUID()
+  }
+  private func triggerRuleID(for holdID: UUID) -> UUID? {
+    triggerEvaluator.activeHoldIDs.first { $0.value == holdID }?.key
+  }
+  private var triggerLidCandidates: [UUID] {
+    guard !stopped, !preparingToQuit, !updater.blocksNewWork, !engine.automationPaused,
+      settings.triggersEnabled
+    else { return [] }
+    let active = triggerEvaluator.activeHoldIDs
+    let pending = Set(engine.holds.filter { $0.closedLid != true }.map(\.id))
+    return triggerRules.filter { $0.closedLid && armedClosedLidTriggers.contains($0.id) }
+      .compactMap { rule in
+        guard let id = active[rule.id], pending.contains(id) else { return nil }
+        return id
+      }
+  }
+  private func queueTriggerClosedLid() {
+    guard triggerLidTask == nil, lidChange == nil, !closedLid.busy, !helperInstallation.busy,
+      pendingLidRequest == nil, !triggerLidCandidates.isEmpty
+    else { return }
+    let candidates = triggerLidCandidates
+    triggerLidTask = Task { [weak self] in
+      guard let self else { return }
+      defer {
+        self.triggerLidTask = nil
+        self.updateTriggerLidStatuses()
+        self.onChange?()
+        self.queueTriggerClosedLid()
+      }
+      for id in candidates {
+        guard !Task.isCancelled, self.lidChange == nil, !self.closedLid.busy,
+          !self.helperInstallation.busy, self.pendingLidRequest == nil
+        else { return }
+        guard self.triggerLidCandidates.contains(id) else { continue }
+        do {
+          try await self.setClosedLid(
+            id: id, enabled: true, allowPrompt: false, requireAutomation: true)
+        } catch {
+          if !self.triggerLidCandidates.contains(id) { continue }
+          self.resetTriggerLidArming()
+          self.engine.clearClosedLidRequests()
+          self.message = "Closed-lid triggers disarmed: \(error.localizedDescription)"
+          self.commit()
+          return
+        }
+      }
+    }
+  }
+  private func updateTriggerLidStatuses() {
+    let active = triggerEvaluator.activeHoldIDs
+    let holds = Dictionary(uniqueKeysWithValues: engine.holds.map { ($0.id, $0) })
+    for rule in triggerRules where rule.closedLid {
+      guard let id = active[rule.id], let hold = holds[id]
+      else { continue }
+      let base = triggerEvaluator.statuses[rule.id] ?? "Keeping awake"
+      let lid =
+        hold.closedLid == true
+        ? "closed-lid armed"
+        : armedClosedLidTriggers.contains(rule.id)
+          ? "closed-lid waiting" : "arm closed-lid to use it"
+      triggerStatuses[rule.id] = "\(base); \(lid)"
+    }
+  }
   public func saveTrigger(_ rule: TriggerRule) throws {
     if let error = rule.validationMessage { throw TriggerConfigurationError(error) }
     var rules = triggerRules
@@ -1155,6 +1327,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
     let file = endpoint.stateDirectory.appendingPathComponent("triggers.json")
     try JSONEncoder().encode(rules).write(to: file, options: .atomic)
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    let updated = Dictionary(uniqueKeysWithValues: rules.map { ($0.id, $0) })
+    let changed = Set(triggerRules.filter { updated[$0.id] != $0 }.map(\.id))
+    resetTriggerLidArming(ids: changed)
+    let active = triggerEvaluator.activeHoldIDs
+    for id in changed.compactMap({ active[$0] }) {
+      engine.setClosedLid(id: id, enabled: false)
+    }
     triggerRules = rules
   }
   func reconcileTriggers(_ input: TriggerInputs) {
@@ -1172,6 +1351,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     triggerEvaluator.reconcile(rules: rules, inputs: input, engine: &engine)
     triggerStatuses = triggerEvaluator.statuses
     if before != engine.holds { commit() }
+    updateTriggerLidStatuses()
   }
   private func refreshTriggers() {
     guard hasBegun, !stopped, !preparingToQuit, !updater.blocksNewWork else { return }

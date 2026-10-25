@@ -63,6 +63,7 @@ import UniformTypeIdentifiers
             )
             .padding(.vertical, 4)
           }
+          if rule.closedLid { TriggerClosedLidControls(model: model, rule: rule) }
         }
       }
       Button("Add trigger…") {
@@ -71,7 +72,7 @@ import UniformTypeIdentifiers
       .buttonStyle(.borderedProminent)
       SettingsNote(
         text:
-          "All conditions in a trigger must match. Each matching trigger keeps its own awake reason. Triggers can't wake a sleeping Mac. Closed-lid always needs explicit enablement for the current awake hold."
+          "All conditions in a trigger must match. Each matching trigger keeps its own awake reason. Triggers can't wake a sleeping Mac. Closed-lid triggers need explicit arming for this app run. Relaunch, Stop and safety stops require arming again."
       )
     }
     .sheet(item: $editing) { rule in
@@ -86,6 +87,40 @@ import UniformTypeIdentifiers
     var edited = rule
     update(&edited)
     do { try model.saveTrigger(edited) } catch { model.message = error.localizedDescription }
+  }
+}
+
+@MainActor struct TriggerClosedLidControls: View {
+  @Bindable var model: AppModel
+  var rule: TriggerRule
+  private var armed: Bool { model.armedClosedLidTriggers.contains(rule.id) }
+  var body: some View {
+    SettingsRow(
+      title: armed ? "Closed-lid armed for this run" : "Closed-lid automation off",
+      detail: "Set up the helper in Closed Lid first. Arming is never saved across relaunch."
+    ) {
+      Button(armed ? "Disarm closed-lid" : "Arm closed-lid") {
+        let disarm = armed
+        Task {
+          do {
+            if disarm {
+              try await model.disarmClosedLidTrigger(id: rule.id)
+            } else {
+              try await model.armClosedLidTrigger(id: rule.id)
+            }
+          } catch {
+            model.message = error.localizedDescription
+            model.onChange?()
+          }
+        }
+      }
+      .disabled(
+        !armed
+          && (!rule.enabled || !model.settings.triggersEnabled
+            || model.engine.automationPaused || model.armingClosedLidTrigger != nil
+            || model.closedLid.busy || model.helperInstallation.busy)
+      )
+    }
   }
 }
 
@@ -111,6 +146,14 @@ import UniformTypeIdentifiers
           Button("Add condition") { rule.criteria.append(.power(onBattery: false)) }
             .disabled(rule.criteria.count >= 12)
           Toggle("Keep the display awake", isOn: $rule.displayAwake)
+          Toggle("Work with the lid closed", isOn: $rule.closedLid)
+          if rule.closedLid {
+            Text(
+              "Save, then arm closed-lid on this trigger. Stop, relaunch, safety stops and edits disarm it."
+            )
+            .font(DesignFont.sans(12)).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+          }
           Toggle("Override Low Power Mode for this trigger", isOn: $rule.lowPowerOverride)
           HStack {
             Text("Dwell before starting (seconds)")
