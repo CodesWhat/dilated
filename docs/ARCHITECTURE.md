@@ -287,3 +287,14 @@ private permissions, transaction rollback, persistence, fallback, cache refresh
 and static scheduling. Offscreen controls render with an imported image. Actual
 installed picker, light/dark menu appearance, small-size readability and wider
 energy acceptance remain separate checks.
+
+## Session time in the menu bar
+
+Countdown format and seconds visibility are persisted separately. Missing or
+unknown values preserve the existing compact/clock displays. Explicit seconds
+adds seconds to compact text; hiding them rounds remaining minutes up and
+formats clock text as hours:minutes. End-time text uses an autoupdating locale
+and calendar/time zone, with a date for deadlines on another day. It uses the
+existing awake refresh timer and the latest finite deadline. Any indefinite
+hold takes precedence as ∞; hidden and idle text remain empty. These preferences
+do not change holds, deadlines, pause state or closed-lid behavior.

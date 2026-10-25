@@ -17,6 +17,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public var motion = Motion.subtle
   public var countdown = false
   public var countdownFormat = CountdownFormat.compact
+  public var countdownSeconds = CountdownSeconds.automatic
   public var swapClicks = false
   public var lowOpacityIdle = false
   public var batteryFloor = 0
@@ -59,6 +60,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     countdownFormat =
       (try values.decodeIfPresent(String.self, forKey: .countdownFormat))
       .flatMap(CountdownFormat.init(rawValue:)) ?? countdownFormat
+    countdownSeconds =
+      (try values.decodeIfPresent(String.self, forKey: .countdownSeconds))
+      .flatMap(CountdownSeconds.init(rawValue:)) ?? countdownSeconds
     swapClicks = try values.decodeIfPresent(Bool.self, forKey: .swapClicks) ?? swapClicks
     lowOpacityIdle =
       try values.decodeIfPresent(Bool.self, forKey: .lowOpacityIdle) ?? lowOpacityIdle

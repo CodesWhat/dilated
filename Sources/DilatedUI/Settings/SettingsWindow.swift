@@ -419,14 +419,23 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
           }.labelsHidden().fixedSize().disabled(
             model.settings.useCustomGlyph || model.settings.glyph == .catCans)
         }
-        SettingsRow(title: "Show time remaining") {
+        SettingsRow(title: "Show session time") {
           Toggle("", isOn: $model.settings.countdown).labelsHidden()
         }
         SettingsRow(title: "Time format") {
           Picker("Time format", selection: $model.settings.countdownFormat) {
             ForEach(CountdownFormat.allCases, id: \.rawValue) {
-              Text($0.label).tag($0)
+              Text($0.label(seconds: model.settings.countdownSeconds)).tag($0)
             }
+          }.labelsHidden().fixedSize().disabled(!model.settings.countdown)
+        }
+        SettingsRow(
+          title: "Seconds",
+          detail:
+            "Format default preserves the usual display. Clock without seconds uses hours:minutes."
+        ) {
+          Picker("Seconds", selection: $model.settings.countdownSeconds) {
+            ForEach(CountdownSeconds.allCases, id: \.rawValue) { Text($0.label).tag($0) }
           }.labelsHidden().fixedSize().disabled(!model.settings.countdown)
         }
         SettingsRow(title: "Dim the glyph when idle") {

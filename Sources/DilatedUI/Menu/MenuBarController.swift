@@ -106,7 +106,10 @@ import AppKit
       ? " "
         + (model.engine.holds.contains { $0.expiry == nil }
           ? "∞"
-          : expiry.map { model.settings.countdownFormat.remaining(until: $0, now: model.now) } ?? "")
+          : expiry.map {
+            model.settings.countdownFormat.remaining(
+              until: $0, now: model.now, seconds: model.settings.countdownSeconds)
+          } ?? "")
       : ""
     let title = NSMutableAttributedString(string: "")
     if model.attention != nil {

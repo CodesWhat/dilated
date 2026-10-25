@@ -3,8 +3,7 @@
 Keeps your Mac awake. A native macOS 26 menu bar app for Apple Silicon.
 
 The local preview includes timed and indefinite awake holds, display-sleep controls,
-battery and Low Power Mode guards, four animated menu bar glyphs, optional compact
-or clock countdowns, Settings,
+battery and Low Power Mode guards, four menu bar glyphs, optional compact/clock countdowns or end time, Settings,
 configurable global shortcuts, local history and statistics, URL automation, AppleScript,
 four Shortcuts actions, and
 a CLI with renewable agent holds, file/folder download watches, opt-in Drive Alive,
@@ -73,3 +72,9 @@ menu-size template images; its colors follow macOS. Custom icons stay still and
 dim when idle by default, with a separate dim preference. Pick a bundled icon to
 switch back, or Remove to discard the imported copy. A missing or invalid copy
 falls back to your bundled choice so the menu bar control stays visible.
+
+**Settings → Menu Bar** also offers compact, clock and end-time text. Seconds can
+follow the format default, always show or stay hidden. Hidden seconds round
+remaining minutes up; the clock then reads hours:minutes. End time follows your
+Mac's locale and time zone and includes a date when the hold ends on another
+day. Indefinite holds still show ∞, and session time can be hidden entirely.
