@@ -98,9 +98,7 @@ import ServiceManagement
     do {
       let replacing = status == .enabled
       if replacing {
-        try await controller.disable()
-        controller.invalidate()
-        try await service.unregister()
+        try await unregister(controller: controller)
       }
       try await register(replacing: replacing)
       refreshStatus()
@@ -131,6 +129,34 @@ import ServiceManagement
         // macOS can report completion before its unregister bookkeeping has settled.
         try await Task.sleep(for: .milliseconds(500))
       }
+    }
+  }
+
+  private func unregister(controller: ClosedLidController) async throws {
+    let mayRecoverOff =
+      !controller.hasLease && !controller.pendingEnable && !controller.busy
+      && readPower().confirmedDisabled
+    var recoveredOff = false
+    do {
+      try await controller.disable()
+    } catch {
+      let unreachable: Bool
+      switch error {
+      case HelperClientError.disconnected, HelperClientError.timedOut: unreachable = true
+      default: unreachable = false
+      }
+      guard unreachable, mayRecoverOff, !controller.hasLease, !controller.pendingEnable,
+        !controller.busy, readPower().confirmedDisabled
+      else { throw error }
+      recoveredOff = true
+    }
+    try Task.checkCancellation()
+    controller.invalidate()
+    try await service.unregister()
+    guard !recoveredOff || readPower().confirmedDisabled else {
+      throw HelperClientError.rejected(
+        "The helper was removed, but macOS hasn't confirmed sleep-disable is off. Repair the helper before continuing."
+      )
     }
   }
 
@@ -184,8 +210,6 @@ import ServiceManagement
       controller.invalidate()
       return
     }
-    try await controller.disable()
-    controller.invalidate()
-    try await service.unregister()
+    try await unregister(controller: controller)
   }
 }

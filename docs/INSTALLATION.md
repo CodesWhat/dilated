@@ -62,6 +62,13 @@ A version/identity mismatch is an error, not permission to keep using an old
 helper. After a crash, reboot or safety stop, closed-lid needs explicit
 enablement again.
 
+If an approved helper won't launch or respond, Repair and removal can recover
+without its acknowledgement only when there was no active or pending lid lease
+and both independent sleep-disable readings confirm off. They check again
+before unregistration and afterward. Enabled/unknown readings, protocol/reset
+errors and cancellation still block this recovery; the app never assumes off
+from a timeout alone.
+
 A helper waiting for approval can be unregistered without approving it first
 when both sleep-disable readings are off. Removal checks those readings again
 after unregistration. Enabled or unknown readings require helper recovery first.

@@ -7,6 +7,135 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct ClosedLidControllerTests {
+  @Test func anUnreachableOffHelperCanBeRepairedWithoutItsAcknowledgement() async throws {
+    let fixture = await ControllerFixture()
+    fixture.transport.failures = [.disconnected]
+    let controller = fixture.controller()
+    defer { controller.invalidate() }
+    let service = InstallationFixture(power: fixture.power)
+    service.registrationStatus = .enabled
+    let installation = HelperInstallation(
+      service: service,
+      readPower: {
+        .init(effectiveDisabled: false, storedDisabled: false)
+      })
+    await installation.nextStep(controller: controller)
+    #expect(installation.lastError == nil)
+    #expect(service.operations == ["reset-confirmed", "unregister-completed", "register"])
+    #expect(controller.state?.ready == true && !controller.hasLease)
+  }
+
+  @Test func anUnreachableOffHelperCanBeRemovedWithIndependentReadbackChecks() async throws {
+    let fixture = await ControllerFixture()
+    fixture.transport.failures = [.timedOut]
+    let controller = fixture.controller()
+    let service = InstallationFixture(power: fixture.power)
+    var reads = 0
+    let installation = HelperInstallation(
+      service: service,
+      readPower: {
+        reads += 1
+        return .init(effectiveDisabled: false, storedDisabled: false)
+      })
+    try await installation.remove(controller: controller)
+    #expect(service.status == .notRegistered && reads == 3)
+    #expect(service.operations == ["reset-confirmed", "unregister-completed"])
+  }
+
+  @Test func offRecoveryRejectsUnsafeReadbacksAndErrorsOtherThanLostTransport() async throws {
+    let cases: [(HelperClientError, ClosedLidReadback)] = [
+      (.disconnected, .init(effectiveDisabled: true, storedDisabled: false)),
+      (.disconnected, .init(effectiveDisabled: false, storedDisabled: true)),
+      (.timedOut, .init(effectiveDisabled: nil, storedDisabled: false)),
+      (.timedOut, .init(effectiveDisabled: false, storedDisabled: nil)),
+      (.invalidReply, .init(effectiveDisabled: false, storedDisabled: false)),
+      (.rejected("Reset failed"), .init(effectiveDisabled: false, storedDisabled: false)),
+    ]
+    for (error, reading) in cases {
+      let fixture = await ControllerFixture()
+      fixture.transport.failures = [error]
+      let service = InstallationFixture(power: fixture.power)
+      let installation = HelperInstallation(service: service, readPower: { reading })
+      await installation.nextStep(controller: fixture.controller())
+      #expect(installation.lastError != nil && service.operations.isEmpty)
+    }
+  }
+
+  @Test func aLeaseActiveBeforeMaintenanceCannotUseOffRecoveryAfterLosingTransport() async throws {
+    let fixture = await ControllerFixture()
+    let controller = fixture.controller()
+    defer { controller.invalidate() }
+    try await controller.enable(policy: .init())
+    fixture.transport.failures = [.disconnected]
+    let service = InstallationFixture(power: fixture.power)
+    let installation = HelperInstallation(
+      service: service,
+      readPower: {
+        .init(effectiveDisabled: false, storedDisabled: false)
+      })
+    await installation.nextStep(controller: controller)
+    #expect(installation.lastError != nil && service.operations.isEmpty)
+  }
+
+  @Test func offRecoveryRechecksBeforeAndAfterUnregisterAndRejectsUnknownPower() async throws {
+    for unknownAt in [2, 3] {
+      let fixture = await ControllerFixture()
+      fixture.transport.failures = [.disconnected]
+      let service = InstallationFixture(power: fixture.power)
+      var reads = 0
+      let installation = HelperInstallation(
+        service: service,
+        readPower: {
+          reads += 1
+          return .init(effectiveDisabled: reads >= unknownAt ? nil : false, storedDisabled: false)
+        })
+      await installation.nextStep(controller: fixture.controller())
+      #expect(installation.lastError != nil)
+      if unknownAt == 2 {
+        #expect(service.status == .enabled && service.operations.isEmpty)
+      } else {
+        #expect(service.status == .notRegistered)
+        #expect(service.operations == ["reset-confirmed", "unregister-completed"])
+      }
+    }
+  }
+
+  @Test func pendingEnableBeforeMaintenanceCannotUseOffRecovery() async throws {
+    let fixture = await ControllerFixture()
+    let controller = fixture.controller()
+    defer { controller.invalidate() }
+    fixture.transport.delayEnableReply = true
+    let enable = Task { try await controller.enable(policy: .init()) }
+    await fixture.transport.waitForEnableReply()
+    #expect(controller.pendingEnable)
+    fixture.transport.failures = [.timedOut]
+    let service = InstallationFixture(power: fixture.power)
+    let installation = HelperInstallation(
+      service: service,
+      readPower: {
+        .init(effectiveDisabled: false, storedDisabled: false)
+      })
+    await installation.nextStep(controller: controller)
+    #expect(installation.lastError != nil && service.operations.isEmpty)
+    fixture.transport.releaseReply()
+    await #expect(throws: (any Error).self) { try await enable.value }
+  }
+
+  @Test func cancelledMaintenanceCannotUseTheOffRecoveryPath() async throws {
+    let fixture = await ControllerFixture()
+    fixture.transport.failures = [.disconnected]
+    let service = InstallationFixture(power: fixture.power)
+    let installation = HelperInstallation(
+      service: service,
+      readPower: {
+        .init(effectiveDisabled: false, storedDisabled: false)
+      })
+    let operation = Task { await installation.nextStep(controller: fixture.controller()) }
+    operation.cancel()
+    await operation.value
+    #expect(installation.lastError != nil && service.operations.isEmpty)
+  }
+
   @Test func pendingApprovalCanBeRemovedWithoutConnectingToAnUnapprovedDaemon() async throws {
     let fixture = await ControllerFixture()
     let service = InstallationFixture(power: fixture.power)
@@ -750,6 +879,7 @@ import Testing
   var onDisconnect: (() -> Void)?
   var actions: [HelperAction] = []
   var delayEnableReply = false
+  var failures: [HelperClientError] = []
   private let service: ClosedLidService
   private let owner = UUID()
   private var pending: (HelperReply, CheckedContinuation<HelperReply, Never>)?
@@ -757,6 +887,7 @@ import Testing
   init(service: ClosedLidService) { self.service = service }
   func send(_ request: HelperRequest) async throws -> HelperReply {
     actions.append(request.action)
+    if !failures.isEmpty { throw failures.removeFirst() }
     let response = await service.handle(request, owner: owner)
     if request.action == .enable && delayEnableReply {
       return await withCheckedContinuation { continuation in
