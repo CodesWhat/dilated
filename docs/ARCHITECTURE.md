@@ -118,6 +118,18 @@ CoreWLAN event entitlement causes launch termination on the tested Mac with both
 ad-hoc and Developer ID signing, so it is excluded and the app does not register
 for CoreWLAN events. No geographic location updates or nearby scans are started.
 
+Paired Bluetooth conditions normalize IOBluetooth device addresses into a
+validated identity rather than using names. CoreBluetooth's static authorization
+check precedes manager allocation. Only an explicit editor action requests
+access; an already authorized manager observes power/reset/permission changes
+while a rule or editor needs it. IOBluetooth connect and per-connected-device
+disconnect registrations refresh the paired list. Unavailable/denied reads never
+reuse a cached connection. Generation checks fence queued callbacks after stop
+or restart, partial setup is cleaned up, and the last consumer releases the
+authorization manager. No scanning, connection, pairing or polling is started.
+The app carries NSBluetoothAlwaysUsageDescription; no new entitlement or helper
+permission is needed outside the sandbox.
+
 The engine emits bounded start/end events carrying the actual hold and end cause.
 `SessionHistory` tracks app-managed reasons and calculates their interval union in
 O(n log n), so concurrent holds don't multiply total requested time. It does not

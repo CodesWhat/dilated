@@ -47,6 +47,7 @@ enum ProcessCatalog {
   private let audioOutput: AudioOutputObserver
   private let usb: USBDeviceObserver
   private let wifi: WiFiObserver
+  private let bluetooth: BluetoothObserver
   private var observers: [(NotificationCenter, NSObjectProtocol)] = []
   private var pollTimer: Timer?
   private var boundaryTimer: Timer?
@@ -59,6 +60,7 @@ enum ProcessCatalog {
   private var needsAudioOutput = false
   private var needsUSB = false
   private var needsWiFi = false
+  private var needsBluetooth = false
   private var cpuSampler = CPUUsageSampler()
   private var lastCPUReading: (at: TimeInterval, value: Double?)?
   var pollingInterval: TimeInterval? { pollTimer?.timeInterval }
@@ -67,13 +69,16 @@ enum ProcessCatalog {
 
   init(
     readPower: @escaping () -> PowerState, wifiAccess: WiFiAccess? = nil,
-    readWiFi: (() -> Set<Data>?)? = nil, changed: @escaping () -> Void
+    readWiFi: (() -> Set<Data>?)? = nil, bluetoothAccess: BluetoothAccess? = nil,
+    makeBluetoothSession: (() -> any BluetoothSession)? = nil, changed: @escaping () -> Void
   ) {
     self.changed = changed
     self.readPower = readPower
     audioOutput = AudioOutputObserver(changed: changed)
     usb = USBDeviceObserver(changed: changed)
     wifi = WiFiObserver(access: wifiAccess, readSSIDs: readWiFi, changed: changed)
+    bluetooth = BluetoothObserver(
+      access: bluetoothAccess, makeSession: makeBluetoothSession, changed: changed)
     let workspace = NSWorkspace.shared.notificationCenter
     for name in [
       NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification,
@@ -143,6 +148,11 @@ enum ProcessCatalog {
       return false
     }
     wifi.setEnabled(needsWiFi)
+    needsBluetooth = criteria.contains {
+      if case .bluetooth = $0 { return true }
+      return false
+    }
+    bluetooth.setEnabled(needsBluetooth)
     if !needsCPU {
       cpuSampler = CPUUsageSampler()
       lastCPUReading = nil
@@ -193,6 +203,7 @@ enum ProcessCatalog {
     }
     if needsVolumes { input.mountedVolumes = NativeActivityInputs.mountedVolumes() }
     if needsWiFi { input.wifiSSIDs = wifi.read() }
+    if needsBluetooth { input.connectedBluetoothDevices = bluetooth.read() }
     if needsAudioOutput && audioOutput.isMonitoring {
       input.audioOutputUID = AudioOutputCatalog.defaultUID()
     }
@@ -253,6 +264,7 @@ enum ProcessCatalog {
     audioOutput.stop()
     usb.stop()
     wifi.stop()
+    bluetooth.stop()
     pollTimer?.invalidate()
     boundaryTimer?.invalidate()
     pollTimer = nil
@@ -271,6 +283,7 @@ enum ProcessCatalog {
     needsAudioOutput = false
     needsUSB = false
     needsWiFi = false
+    needsBluetooth = false
     needsProcesses = false
   }
 

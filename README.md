@@ -11,7 +11,8 @@ a CLI with renewable agent holds.
 Closed-lid controls and their privileged helper are implemented, with hardware
 recovery and release acceptance still pending. There is no public release yet.
 Condition-based triggers are implemented locally for apps, processes, schedules,
-power, displays, network identity, Wi-Fi SSIDs, mounted volumes, USB devices, selected audio output,
+power, displays, network identity, Wi-Fi SSIDs, mounted volumes, USB and paired
+Bluetooth devices, selected audio output,
 CPU load and idle time.
 Automatic agent setup remains later work.
 

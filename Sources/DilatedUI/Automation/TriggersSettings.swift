@@ -180,6 +180,7 @@ private enum TriggerKind: String, CaseIterable {
   case volume = "Mounted volume"
   case audioOutput = "Audio output"
   case usb = "USB device"
+  case bluetooth = "Paired Bluetooth device"
   case cpu = "CPU load"
   case idle = "Idle time"
   var initial: TriggerCriterion {
@@ -199,6 +200,7 @@ private enum TriggerKind: String, CaseIterable {
     case .volume: .volume(path: "")
     case .audioOutput: .audioOutput(uid: "", name: "")
     case .usb: .usb(device: .init(vendorID: 0, productID: 0), name: "")
+    case .bluetooth: .bluetooth(device: nil, name: "")
     case .cpu: .cpu(percent: 20, atLeast: true)
     case .idle: .idle(seconds: 300, atLeast: false)
     }
@@ -227,6 +229,7 @@ private enum TriggerKind: String, CaseIterable {
     case .volume: .volume
     case .audioOutput: .audioOutput
     case .usb: .usb
+    case .bluetooth: .bluetooth
     case .cpu: .cpu
     case .idle: .idle
     }
@@ -424,6 +427,10 @@ private enum TriggerKind: String, CaseIterable {
       case .wifi(let ssid):
         WiFiConditionEditor(
           ssid: Binding(get: { ssid }, set: { criterion = .wifi(ssid: $0) }))
+      case .bluetooth(let device, let name):
+        BluetoothConditionEditor(device: device, name: name) { selected in
+          criterion = .bluetooth(device: selected.id, name: selected.name)
+        }
       case .network(let address), .gateway(let address), .dns(let address):
         TextField(
           "IPv4, IPv6 or CIDR range",
@@ -517,6 +524,7 @@ extension TriggerCriterion {
     case .audioOutput(_, let name): "Sound output is \(name)"
     case .usb(let device, let name):
       "USB connected: \(name)" + (device.serialNumber == nil ? " (any matching model)" : "")
+    case .bluetooth(_, let name): "Paired Bluetooth connected: \(name)"
     case .cpu(let percent, let atLeast): "CPU use \(atLeast ? "at least" : "at most") \(percent)%"
     case .idle(let seconds, let atLeast):
       "Idle \(atLeast ? "at least" : "at most") \(seconds / 60) minutes"

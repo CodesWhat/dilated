@@ -68,6 +68,7 @@ class ReleaseGuardsTests(unittest.TestCase):
         self.assertEqual(info['CFBundleVersion'], metadata['CFBundleVersion'])
         self.assertEqual(info['CFBundleIdentifier'], 'com.codeswhat.dilated')
         self.assertIn('Wi-Fi', info['NSLocationUsageDescription'])
+        self.assertIn('paired devices', info['NSBluetoothAlwaysUsageDescription'])
         signed = subprocess.run(['codesign', '-d', '--entitlements', ':-', str(app)],
                                 capture_output=True, check=True)
         entitlements = plistlib.loads(signed.stdout)

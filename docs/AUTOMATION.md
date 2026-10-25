@@ -201,9 +201,19 @@ unit of that model. Selected sound-output conditions use the output's stable UID
 not its friendly name, and don't require playback. Both use native change events
 without adding a polling timer.
 
+Paired Bluetooth conditions select a device from the Mac's paired-device list,
+identified by its address. Names alone don't identify a device. Allow Bluetooth
+access explicitly in the condition editor, then choose a paired device. The
+condition matches only while that device is connected. It doesn't scan, pair,
+connect or disconnect accessories. Connection/disconnection notifications don't
+add polling. Permission loss, Bluetooth off or a resetting service makes the
+condition unavailable; matching resumes from current state when access and
+Bluetooth return, subject to Stop's durable pause. Disabled/paused rules remove
+their monitoring. Saved unavailable selections remain editable.
+
 Configuration survives app restarts, but matching holds are rebuilt from current
 conditions. A saved process/app hold is never treated as evidence the work is
-still running. Paired Bluetooth conditions remain later work.
+still running.
 
 ## Manual agent hook pattern
 

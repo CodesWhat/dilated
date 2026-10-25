@@ -37,12 +37,14 @@ import Testing
   @Test func triggerEditorRendersRealConditionsWithoutStartingAHold() throws {
     _ = NSApplication.shared
     FontRegistry.registerBundledFonts()
+    let bluetooth = try #require(BluetoothDeviceIdentity(address: "01:23:45:67:89:ab"))
     let rule = TriggerRule(
       name: "Editor on AC",
       criteria: [
         .application(bundleID: "com.apple.TextEdit", frontmostOnly: true), .power(onBattery: false),
         .schedule(.init(weekdays: [2, 3, 4, 5, 6], startMinute: 540, endMinute: 1020)),
         .volume(path: "/"), .cpu(percent: 20, atLeast: true), .idle(seconds: 300, atLeast: false),
+        .bluetooth(device: bluetooth, name: "Saved studio device"),
       ])
     let view = NSHostingView(rootView: TriggerRuleEditor(rule: rule, save: { _ in }, remove: {}))
     view.setFrameSize(view.fittingSize)
