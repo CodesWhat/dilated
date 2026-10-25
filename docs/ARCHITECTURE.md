@@ -254,3 +254,36 @@ results, history-disabled delivery, source filtering, failed starts, guard reaso
 reminder deadlines, custom import rollback and shared asset lifetime. Installed
 permission allow/deny/revoke, foreground/background/Focus delivery, actual sound
 output and native picker/readability acceptance remain separate gates.
+
+## Custom menu bar icons
+
+Custom PNG selection is separate from the four bundled glyphs. Preferences retain
+the last bundled choice, a UUID/name for the imported copy, selection state and a
+separate idle-dim option (default true). Input reads are bounded to 2 MB. ImageIO
+checks complete PNG type, one static frame and dimensions up to 512 × 512 before
+decoding. Empty and fully opaque images are rejected. Rendering preserves aspect
+ratio on a 32 × 30 transparent canvas and converts visible pixels to black while
+retaining alpha. Metadata is discarded during PNG re-encoding. The owned copy
+uses mode 0600 under a private glyphs directory; arbitrary source paths aren't
+retained. The original file is read only.
+
+A template NSImage provides 16 × 15 and 32 × 30 representations. Import saves the
+asset before preferences, rolls the new file back on preference failure and
+removes the old copy only after successful replacement. Removal persists the
+bundled selection before deleting the imported copy. Corrupt reference metadata
+is isolated from unrelated preferences. Missing/corrupt assets produce a visible
+bundled fallback and a separate icon issue, without ending holds or changing pause.
+
+Selection identity includes the asset UUID; replacing an image clears old cached
+frames. Custom icons have no animation timer, and the static Cat cans glyph no
+longer schedules useless motion bursts. Timer delivery keeps non-Sendable Timer
+objects outside actor callbacks; a Boolean callback result controls invalidation.
+The regular awake timer/countdown and animated bundled glyphs retain their
+existing behavior. Custom idle dimming is independent of the bundled preference.
+
+Native renderer/format checks cover both resolutions, aspect ratio, template
+color conversion, animated/other-format rejection, oversized/empty/opaque data,
+private permissions, transaction rollback, persistence, fallback, cache refresh
+and static scheduling. Offscreen controls render with an imported image. Actual
+installed picker, light/dark menu appearance, small-size readability and wider
+energy acceptance remain separate checks.

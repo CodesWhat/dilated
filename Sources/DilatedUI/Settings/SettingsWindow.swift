@@ -376,7 +376,10 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         HStack(spacing: 10) {
           ForEach(Glyph.allCases, id: \.rawValue) { glyph in
             Button {
-              model.settings.glyph = glyph
+              var settings = model.settings
+              settings.glyph = glyph
+              settings.useCustomGlyph = false
+              model.settings = settings
             } label: {
               VStack(spacing: 10) {
                 TimelineView(.periodic(from: .now, by: 0.25)) { context in
@@ -391,22 +394,30 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
                 Text(glyph.label).font(DesignFont.sans(11))
               }.padding(12).frame(maxWidth: .infinity)
                 .background(
-                  model.settings.glyph == glyph ? DesignPalette.accentSoft : .clear,
+                  !model.settings.useCustomGlyph && model.settings.glyph == glyph
+                    ? DesignPalette.accentSoft : .clear,
                   in: RoundedRectangle(cornerRadius: 10)
                 )
                 .overlay(
                   RoundedRectangle(cornerRadius: 10).stroke(
-                    model.settings.glyph == glyph ? SettingsTheme.control : .clear))
+                    !model.settings.useCustomGlyph && model.settings.glyph == glyph
+                      ? SettingsTheme.control : .clear))
             }.buttonStyle(.plain).accessibilityLabel(glyph.label)
-              .accessibilityAddTraits(model.settings.glyph == glyph ? .isSelected : [])
+              .accessibilityAddTraits(
+                !model.settings.useCustomGlyph && model.settings.glyph == glyph ? .isSelected : [])
           }
         }.padding(.vertical, 10)
       }
+      CustomGlyphSettingsView(model: model)
       SettingsGroup(eyebrow: "APPEARANCE") {
-        SettingsRow(title: "Animation", detail: "Reduce Motion always uses a still frame.") {
+        SettingsRow(
+          title: "Animation",
+          detail: "Custom and Cat cans icons stay still. Reduce Motion always uses a still frame."
+        ) {
           Picker("Animation", selection: $model.settings.motion) {
             ForEach(Motion.allCases, id: \.rawValue) { Text($0.rawValue.capitalized).tag($0) }
-          }.labelsHidden().fixedSize()
+          }.labelsHidden().fixedSize().disabled(
+            model.settings.useCustomGlyph || model.settings.glyph == .catCans)
         }
         SettingsRow(title: "Show time remaining") {
           Toggle("", isOn: $model.settings.countdown).labelsHidden()
@@ -419,7 +430,21 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
           }.labelsHidden().fixedSize().disabled(!model.settings.countdown)
         }
         SettingsRow(title: "Dim the glyph when idle") {
-          Toggle("", isOn: $model.settings.lowOpacityIdle).labelsHidden()
+          Toggle(
+            "Dim the glyph when idle",
+            isOn: Binding(
+              get: {
+                model.settings.useCustomGlyph
+                  ? model.settings.customGlyphDimIdle : model.settings.lowOpacityIdle
+              },
+              set: { value in
+                if model.settings.useCustomGlyph {
+                  model.settings.customGlyphDimIdle = value
+                } else {
+                  model.settings.lowOpacityIdle = value
+                }
+              })
+          ).labelsHidden()
         }
       }
     }

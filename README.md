@@ -66,3 +66,10 @@ are independent of banners, with original short cues and custom audio import
 (up to 2 MB and 10 seconds). Stop/final expiry ends reminders, and Quit cancels
 pending feedback. Failed notification delivery or sound playback never changes
 an awake hold. Native delivery and audible playback acceptance remain pending.
+
+In **Settings → Menu Bar**, import a static PNG with a transparent background
+(up to 512 × 512 pixels and 2 MB). Dilated copies it locally and creates crisp
+menu-size template images; its colors follow macOS. Custom icons stay still and
+dim when idle by default, with a separate dim preference. Pick a bundled icon to
+switch back, or Remove to discard the imported copy. A missing or invalid copy
+falls back to your bundled choice so the menu bar control stays visible.

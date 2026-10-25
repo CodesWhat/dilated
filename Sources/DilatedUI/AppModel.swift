@@ -11,6 +11,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public var defaultMinutes = 0
   public var allowDisplaySleep = true
   public var glyph = Glyph.bugEyes
+  public var useCustomGlyph = false
+  public var customGlyph: CustomGlyph?
+  public var customGlyphDimIdle = true
   public var motion = Motion.subtle
   public var countdown = false
   public var countdownFormat = CountdownFormat.compact
@@ -46,6 +49,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     allowDisplaySleep =
       try values.decodeIfPresent(Bool.self, forKey: .allowDisplaySleep) ?? allowDisplaySleep
     glyph = try values.decodeIfPresent(Glyph.self, forKey: .glyph) ?? glyph
+    useCustomGlyph =
+      try values.decodeIfPresent(Bool.self, forKey: .useCustomGlyph) ?? useCustomGlyph
+    customGlyph = try? values.decodeIfPresent(CustomGlyph.self, forKey: .customGlyph)
+    customGlyphDimIdle =
+      try values.decodeIfPresent(Bool.self, forKey: .customGlyphDimIdle) ?? customGlyphDimIdle
     motion = try values.decodeIfPresent(Motion.self, forKey: .motion) ?? motion
     countdown = try values.decodeIfPresent(Bool.self, forKey: .countdown) ?? countdown
     countdownFormat =
@@ -181,7 +189,30 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored private var pendingLidRequest:
     (operation: UUID, id: UUID, policy: ClosedLidPolicy, automated: Bool)?
   private var settingsFile: URL { endpoint.stateDirectory.appendingPathComponent("settings.json") }
-  public var attention: String? { message ?? engine.attention }
+  public private(set) var customGlyphIssue: String?
+  var glyphSelectionID: String {
+    settings.useCustomGlyph
+      ? "custom:" + (settings.customGlyph?.id.uuidString ?? "missing") + ":"
+        + settings.glyph.rawValue
+      : "builtin:" + settings.glyph.rawValue
+  }
+  public var attention: String? { message ?? engine.attention ?? customGlyphIssue }
+  func menuGlyphImage(frame: String) -> NSImage? {
+    guard settings.useCustomGlyph else {
+      customGlyphIssue = nil
+      return settings.glyph.image(frame: frame)
+    }
+    do {
+      guard let glyph = settings.customGlyph else { throw InputError("Import a custom PNG first.") }
+      let image = try CustomGlyphStore(directory: endpoint.stateDirectory).image(glyph)
+      customGlyphIssue = nil
+      return image
+    } catch {
+      customGlyphIssue =
+        "Couldn't load the custom icon. Using \(settings.glyph.label) until you import or select another icon."
+      return settings.glyph.image(frame: engine.holds.isEmpty ? "off" : settings.glyph.stillFrame)
+    }
+  }
   public var statusText: String {
     guard !engine.holds.isEmpty else { return "Sleeping normally" }
     if engine.holds.contains(where: { $0.expiry == nil }) { return "Awake indefinitely" }
@@ -968,6 +999,44 @@ public struct AppSettings: Codable, Equatable, Sendable {
       for id in engine.holds.map(\.id) { engine.setDisplayAwake(id: id, enabled: enabled) }
     }
     guard commit() else { throw InputError(message ?? "Couldn't apply display sleep state.") }
+  }
+  func importCustomGlyph(from file: URL) async throws {
+    let read = Task.detached(priority: .utility) { try CustomGlyphStore.readInput(file) }
+    let data = try await withTaskCancellationHandler {
+      try await read.value
+    } onCancel: {
+      read.cancel()
+    }
+    try Task.checkCancellation()
+    guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
+    let store = CustomGlyphStore(directory: endpoint.stateDirectory)
+    let imported = try store.save(data, name: file.lastPathComponent)
+    let old = settings.customGlyph
+    var value = settings
+    value.customGlyph = imported
+    value.useCustomGlyph = true
+    do { try applySettings(value) } catch {
+      try? store.remove(imported)
+      throw error
+    }
+    customGlyphIssue = nil
+    if let old {
+      do { try store.remove(old) } catch {
+        message =
+          "The new icon is saved, but its previous file couldn't be removed: \(error.localizedDescription)"
+      }
+    }
+    onChange?()
+  }
+  func removeCustomGlyph() throws {
+    let old = settings.customGlyph
+    var value = settings
+    value.customGlyph = nil
+    value.useCustomGlyph = false
+    try applySettings(value)
+    customGlyphIssue = nil
+    if let old { try CustomGlyphStore(directory: endpoint.stateDirectory).remove(old) }
+    onChange?()
   }
   func enableFeedbackNotifications() async -> Bool {
     guard allowNewWork(), await feedback.requestPermission(), allowNewWork() else { return false }

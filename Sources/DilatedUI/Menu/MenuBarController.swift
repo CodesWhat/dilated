@@ -2,6 +2,9 @@
 import AppKit
 
 @MainActor final class MenuBarController: NSObject, NSMenuDelegate {
+  typealias TimerFactory =
+    @MainActor (TimeInterval, Bool, @escaping @MainActor @Sendable () -> Bool) -> Timer
+  private let makeTimer: TimerFactory
   let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
   private let model: AppModel
   private let openSettings: () -> Void
@@ -13,18 +16,28 @@ import AppKit
   private var microMotion: Timer?
   private var cache: [String: NSImage] = [:]
   private var lastFrame = ""
-  private var lastGlyph: Glyph?
+  private var lastGlyphIdentity: String?
   private var lastMotion: Motion?
   private var reducedMotion = false
   private weak var openMenu: NSMenu?
 
   init(
     model: AppModel, openSettings: @escaping () -> Void,
-    presentMenu: @escaping @MainActor (NSStatusItem) -> Void = { $0.button?.performClick(nil) }
+    presentMenu: @escaping @MainActor (NSStatusItem) -> Void = { $0.button?.performClick(nil) },
+    makeTimer: @escaping TimerFactory = { interval, repeats, fire in
+      let timer = Timer(timeInterval: interval, repeats: repeats) { timer in
+        let keepRunning = MainActor.assumeIsolated { fire() }
+        if !keepRunning { timer.invalidate() }
+      }
+      timer.tolerance = min(1, interval / 5)
+      RunLoop.main.add(timer, forMode: .common)
+      return timer
+    }
   ) {
     self.model = model
     self.openSettings = openSettings
     self.presentMenu = presentMenu
+    self.makeTimer = makeTimer
     super.init()
     statusItem.button?.target = self
     statusItem.button?.action = #selector(clicked)
@@ -52,18 +65,25 @@ import AppKit
     if let openMenu { AwakeMenu.refreshStatus(in: openMenu, model: model) }
     let awake = !model.engine.holds.isEmpty
     let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    if awake != wasAwake || lastGlyph != model.settings.glyph || lastMotion != model.settings.motion
+    if lastGlyphIdentity != model.glyphSelectionID {
+      cache.removeAll(keepingCapacity: true)
+      lastFrame = ""
+    }
+    if awake != wasAwake || lastGlyphIdentity != model.glyphSelectionID
+      || lastMotion != model.settings.motion
       || reducedMotion != reduce
     {
       wasAwake = awake
-      lastGlyph = model.settings.glyph
+      lastGlyphIdentity = model.glyphSelectionID
       lastMotion = model.settings.motion
       reducedMotion = reduce
       began = ProcessInfo.processInfo.systemUptime
       burst?.invalidate()
       microMotion?.invalidate()
       microMotion = nil
-      if awake && !reduce && model.settings.motion != .off {
+      if awake && !reduce && model.settings.motion != .off && !model.settings.useCustomGlyph
+        && model.settings.glyph != .catCans
+      {
         animateBurst()
         let period: TimeInterval =
           switch model.settings.glyph {
@@ -71,11 +91,11 @@ import AppKit
           case .spiralEyes: model.settings.motion == .subtle ? 12 : 6
           default: model.settings.motion == .subtle ? 10 : 5
           }
-        let timer = Timer(timeInterval: period, repeats: true) { [weak self] _ in
-          MainActor.assumeIsolated { self?.animateBurst() }
+        let timer = makeTimer(period, true) { [weak self] in
+          guard let self else { return false }
+          self.animateBurst()
+          return true
         }
-        timer.tolerance = 1
-        RunLoop.main.add(timer, forMode: .common)
         microMotion = timer
       }
     }
@@ -101,7 +121,10 @@ import AppKit
     title.append(NSAttributedString(string: countdown))
     statusItem.button?.attributedTitle = title
     statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-    statusItem.button?.alphaValue = !awake && model.settings.lowOpacityIdle ? 0.5 : 1
+    let dimIdle =
+      model.settings.useCustomGlyph
+      ? model.settings.customGlyphDimIdle : model.settings.lowOpacityIdle
+    statusItem.button?.alphaValue = !awake && dimIdle ? 0.5 : 1
     let description =
       "Dilated: \(model.statusText)" + (model.closedLid.active ? ". Closed-lid armed." : "")
       + (model.attention.map { ". \($0)" } ?? "")
@@ -117,35 +140,32 @@ import AppKit
     burst?.invalidate()
     eyeMotionBegan = ProcessInfo.processInfo.systemUptime
     let end = ProcessInfo.processInfo.systemUptime + 2
-    let timer = Timer(timeInterval: 0.125, repeats: true) { [weak self] timer in
-      guard let self else {
-        timer.invalidate()
-        return
-      }
-      MainActor.assumeIsolated {
-        guard ProcessInfo.processInfo.systemUptime < end else {
-          self.burst?.invalidate()
-          self.updateImage()
-          return
-        }
+    let timer = makeTimer(0.125, true) { [weak self] in
+      guard let self else { return false }
+      guard ProcessInfo.processInfo.systemUptime < end else {
         self.updateImage()
+        return false
       }
+      self.updateImage()
+      return true
     }
-    timer.tolerance = 0.025
-    RunLoop.main.add(timer, forMode: .common)
     burst = timer
   }
   private func updateImage() {
     let glyph = model.settings.glyph
-    let frame = glyph.frame(
-      awake: !model.engine.holds.isEmpty,
-      elapsed: ProcessInfo.processInfo.systemUptime - (glyph == .bugEyes ? eyeMotionBegan : began),
-      motion: model.settings.motion,
-      reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+    let frame =
+      model.settings.useCustomGlyph
+      ? (model.engine.holds.isEmpty ? "off" : "on")
+      : glyph.frame(
+        awake: !model.engine.holds.isEmpty,
+        elapsed: ProcessInfo.processInfo.systemUptime
+          - (glyph == .bugEyes ? eyeMotionBegan : began),
+        motion: model.settings.motion,
+        reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
     let mark = model.closedLid.active ? "armed" : ""
-    let key = glyph.rawValue + frame + mark
+    let key = model.glyphSelectionID + frame + mark
     guard key != lastFrame else { return }
-    if cache[key] == nil, let base = glyph.image(frame: frame) {
+    if cache[key] == nil, let base = model.menuGlyphImage(frame: frame) {
       if mark.isEmpty {
         cache[key] = base
       } else {

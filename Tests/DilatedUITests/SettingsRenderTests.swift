@@ -54,6 +54,28 @@ import Testing
     #expect(bitmap.pixelsWide >= 560 && bitmap.pixelsHigh >= 600)
   }
 
+  @Test func customGlyphControlsRenderWithAnImportedImage() throws {
+    _ = NSApplication.shared
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    let bundled = try #require(Glyph.bugEyes.image(frame: "on0"))
+    let bitmap = try #require(bundled.representations.last as? NSBitmapImageRep)
+    let data = try #require(bitmap.representation(using: .png, properties: [:]))
+    model.settings.customGlyph = try CustomGlyphStore(directory: directory).save(
+      data, name: "Imported eyes")
+    model.settings.useCustomGlyph = true
+    let view = NSHostingView(
+      rootView: CustomGlyphSettingsView(model: model).padding(28).frame(width: 700))
+    view.setFrameSize(view.fittingSize)
+    view.layoutSubtreeIfNeeded()
+    let image = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+    view.cacheDisplay(in: view.bounds, to: image)
+    #expect(image.pixelsWide >= 700)
+    #expect(model.settings.useCustomGlyph && model.engine.holds.isEmpty)
+  }
+
   @Test func notificationAndSoundControlsRenderWithoutPromptingOrPlaying() throws {
     _ = NSApplication.shared
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
