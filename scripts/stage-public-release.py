@@ -183,9 +183,9 @@ def cask_text(manifest, acceptance=None):
         # The tap lists dilated in audit_exceptions/github_prerelease_allowlist.json.
         # At the first stable release, drop this skip (or replace it with a
         # github_releases livecheck) and tell the tap to remove the allowlist entry.
-        livecheck = (f'\n  livecheck do\n'
-                     f'    skip "Public beta; versions are tracked by scripts/check-cask-drift.sh."\n'
-                     f'  end\n\n')
+        livecheck = ('\n  livecheck do\n'
+                     '    skip "Public beta; versions are tracked by scripts/check-cask-drift.sh."\n'
+                     '  end\n\n')
     return f'''cask "dilated" do
   version "{version}"
   sha256 "{digest}"
