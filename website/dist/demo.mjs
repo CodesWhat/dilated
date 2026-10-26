@@ -91,6 +91,14 @@ export function mountMenuDemos(announce) {
   function menuEl(demo) { return demo.querySelector('[data-sample-menu]'); }
   function rows(menu) { return [...menu.querySelectorAll(rowSelector)]; }
 
+  function clearActive(menu) { menu.querySelectorAll('[data-active]').forEach(row => row.removeAttribute('data-active')); }
+
+  function setActive(row) {
+    clearActive(row.closest('[data-sample-menu]'));
+    row.setAttribute('data-active', '');
+    row.focus({ preventScroll: true });
+  }
+
   function openSub(host) {
     const row = host.querySelector(':scope > [role^="menuitem"]');
     const sub = host.querySelector(':scope > .sample-submenu');
@@ -175,7 +183,7 @@ export function mountMenuDemos(announce) {
     if (restoreFocus) demo.querySelector('[data-sample-trigger]').focus({ preventScroll: true });
   }
 
-  function open(demo, last = false) {
+  function open(demo, { last = false, keyboard = false } = {}) {
     close();
     active = demo;
     signature = '';
@@ -185,7 +193,9 @@ export function mountMenuDemos(announce) {
     demo.querySelector('[data-sample-trigger]').setAttribute('aria-expanded', 'true');
     demo.dataset.open = 'true';
     const all = rows(menuEl(demo));
-    (last ? all.at(-1) : all[0])?.focus({ preventScroll: true });
+    const first = last ? all.at(-1) : all[0];
+    if (keyboard && first) setActive(first);
+    else menuEl(demo).focus({ preventScroll: true });
   }
 
   function run(row) {
@@ -201,11 +211,11 @@ export function mountMenuDemos(announce) {
   demos.forEach(demo => {
     const trigger = demo.querySelector('[data-sample-trigger]');
     const menu = menuEl(demo);
-    trigger.addEventListener('click', () => active === demo ? close() : open(demo));
+    trigger.addEventListener('click', event => active === demo ? close() : open(demo, { keyboard: event.detail === 0 }));
     trigger.addEventListener('keydown', event => {
       if (['ArrowDown', 'ArrowUp'].includes(event.key)) {
         event.preventDefault();
-        open(demo, event.key === 'ArrowUp');
+        open(demo, { last: event.key === 'ArrowUp', keyboard: true });
       }
     });
     menu.addEventListener('click', event => {
@@ -214,16 +224,30 @@ export function mountMenuDemos(announce) {
       const host = row.closest('.sample-host');
       if (host && row === host.querySelector(':scope > [role^="menuitem"]')) {
         openSub(host);
-        host.querySelector('.sample-submenu [role^="menuitem"]:not([aria-disabled])')?.focus({ preventScroll: true });
+        const first = host.querySelector('.sample-submenu [role^="menuitem"]:not([aria-disabled])');
+        if (first) setActive(first);
         return;
       }
       run(row);
     });
     menu.addEventListener('pointerover', event => {
       if (event.pointerType !== 'mouse') return;
+      const row = event.target.closest('[role^="menuitem"]');
       const host = event.target.closest('.sample-host');
+      if (row && row.getAttribute('aria-disabled') !== 'true') setActive(row);
+      else if (event.target !== menu && !event.target.closest('.sample-submenu')) clearActive(menu);
       if (!host) { if (event.target !== menu) menu.querySelectorAll(':scope > .sample-host').forEach(closeSub); }
       else if (!event.target.closest('.sample-submenu')) openSub(host);
+    });
+    menu.addEventListener('pointerleave', event => {
+      if (event.pointerType !== 'mouse') return;
+      closeAllSubs(menu);
+      clearActive(menu);
+      menu.focus({ preventScroll: true });
+    });
+    menu.addEventListener('focusin', event => {
+      const row = event.target.closest('[role^="menuitem"]');
+      if (row && !row.hasAttribute('data-active')) { clearActive(menu); row.setAttribute('data-active', ''); }
     });
     menu.addEventListener('keydown', event => {
       const current = document.activeElement?.closest('[role="menu"]') ?? menu;
@@ -233,20 +257,24 @@ export function mountMenuDemos(announce) {
       const inSub = current !== menu;
       if (event.key === 'Escape') {
         event.preventDefault();
-        if (inSub) { const owner = current.parentElement; closeSub(owner); owner.querySelector(':scope > [role^="menuitem"]').focus({ preventScroll: true }); }
+        if (inSub) { const owner = current.parentElement; closeSub(owner); setActive(owner.querySelector(':scope > [role^="menuitem"]')); }
         else close(true);
       } else if (event.key === 'ArrowLeft') {
         event.preventDefault();
-        if (inSub) { const owner = current.parentElement; closeSub(owner); owner.querySelector(':scope > [role^="menuitem"]').focus({ preventScroll: true }); }
+        if (inSub) { const owner = current.parentElement; closeSub(owner); setActive(owner.querySelector(':scope > [role^="menuitem"]')); }
       } else if (event.key === 'ArrowRight') {
         event.preventDefault();
         const owner = host && document.activeElement === host.querySelector(':scope > [role^="menuitem"]') ? host : null;
-        if (owner) { openSub(owner); owner.querySelector('.sample-submenu [role^="menuitem"]:not([aria-disabled])')?.focus({ preventScroll: true }); }
+        if (owner) {
+          openSub(owner);
+          const first = owner.querySelector('.sample-submenu [role^="menuitem"]:not([aria-disabled])');
+          if (first) setActive(first);
+        }
       } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
         event.preventDefault();
         const next = event.key === 'Home' ? 0 : event.key === 'End' ? available.length - 1
           : (index + (event.key === 'ArrowDown' ? 1 : -1) + available.length) % available.length;
-        available[next]?.focus({ preventScroll: true });
+        if (available[next]) setActive(available[next]);
       }
     });
     demo.addEventListener('focusout', event => {
