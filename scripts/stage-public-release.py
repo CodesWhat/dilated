@@ -10,7 +10,6 @@ from pathlib import Path
 import plistlib
 import re
 import shutil
-import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
 
