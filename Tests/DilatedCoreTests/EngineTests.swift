@@ -344,3 +344,15 @@ struct EngineTests {
   #expect(engine.holds.contains(manual))
   #expect(engine.holds.count == 2)
 }
+
+@Test func resumeRestoresEveryAppleScriptHoldFromTheBatch() throws {
+  var engine = WakeEngine()
+  try engine.start(source: .appleScript, label: "job", duration: 60)
+  try engine.start(source: .appleScript, label: "job", duration: 60, displayAwake: true)
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.holds.isEmpty)
+  let restored = engine.resumeAfterUserReturn()
+  #expect(restored?.holds.count == 2)
+  #expect(engine.holds.count == 2)
+  #expect(engine.desiredState.displayAwake)
+}

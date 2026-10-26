@@ -182,14 +182,11 @@ public struct WakeEngine: Sendable {
   public mutating func restore(holds restored: [Hold], now: Date = Date()) {
     tick(now: now)
     var didRestore = false
+    let activeScriptLabels = Set(holds.filter { $0.source == .appleScript }.map(\.label))
     for var hold in restored where hold.source != .trigger {
       if let expiry = hold.expiry, expiry <= now { continue }
       if holds.contains(where: { $0.id == hold.id }) { continue }
-      if hold.source == .appleScript,
-        holds.contains(where: { $0.source == .appleScript && $0.label == hold.label })
-      {
-        continue
-      }
+      if hold.source == .appleScript, activeScriptLabels.contains(hold.label) { continue }
       hold.closedLid = nil
       holds.append(hold)
       recordHistory(hold: hold, at: now)

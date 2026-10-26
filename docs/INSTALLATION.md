@@ -3,9 +3,9 @@
 Dilated targets macOS 26 or later on Apple Silicon. 1.0.0-beta.1 (build 6) is
 public as a beta. Download the signed, notarized DMG from
 https://dilated.codeswhat.com/download/file, or run
-`brew trust --cask codeswhat/tap/dilated` and then
-`brew install --cask codeswhat/tap/dilated` (current Homebrew requires the trust
-step first). The GitHub release at
+`brew install --cask codeswhat/tap/dilated`. The fully qualified name trusts that
+cask. Running `brew info` or `brew fetch` on the bare tap may ask for
+`brew trust --cask codeswhat/tap/dilated`. The GitHub release at
 https://github.com/CodesWhat/dilated/releases/tag/v1.0.0-beta.1 carries the DMG,
 ZIP, source tarball, sha256 files and `release-manifest.json`.
 
