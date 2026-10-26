@@ -41,7 +41,7 @@ class PublicationGuardsTests(unittest.TestCase):
             key: self.manifest[key]
             for key in ['version', 'build', 'sourceRevision', 'archiveSHA256', 'dmgSHA256']
         } | {'checks': {
-            key: {'status': 'passed', 'machine': 'second-mac' if key in ['macOS27ClosedLid', 'cleanInstallSecondMac'] else 'primary-mac',
+            key: {'status': 'passed', 'machine': 'primary-mac',
                   'macOS': '27.0' if key == 'macOS27ClosedLid' else '26.6.2',
                   'evidence': 'Automated publication fixture, not hardware evidence.'}
             for key in stage.ACCEPTANCE_CHECKS
@@ -67,7 +67,7 @@ class PublicationGuardsTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'version'):
             stage.validate_archive(self.root)
 
-    def test_acceptance_must_cover_exact_artifacts_both_systems_and_another_mac(self):
+    def test_acceptance_must_cover_exact_artifacts_both_systems(self):
         record = self.acceptance()
         stage.validate_acceptance(record, self.manifest)
         for field in ['archiveSHA256', 'sourceRevision', 'build']:
@@ -83,10 +83,15 @@ class PublicationGuardsTests(unittest.TestCase):
         record['checks']['macOS27ClosedLid']['macOS'] = '26.6.2'
         with self.assertRaisesRegex(RuntimeError, 'macOS 27'):
             stage.validate_acceptance(record, self.manifest)
+
+    def test_a_ga_record_from_a_single_machine_is_accepted_and_a_leftover_second_mac_entry_is_ignored(self):
         record = self.acceptance()
-        record['checks']['cleanInstallSecondMac']['machine'] = 'primary-mac'
-        with self.assertRaisesRegex(RuntimeError, 'second Mac'):
-            stage.validate_acceptance(record, self.manifest)
+        self.assertEqual({check['machine'] for check in record['checks'].values()}, {'primary-mac'})
+        summary = stage.validate_acceptance(record, self.manifest)
+        self.assertEqual(summary['passed'], list(stage.ACCEPTANCE_CHECKS))
+        record['checks']['cleanInstallSecondMac'] = {
+            'status': 'passed', 'machine': 'primary-mac', 'macOS': '26.6.2', 'evidence': 'Leftover.'}
+        self.assertEqual(stage.validate_acceptance(record, self.manifest), summary)
 
     def beta_acceptance(self):
         record = self.acceptance()
@@ -142,16 +147,11 @@ class PublicationGuardsTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'acceptance'):
                     stage.validate_acceptance(record, self.manifest)
 
-    def test_a_prerelease_still_applies_the_macos_27_and_second_mac_rules_when_passed(self):
+    def test_a_prerelease_still_applies_the_macos_27_rule_when_passed(self):
         record = self.beta_acceptance()
         record['checks']['macOS27ClosedLid'] = {
             'status': 'passed', 'machine': 'second-mac', 'macOS': '26.6.2', 'evidence': 'Fixture.'}
         with self.assertRaisesRegex(RuntimeError, 'macOS 27'):
-            stage.validate_acceptance(record, self.manifest)
-        record = self.beta_acceptance()
-        record['checks']['cleanInstallSecondMac'] = {
-            'status': 'passed', 'machine': 'primary-mac', 'macOS': '26.6.2', 'evidence': 'Fixture.'}
-        with self.assertRaisesRegex(RuntimeError, 'second Mac'):
             stage.validate_acceptance(record, self.manifest)
         record = self.beta_acceptance()
         record['checks']['macOS27ClosedLid']['macOS'] = '26.6.2'

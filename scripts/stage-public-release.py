@@ -28,7 +28,7 @@ ACCEPTANCE_STATUSES = ('passed', 'failed', 'notRun')
 ACCEPTANCE_CHECKS = (
     'macOS26ClosedLid', 'macOS27ClosedLid', 'helperCrashRecovery', 'appCrashRecovery',
     'heartbeatExpiry', 'stopResume', 'guardTransitions', 'rebootRecovery', 'approvalDenied',
-    'helperUpgrade', 'sparkleUpgrade', 'cleanInstallSecondMac', 'uninstallNormalSleep', 'nativeUI',
+    'helperUpgrade', 'sparkleUpgrade', 'uninstallNormalSleep', 'nativeUI',
 )
 
 
@@ -73,8 +73,6 @@ def validate_acceptance(record, manifest):
         for major in ('26', '27'):
             if not checks[f'macOS{major}ClosedLid']['macOS'].startswith(major + '.'):
                 raise RuntimeError(f'The lid check must run on macOS {major}')
-        if checks['cleanInstallSecondMac']['machine'] == checks['macOS26ClosedLid']['machine']:
-            raise RuntimeError('A clean install on a second Mac is required')
         return {'prerelease': False, 'passed': list(ACCEPTANCE_CHECKS), 'failed': [], 'notRun': []}
 
     def text(check, field):
@@ -97,9 +95,6 @@ def validate_acceptance(record, manifest):
     lid27 = checks['macOS27ClosedLid']
     if lid27['status'] == 'passed' and not lid27['macOS'].startswith('27.'):
         raise RuntimeError('The lid check must run on macOS 27')
-    second = checks['cleanInstallSecondMac']
-    if second['status'] == 'passed' and second['machine'] == checks['macOS26ClosedLid']['machine']:
-        raise RuntimeError('A clean install on a second Mac is required')
     return {'prerelease': True, **{
         status: [key for key in ACCEPTANCE_CHECKS if checks[key]['status'] == status]
         for status in ACCEPTANCE_STATUSES

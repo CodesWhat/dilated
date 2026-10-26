@@ -44,7 +44,7 @@ A JSON file tied to the exact artifacts:
 }
 ```
 
-`checks` needs an entry for every name in `ACCEPTANCE_CHECKS` in `scripts/stage-public-release.py`: `macOS26ClosedLid`, `macOS27ClosedLid`, `helperCrashRecovery`, `appCrashRecovery`, `heartbeatExpiry`, `stopResume`, `guardTransitions`, `rebootRecovery`, `approvalDenied`, `helperUpgrade`, `sparkleUpgrade`, `cleanInstallSecondMac`, `uninstallNormalSleep` and `nativeUI`. Each has `status`, `machine`, `macOS` and `evidence`.
+`checks` needs an entry for every name in `ACCEPTANCE_CHECKS` in `scripts/stage-public-release.py`: `macOS26ClosedLid`, `macOS27ClosedLid`, `helperCrashRecovery`, `appCrashRecovery`, `heartbeatExpiry`, `stopResume`, `guardTransitions`, `rebootRecovery`, `approvalDenied`, `helperUpgrade`, `sparkleUpgrade`, `uninstallNormalSleep` and `nativeUI`. Each has `status`, `machine`, `macOS` and `evidence`.
 
 For a GA version all 14 must be `passed`. For an alpha, beta or rc, `macOS26ClosedLid`, `heartbeatExpiry` and `stopResume` must be `passed`. The others can be `failed` or `notRun`, with evidence saying why. Staging lists those as unverified in the manifest, `latest.json` and the cask caveats. Fixtures and mock runs aren't hardware evidence.
 

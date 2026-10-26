@@ -61,7 +61,7 @@ configured HTTPS feed, EdDSA public key, signed feed and pre-extraction validati
 
 Packaging scripts verify signed/notarized app and DMG files. Public staging also
 requires acceptance records for the exact source, build and artifact checksums,
-including macOS 26/27 and a second Mac. Publication remains gated on that evidence.
+including macOS 26/27. Publication remains gated on that evidence.
 See [installation and removal](INSTALLATION.md) for the supported lifecycle and
 current limits.
 
