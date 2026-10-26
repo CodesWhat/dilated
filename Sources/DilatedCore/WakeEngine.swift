@@ -154,14 +154,19 @@ public struct WakeEngine: Sendable {
   public mutating func suspendForUserSwitch(
     capture: Bool, excluding: Set<UUID> = [], now: Date = Date()
   ) {
-    var record =
-      capture
-      ? UserReturnRestoration(
-        holds: holds.filter { $0.source != .trigger && !excluding.contains($0.id) },
-        wasPaused: automationPaused)
-      : nil
-    if record?.holds.isEmpty == true {
-      record = userReturnRestoration.flatMap { $0.holds.isEmpty ? nil : $0 }
+    let existing = userReturnRestoration
+    var record: UserReturnRestoration?
+    if capture {
+      let captured = holds.filter { $0.source != .trigger && !excluding.contains($0.id) }
+      if let existing {
+        let known = Set(existing.holds.map(\.id))
+        let merged = existing.holds + captured.filter { !known.contains($0.id) }
+        record = UserReturnRestoration(holds: merged, wasPaused: existing.wasPaused)
+      } else {
+        record =
+          captured.isEmpty
+          ? nil : UserReturnRestoration(holds: captured, wasPaused: automationPaused)
+      }
     }
     stopAll(reason: .userSwitch, now: now)
     userReturnRestoration = record
