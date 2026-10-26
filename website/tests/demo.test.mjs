@@ -37,7 +37,9 @@ test('Stop ends every hold and pauses automation until Resume', () => {
   assert.equal(labels(model)[0], 'Sleeping normally');
   assert.ok(find(model, 'paused'));
   assert.equal(find(model, 'resume').label, 'Resume automation');
-  const manual = run(stopped, [{ type: 'start', minutes: 15 }, 2000]);
+  const preset = find(model, 'duration').items.find(item => item.key === 'preset-15');
+  const manual = run(stopped, [preset.action, 2000]);
+  assert.equal(manual.holds[0].expiry, 2000 + 15 * MIN);
   assert.equal(manual.automationPaused, true);
   const resumed = run(manual, [{ type: 'resume' }, 3000]);
   assert.equal(resumed.automationPaused, false);
