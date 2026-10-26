@@ -187,11 +187,15 @@ public struct WakeEngine: Sendable {
   public mutating func restore(holds restored: [Hold], now: Date = Date()) {
     tick(now: now)
     var didRestore = false
-    let activeScriptLabels = Set(holds.filter { $0.source == .appleScript }.map(\.label))
+    let activeScripts = holds.filter { $0.source == .appleScript }
     for var hold in restored where hold.source != .trigger {
       if let expiry = hold.expiry, expiry <= now { continue }
       if holds.contains(where: { $0.id == hold.id }) { continue }
-      if hold.source == .appleScript, activeScriptLabels.contains(hold.label) { continue }
+      if hold.source == .appleScript,
+        activeScripts.contains(where: { $0.label == hold.label && Self.covers($0, hold) })
+      {
+        continue
+      }
       hold.closedLid = nil
       holds.append(hold)
       recordHistory(hold: hold, at: now)
@@ -199,6 +203,18 @@ public struct WakeEngine: Sendable {
     }
     if didRestore { attention = nil }
     updatePower(power, now: now)
+  }
+  private static func covers(_ active: Hold, _ restored: Hold) -> Bool {
+    let expiryCovered: Bool
+    if let activeExpiry = active.expiry {
+      expiryCovered = restored.expiry.map { activeExpiry >= $0 } ?? false
+    } else {
+      expiryCovered = true
+    }
+    return expiryCovered
+      && (active.displayAwake || !restored.displayAwake)
+      && (active.lowPowerOverride || !restored.lowPowerOverride)
+      && (active.batteryOverride == true || restored.batteryOverride != true)
   }
   public mutating func quit(reason: HoldEndReason = .quit, now: Date = Date()) {
     for hold in holds { recordHistory(hold: hold, at: now, reason: reason) }
