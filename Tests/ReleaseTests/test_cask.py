@@ -99,6 +99,21 @@ class CaskTests(unittest.TestCase):
         self.assertEqual(stage.cask_text(self.manifest, summary), stage.cask_text(self.manifest))
         self.assertNotIn('Beta release', stage.cask_text(self.manifest, summary))
 
+    def test_a_beta_cask_skips_livecheck_once_between_homepage_and_auto_updates(self):
+        for acceptance in [None, {'prerelease': False, 'passed': [], 'failed': [], 'notRun': []}]:
+            recipe = stage.cask_text(self.manifest, acceptance)
+            self.assertEqual(recipe.count('livecheck'), 1)
+            block = ('  livecheck do\n'
+                     '    skip "Public beta; versions are tracked by scripts/check-cask-drift.sh."\n'
+                     '  end\n\n')
+            self.assertEqual(recipe.count(block), 1)
+            self.assertLess(recipe.index('  homepage '), recipe.index(block))
+            self.assertEqual(recipe.index(block) + len(block), recipe.index('  auto_updates '))
+
+    def test_a_ga_cask_has_no_livecheck(self):
+        ga = {'version': '1.0.0', 'dmgSHA256': 'a' * 64}
+        self.assertNotIn('livecheck', stage.cask_text(ga))
+
     def test_release_identity_is_validated_before_creating_ruby(self):
         for manifest in [{'version': '../escape', 'dmgSHA256': 'a' * 64},
                          {'version': '1.0.0', 'dmgSHA256': 'invalid'}]:

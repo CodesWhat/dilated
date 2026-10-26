@@ -178,6 +178,14 @@ def cask_text(manifest, acceptance=None):
     if unverified:
         caveats = (f'    Beta release. Closed-lid mode is experimental.\n'
                    f'    Not yet verified on hardware: {", ".join(unverified)}.\n\n')
+    livecheck = ''
+    if PRERELEASE_VERSION.search(version):
+        # The tap lists dilated in audit_exceptions/github_prerelease_allowlist.json.
+        # At the first stable release, drop this skip (or replace it with a
+        # github_releases livecheck) and tell the tap to remove the allowlist entry.
+        livecheck = (f'\n  livecheck do\n'
+                     f'    skip "Public beta; versions are tracked by scripts/check-cask-drift.sh."\n'
+                     f'  end\n\n')
     return f'''cask "dilated" do
   version "{version}"
   sha256 "{digest}"
@@ -186,7 +194,7 @@ def cask_text(manifest, acceptance=None):
   name "Dilated"
   desc "Keep your Mac awake, with reasons"
   homepage "https://dilated.codeswhat.com/"
-  auto_updates true
+{livecheck}  auto_updates true
   depends_on arch: :arm64
   depends_on macos: :tahoe
 
