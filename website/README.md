@@ -98,11 +98,23 @@ preview uses the exact lidded menu bar frame while stopped, and open eyes while
 awake. Its closed/open state was exercised in local Chrome; seven Node checks
 and JavaScript syntax checks pass. The replacement menu was checked at 390×844 and 320×844 in local Chrome. Current progress and outstanding work are in the private roadmap.
 
-The preview card has since been replaced by a clickable sample menu bar and
-native-style dropdown. Keep Awake starts indefinitely; Stop pauses automation;
-preset durations preserve that pause until Resume. Display preference and Quit
+The preview menu now copies the app's real menu (`AwakeMenu.make`) instead of a
+branded card: a status header, "Automation paused" when it applies, Keep Awake or
+Stop (⌘ D), Resume automation while paused, and "Keep awake for", "Awake reasons"
+and "Extend" submenus. "Allow display sleep for" and "Work with lid closed for"
+checkboxes follow the newest hold, and Settings…, About and Quit close out the
+list. It uses the system font and follows the light or dark appearance. Submenus
+open on hover, click or ArrowRight, flip left when they'd leave the preview, and
+open inline below 520px. Escape or ArrowLeft closes a submenu first, then the menu.
+
+The menu is built from data. `dist/demo-state.mjs` holds the hold list and
+`menuModel`, and `dist/demo.mjs` only renders it, so the labels are covered by
+Node tests without a DOM. Stop ends every hold and pauses automation; a new
+timer keeps that pause until Resume. Each hold can be stopped on its own from
+Awake reasons, and Extend adds 15 minutes or an hour. The dialog items ("For a
+duration…", "Until a time…", the download watchers) and Settings… and About just
+close the menu. The lid checkbox only flips its mark. Display preference and Quit
 are simulated locally. Outside click, Escape, arrow keys and focus return are
-supported. Current verification is 11 passing Node tests plus desktop Chrome
-interaction checks. Chrome checks at 390×844 and 320×844 confirmed the open and paused menus fit,
-along with the facts label, terminal panel and Dock tray.
+supported. Verification is `node --test website/tests/*.test.mjs` plus
+`bash scripts/verify.sh`.
 Awake Facts is white, and the command example is a dark terminal panel.
