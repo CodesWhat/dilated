@@ -14,7 +14,7 @@ The beta passed these checks on the maintainer's Mac: `macOS26ClosedLid`,
 prepared earlier build. These hardware checks are not verified yet and are listed
 in the cask caveats and `latest.json`: `macOS27ClosedLid`,
 `helperCrashRecovery`, `appCrashRecovery`, `guardTransitions`, `rebootRecovery`,
-`approvalDenied`, `helperUpgrade`, `sparkleUpgrade`, `cleanInstallSecondMac`,
+`approvalDenied`, `helperUpgrade`, `sparkleUpgrade`,
 `uninstallNormalSleep` and `nativeUI`. A signed or notarized build alone does not
 close them.
 
@@ -169,12 +169,13 @@ assertions and normal sleep.
 ## Release acceptance
 
 The beta shipped with the checks listed at the top still open. Before a GA
-release, verify a clean install on another Mac, real helper
-approval and denial, CLI linking without overwriting files, helper replacement,
+release, verify real helper approval and denial, CLI linking without overwriting files, helper replacement,
 an actual older-to-newer Sparkle update, uninstall and normal sleep. Closed-lid
 acceptance also covers macOS 26 and 27, app/helper crash, heartbeat loss, reboot,
 guard transitions and power/display changes. Power-setting experiments require
 bounded execution and independent cleanup.
+Releases are verified on the maintainer's Mac only, with no second-machine
+install check.
 
 `scripts/package-release.py` creates checked local candidates or tagged release
 packages. `scripts/stage-public-release.py` rejects candidates and requires an
