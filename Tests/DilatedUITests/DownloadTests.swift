@@ -13,9 +13,19 @@ import Testing
     var events = 0
     let cancel = try #require(NativeDownloadEvents.subscribe(folder) { events += 1 })
     defer { cancel() }
-    try Data([1]).write(to: folder.appendingPathComponent("native.part"))
-    let deadline = ContinuousClock.now + .seconds(5)
-    while events == 0 && ContinuousClock.now < deadline {
+    // A since-now stream can register after a single write on a loaded runner, so keep
+    // modifying the file until the stream reports it.
+    let file = folder.appendingPathComponent("native.part")
+    let clock = ContinuousClock()
+    let deadline = clock.now + .seconds(10)
+    var nextWrite = clock.now
+    var writes = 0
+    while events == 0 && clock.now < deadline {
+      if clock.now >= nextWrite {
+        writes += 1
+        try Data(repeating: 1, count: writes).write(to: file)
+        nextWrite = clock.now + .milliseconds(500)
+      }
       try await Task.sleep(for: .milliseconds(20))
     }
     #expect(events > 0)
