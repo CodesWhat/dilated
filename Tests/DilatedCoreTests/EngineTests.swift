@@ -333,6 +333,52 @@ struct EngineTests {
   #expect(engine.userReturnRestoration == nil)
 }
 
+@Test func repeatedUserSwitchMergesAManualHoldIntoThePendingRecord() throws {
+  var engine = WakeEngine()
+  let a = try engine.start(source: .lease, label: "a", duration: 60)
+  let b = try engine.start(source: .runner, label: "b", duration: 120)
+  engine.suspendForUserSwitch(capture: true)
+  let manual = try engine.start(source: .manual, label: "m", duration: 30)
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.userReturnRestoration?.holds.map(\.id) == [a.id, b.id, manual.id])
+  let restored = engine.resumeAfterUserReturn()
+  #expect(restored?.wasPaused == false)
+  #expect(!engine.automationPaused)
+  #expect(engine.holds.count == 3)
+  #expect(engine.holds.first { $0.id == a.id }?.expiry == a.expiry)
+  #expect(engine.holds.first { $0.id == b.id }?.expiry == b.expiry)
+  #expect(engine.holds.contains { $0.id == manual.id })
+}
+
+@Test func explicitStopAllBetweenSwitchesLeavesOnlyTheLaterManualHold() throws {
+  var engine = WakeEngine()
+  try engine.start(source: .lease, label: "a", duration: 60)
+  try engine.start(source: .runner, label: "b", duration: 60)
+  engine.suspendForUserSwitch(capture: true)
+  engine.stopAll()
+  let manual = try engine.start(source: .manual, label: "m", duration: 30)
+  engine.suspendForUserSwitch(capture: true)
+  let restored = engine.resumeAfterUserReturn()
+  #expect(restored?.holds.map(\.id) == [manual.id])
+  #expect(engine.holds.map(\.id) == [manual.id])
+  #expect(engine.automationPaused)
+}
+
+@Test func repeatedUserSwitchKeepsTheEarlierPauseStateWhenHoldsWereReleasedAway() throws {
+  var engine = WakeEngine()
+  let a = try engine.start(source: .lease, label: "a", duration: 60)
+  engine.suspendForUserSwitch(capture: true)
+  engine.stop(id: a.id)
+  #expect(engine.userReturnRestoration?.holds.isEmpty == true)
+  let manual = try engine.start(source: .manual, label: "m", duration: 30)
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.userReturnRestoration?.wasPaused == false)
+  let restored = engine.resumeAfterUserReturn()
+  #expect(restored?.holds.map(\.id) == [manual.id])
+  #expect(engine.holds.map(\.id) == [manual.id])
+  #expect(!engine.automationPaused)
+}
+
 @Test func restoreSkipsADuplicateAppleScriptHoldButNotAManualOne() throws {
   var source = WakeEngine()
   let script = try source.start(source: .appleScript, label: "job", duration: 60)
