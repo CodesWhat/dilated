@@ -405,6 +405,48 @@ struct EngineTests {
   #expect(engine.holds.count == 2)
 }
 
+@Test func restoreKeepsALongerAppleScriptHoldWhenTheActiveOneExpiresSooner() throws {
+  let now = Date()
+  var source = WakeEngine()
+  let longer = try source.start(source: .appleScript, label: "job", duration: 3600, now: now)
+  var engine = WakeEngine()
+  let shorter = try engine.start(source: .appleScript, label: "job", duration: 5, now: now)
+  engine.restore(holds: [longer], now: now)
+  #expect(engine.holds.contains(shorter))
+  #expect(engine.holds.contains(longer))
+  #expect(engine.holds.count == 2)
+  engine.tick(now: now.addingTimeInterval(10))
+  #expect(engine.desiredState.systemAwake)
+  #expect(engine.holds == [longer])
+}
+
+@Test func restoreKeepsADisplayAwakeAppleScriptHoldWhenTheActiveOneLacksIt() throws {
+  let now = Date()
+  var source = WakeEngine()
+  let display = try source.start(
+    source: .appleScript, label: "job", duration: 60, displayAwake: true, now: now)
+  var engine = WakeEngine()
+  try engine.start(source: .appleScript, label: "job", duration: 60, now: now)
+  #expect(!engine.desiredState.displayAwake)
+  engine.restore(holds: [display], now: now)
+  #expect(engine.holds.count == 2)
+  #expect(engine.desiredState.displayAwake)
+}
+
+@Test func restoreSkipsATimedAppleScriptHoldCoveredByAnIndefiniteActiveOne() throws {
+  let now = Date()
+  var source = WakeEngine()
+  let timed = try source.start(
+    source: .appleScript, label: "job", duration: 60, displayAwake: true, lowPowerOverride: true,
+    batteryOverride: true, now: now)
+  var engine = WakeEngine()
+  let active = try engine.start(
+    source: .appleScript, label: "job", displayAwake: true, lowPowerOverride: true,
+    batteryOverride: true, now: now)
+  engine.restore(holds: [timed], now: now)
+  #expect(engine.holds.filter { $0.label == "job" } == [active])
+}
+
 @Test func resumeRestoresEveryAppleScriptHoldFromTheBatch() throws {
   var engine = WakeEngine()
   try engine.start(source: .appleScript, label: "job", duration: 60)
