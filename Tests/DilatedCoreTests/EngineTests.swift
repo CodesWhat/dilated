@@ -308,3 +308,39 @@ struct EngineTests {
   engine.suspendForUserSwitch(capture: false)
   #expect(engine.userReturnRestoration == nil)
 }
+
+@Test func repeatedUserSwitchKeepsTheExistingRecordWhenNothingIsActive() throws {
+  var engine = WakeEngine()
+  try engine.start(source: .manual, label: "a", duration: 60)
+  try engine.start(source: .lease, label: "b", duration: 60)
+  try engine.start(source: .runner, label: "c", duration: 60)
+  engine.suspendForUserSwitch(capture: true)
+  let record = engine.userReturnRestoration
+  #expect(record?.holds.count == 3)
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.userReturnRestoration == record)
+  let restored = engine.resumeAfterUserReturn()
+  #expect(restored?.holds.count == 3 && engine.holds.count == 3)
+}
+
+@Test func explicitStopAllBeatsAnEarlierUserReturnRecord() throws {
+  var engine = WakeEngine()
+  try engine.start(source: .manual, label: "a", duration: 60)
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.userReturnRestoration != nil)
+  engine.stopAll()
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.userReturnRestoration == nil)
+}
+
+@Test func restoreSkipsADuplicateAppleScriptHoldButNotAManualOne() throws {
+  var source = WakeEngine()
+  let script = try source.start(source: .appleScript, label: "job", duration: 60)
+  let manual = try source.start(source: .manual, label: "job", duration: 60)
+  var engine = WakeEngine()
+  let active = try engine.start(source: .appleScript, label: "job", duration: 60)
+  engine.restore(holds: [script, manual])
+  #expect(engine.holds.filter { $0.source == .appleScript } == [active])
+  #expect(engine.holds.contains(manual))
+  #expect(engine.holds.count == 2)
+}
