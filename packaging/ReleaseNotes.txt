@@ -1,5 +1,4 @@
-Timed and indefinite keep-awake holds, display controls, renewable agent holds and a command runner.
-Closed-lid controls use a signed helper with bounded leases, power readback and battery/thermal limits.
-Updates wait for closed-lid mode to end. Unexpired timed holds keep their original deadlines after relaunch.
-Public beta: closed-lid mode is experimental; crash, reboot and update recovery are not yet verified on hardware.
-Optional resume of holds after returning from a user switch.
+Resuming holds after a user switch now survives repeated switches and keeps the pause state from before the first one.
+Leases that ended while you were away are released, and every AppleScript hold is restored.
+The docs now describe the public beta.
+Closed-lid mode is still experimental. Crash, reboot and update recovery aren't verified on hardware yet.

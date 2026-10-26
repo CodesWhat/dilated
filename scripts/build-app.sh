@@ -49,12 +49,11 @@ mkdir -p "$app/Contents/Frameworks"
 ditto "$sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
 cp "$sparkle/LICENSE" "$app/Contents/Resources/Sparkle-LICENSE"
 python3 scripts/package-release.py --check-automation "$app"
-for bundle in "$bin_dir"/Dilated_DilatedUI.bundle; do
-    test -d "$bundle"
-    ditto "$bundle" "$app/Contents/Resources/$(basename "$bundle")"
-    python3 scripts/normalize-resource-bundle.py "$app/Contents/Resources/$(basename "$bundle")"
-    plutil -lint "$app/Contents/Resources/$(basename "$bundle")/Contents/Info.plist"
-done
+bundle="$bin_dir/Dilated_DilatedUI.bundle"
+test -d "$bundle"
+ditto "$bundle" "$app/Contents/Resources/$(basename "$bundle")"
+python3 scripts/normalize-resource-bundle.py "$app/Contents/Resources/$(basename "$bundle")"
+plutil -lint "$app/Contents/Resources/$(basename "$bundle")/Contents/Info.plist"
 sign_as="${DILATED_SIGN_IDENTITY:--}"
 timestamp="--timestamp"
 sign_options=(--options runtime)

@@ -154,12 +154,20 @@ public struct WakeEngine: Sendable {
   public mutating func suspendForUserSwitch(
     capture: Bool, excluding: Set<UUID> = [], now: Date = Date()
   ) {
-    let record =
-      capture
-      ? UserReturnRestoration(
-        holds: holds.filter { $0.source != .trigger && !excluding.contains($0.id) },
-        wasPaused: automationPaused)
-      : nil
+    let existing = userReturnRestoration
+    var record: UserReturnRestoration?
+    if capture {
+      let captured = holds.filter { $0.source != .trigger && !excluding.contains($0.id) }
+      if let existing {
+        let known = Set(existing.holds.map(\.id))
+        let merged = existing.holds + captured.filter { !known.contains($0.id) }
+        record = UserReturnRestoration(holds: merged, wasPaused: existing.wasPaused)
+      } else {
+        record =
+          captured.isEmpty
+          ? nil : UserReturnRestoration(holds: captured, wasPaused: automationPaused)
+      }
+    }
     stopAll(reason: .userSwitch, now: now)
     userReturnRestoration = record
   }
@@ -179,9 +187,15 @@ public struct WakeEngine: Sendable {
   public mutating func restore(holds restored: [Hold], now: Date = Date()) {
     tick(now: now)
     var didRestore = false
+    let activeScripts = holds.filter { $0.source == .appleScript }
     for var hold in restored where hold.source != .trigger {
       if let expiry = hold.expiry, expiry <= now { continue }
       if holds.contains(where: { $0.id == hold.id }) { continue }
+      if hold.source == .appleScript,
+        activeScripts.contains(where: { $0.label == hold.label && Self.covers($0, hold) })
+      {
+        continue
+      }
       hold.closedLid = nil
       holds.append(hold)
       recordHistory(hold: hold, at: now)
@@ -189,6 +203,18 @@ public struct WakeEngine: Sendable {
     }
     if didRestore { attention = nil }
     updatePower(power, now: now)
+  }
+  private static func covers(_ active: Hold, _ restored: Hold) -> Bool {
+    let expiryCovered: Bool
+    if let activeExpiry = active.expiry {
+      expiryCovered = restored.expiry.map { activeExpiry >= $0 } ?? false
+    } else {
+      expiryCovered = true
+    }
+    return expiryCovered
+      && (active.displayAwake || !restored.displayAwake)
+      && (active.lowPowerOverride || !restored.lowPowerOverride)
+      && (active.batteryOverride == true || restored.batteryOverride != true)
   }
   public mutating func quit(reason: HoldEndReason = .quit, now: Date = Date()) {
     for hold in holds { recordHistory(hold: hold, at: now, reason: reason) }

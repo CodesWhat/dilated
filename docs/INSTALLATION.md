@@ -1,9 +1,22 @@
 # Installation and removal
 
-Dilated targets macOS 26 or later on Apple Silicon. There is no public release
-yet. The app, helper, update integration and packaging are implemented locally;
-the required hardware recovery, packaged upgrade and second-Mac checks remain
-open. A signed or notarized candidate alone does not close those checks.
+Dilated targets macOS 26 or later on Apple Silicon. 1.0.0-beta.2 (build 7) is
+public as a beta. Download the signed, notarized DMG from
+https://dilated.codeswhat.com/download/file, or run
+`brew install --cask codeswhat/tap/dilated`. The fully qualified name trusts that
+cask. Running `brew info` or `brew fetch` on the bare tap may ask for
+`brew trust --cask codeswhat/tap/dilated`. The GitHub release at
+https://github.com/CodesWhat/dilated/releases/tag/v1.0.0-beta.2 carries the DMG,
+ZIP, source tarball, sha256 files and `release-manifest.json`.
+
+The beta passed these checks on the maintainer's Mac: `macOS26ClosedLid`,
+`heartbeatExpiry` and `stopResume`, plus a real Homebrew cask install over a
+prepared earlier build. These hardware checks are not verified yet and are listed
+in the cask caveats and `latest.json`: `macOS27ClosedLid`,
+`helperCrashRecovery`, `appCrashRecovery`, `guardTransitions`, `rebootRecovery`,
+`approvalDenied`, `helperUpgrade`, `sparkleUpgrade`, `cleanInstallSecondMac`,
+`uninstallNormalSleep` and `nativeUI`. A signed or notarized build alone does not
+close them.
 
 ## Local builds and first launch
 
@@ -86,8 +99,10 @@ recovery tests are still required before release.
 
 ## Updates
 
-Local candidates do not contact a production update feed. Release builds use
-Sparkle with a signed feed and signed update archives. Updates wait until
+Local candidates do not contact a production update feed. Release builds,
+including the beta, carry the Sparkle feed at
+https://dilated.codeswhat.com/updates/appcast.xml with updates enabled. The feed
+and update archives are signed. Updates wait until
 closed-lid mode is off and helper changes/recovery have finished.
 
 A planned in-app update restores only unexpired timed holds, preserving their
@@ -98,8 +113,9 @@ previous lease; an ordinary relaunch does not re-enable closed-lid.
 Manual Quit ends app-managed holds and discards saved timers. Quitting and
 replacing the app therefore does not preserve timers for an update.
 
-The Homebrew handoff is implemented locally and still needs an actual packaged
-Homebrew upgrade/removal check. No cask has been published. Homebrew does not
+The Homebrew cask is published at `codeswhat/tap/dilated`. A real cask install
+over a prepared earlier build passed, but an actual packaged Homebrew
+upgrade/removal check is still open. Homebrew does not
 expose upgrade versus uninstall to its preflight hook, so Dilated requires an
 explicit preparation command instead of a generic Quit step:
 
@@ -152,7 +168,8 @@ assertions and normal sleep.
 
 ## Release acceptance
 
-Before public release, verify a clean install on another Mac, real helper
+The beta shipped with the checks listed at the top still open. Before a GA
+release, verify a clean install on another Mac, real helper
 approval and denial, CLI linking without overwriting files, helper replacement,
 an actual older-to-newer Sparkle update, uninstall and normal sleep. Closed-lid
 acceptance also covers macOS 26 and 27, app/helper crash, heartbeat loss, reboot,

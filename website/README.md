@@ -11,18 +11,21 @@ server; it is the complete publication artifact. Assets and release-data paths
 are relative, so the page can also be served from a subdirectory. Hosting and
 domain setup are handled separately.
 
-The current local review runs at `http://127.0.0.1:5173/`, serving `dist/`.
-The review server has a two-hour deadline. Hosting is intended for Vercel after
-local review; no Vercel deployment has been performed.
+The site is deployed to the Vercel project `dilated-website` at
+https://dilated.codeswhat.com with `scripts/publish-website.py`. For local
+review, serve `dist/` from any static server, for example on
+`http://127.0.0.1:5173/`.
 
 ## Release availability
 
-The checked-in page is in testing, with no app download. It doesn't claim that
-closed-lid hardware acceptance, installation, or upgrade checks are complete.
+The checked-in page has no app download. The published site gets one from the
+release metadata for 1.0.0-beta.2, labeled as a beta with its unverified checks
+listed. It doesn't claim that closed-lid hardware acceptance, installation, or
+upgrade checks are complete.
 The interactive timer is an illustration and doesn't change Mac power settings.
 
-`app.mjs` fetches `./releases/latest.json` without caching. That file is intentionally
-absent until an accepted public release is published. Missing, unreadable, or
+`app.mjs` fetches `./releases/latest.json` without caching. That file isn't checked in. The
+publish step adds it from the accepted release record. Missing, unreadable, or
 invalid metadata leaves the testing copy and links in place. The hidden app
 download has no `href` in the HTML.
 
@@ -81,7 +84,7 @@ start/stop, CLI copy feedback, expandable notes, study controls, and the icon SV
 target were exercised. In-memory HTTP fixtures verified that accepted release
 data reveals all three download links, version, build, requirements, and checksum;
 bad data preserves the testing state. No release metadata fixture is stored in
-`dist/`, and no actual app download or public deployment was tested in this pass.
+`dist/`, and no actual app download was tested in this pass.
 Reduced motion disables transitions and the tilted package hover.
 
 

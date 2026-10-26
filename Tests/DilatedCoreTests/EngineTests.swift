@@ -308,3 +308,153 @@ struct EngineTests {
   engine.suspendForUserSwitch(capture: false)
   #expect(engine.userReturnRestoration == nil)
 }
+
+@Test func repeatedUserSwitchKeepsTheExistingRecordWhenNothingIsActive() throws {
+  var engine = WakeEngine()
+  try engine.start(source: .manual, label: "a", duration: 60)
+  try engine.start(source: .lease, label: "b", duration: 60)
+  try engine.start(source: .runner, label: "c", duration: 60)
+  engine.suspendForUserSwitch(capture: true)
+  let record = engine.userReturnRestoration
+  #expect(record?.holds.count == 3)
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.userReturnRestoration == record)
+  let restored = engine.resumeAfterUserReturn()
+  #expect(restored?.holds.count == 3 && engine.holds.count == 3)
+}
+
+@Test func explicitStopAllBeatsAnEarlierUserReturnRecord() throws {
+  var engine = WakeEngine()
+  try engine.start(source: .manual, label: "a", duration: 60)
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.userReturnRestoration != nil)
+  engine.stopAll()
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.userReturnRestoration == nil)
+}
+
+@Test func repeatedUserSwitchMergesAManualHoldIntoThePendingRecord() throws {
+  var engine = WakeEngine()
+  let a = try engine.start(source: .lease, label: "a", duration: 60)
+  let b = try engine.start(source: .runner, label: "b", duration: 120)
+  engine.suspendForUserSwitch(capture: true)
+  let manual = try engine.start(source: .manual, label: "m", duration: 30)
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.userReturnRestoration?.holds.map(\.id) == [a.id, b.id, manual.id])
+  let restored = engine.resumeAfterUserReturn()
+  #expect(restored?.wasPaused == false)
+  #expect(!engine.automationPaused)
+  #expect(engine.holds.count == 3)
+  #expect(engine.holds.first { $0.id == a.id }?.expiry == a.expiry)
+  #expect(engine.holds.first { $0.id == b.id }?.expiry == b.expiry)
+  #expect(engine.holds.contains { $0.id == manual.id })
+}
+
+@Test func explicitStopAllBetweenSwitchesLeavesOnlyTheLaterManualHold() throws {
+  var engine = WakeEngine()
+  try engine.start(source: .lease, label: "a", duration: 60)
+  try engine.start(source: .runner, label: "b", duration: 60)
+  engine.suspendForUserSwitch(capture: true)
+  engine.stopAll()
+  let manual = try engine.start(source: .manual, label: "m", duration: 30)
+  engine.suspendForUserSwitch(capture: true)
+  let restored = engine.resumeAfterUserReturn()
+  #expect(restored?.holds.map(\.id) == [manual.id])
+  #expect(engine.holds.map(\.id) == [manual.id])
+  #expect(engine.automationPaused)
+}
+
+@Test func repeatedUserSwitchKeepsTheEarlierPauseStateWhenHoldsWereReleasedAway() throws {
+  var engine = WakeEngine()
+  let a = try engine.start(source: .lease, label: "a", duration: 60)
+  engine.suspendForUserSwitch(capture: true)
+  engine.stop(id: a.id)
+  #expect(engine.userReturnRestoration?.holds.isEmpty == true)
+  let manual = try engine.start(source: .manual, label: "m", duration: 30)
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.userReturnRestoration?.wasPaused == false)
+  let restored = engine.resumeAfterUserReturn()
+  #expect(restored?.holds.map(\.id) == [manual.id])
+  #expect(engine.holds.map(\.id) == [manual.id])
+  #expect(!engine.automationPaused)
+}
+
+@Test func anEmptyPendingRecordSurvivesARepeatedSwitchAndStillResumesAutomation() throws {
+  var engine = WakeEngine()
+  let lease = try engine.start(source: .lease, label: "a", duration: 60)
+  engine.suspendForUserSwitch(capture: true)
+  engine.stop(id: lease.id)
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.userReturnRestoration?.holds.isEmpty == true)
+  let restored = engine.resumeAfterUserReturn()
+  #expect(restored?.wasPaused == false)
+  #expect(!engine.automationPaused)
+  #expect(engine.holds.isEmpty)
+  #expect(engine.attention == nil)
+}
+
+@Test func restoreSkipsADuplicateAppleScriptHoldButNotAManualOne() throws {
+  var source = WakeEngine()
+  let script = try source.start(source: .appleScript, label: "job", duration: 60)
+  let manual = try source.start(source: .manual, label: "job", duration: 60)
+  var engine = WakeEngine()
+  let active = try engine.start(source: .appleScript, label: "job", duration: 60)
+  engine.restore(holds: [script, manual])
+  #expect(engine.holds.filter { $0.source == .appleScript } == [active])
+  #expect(engine.holds.contains(manual))
+  #expect(engine.holds.count == 2)
+}
+
+@Test func restoreKeepsALongerAppleScriptHoldWhenTheActiveOneExpiresSooner() throws {
+  let now = Date()
+  var source = WakeEngine()
+  let longer = try source.start(source: .appleScript, label: "job", duration: 3600, now: now)
+  var engine = WakeEngine()
+  let shorter = try engine.start(source: .appleScript, label: "job", duration: 5, now: now)
+  engine.restore(holds: [longer], now: now)
+  #expect(engine.holds.contains(shorter))
+  #expect(engine.holds.contains(longer))
+  #expect(engine.holds.count == 2)
+  engine.tick(now: now.addingTimeInterval(10))
+  #expect(engine.desiredState.systemAwake)
+  #expect(engine.holds == [longer])
+}
+
+@Test func restoreKeepsADisplayAwakeAppleScriptHoldWhenTheActiveOneLacksIt() throws {
+  let now = Date()
+  var source = WakeEngine()
+  let display = try source.start(
+    source: .appleScript, label: "job", duration: 60, displayAwake: true, now: now)
+  var engine = WakeEngine()
+  try engine.start(source: .appleScript, label: "job", duration: 60, now: now)
+  #expect(!engine.desiredState.displayAwake)
+  engine.restore(holds: [display], now: now)
+  #expect(engine.holds.count == 2)
+  #expect(engine.desiredState.displayAwake)
+}
+
+@Test func restoreSkipsATimedAppleScriptHoldCoveredByAnIndefiniteActiveOne() throws {
+  let now = Date()
+  var source = WakeEngine()
+  let timed = try source.start(
+    source: .appleScript, label: "job", duration: 60, displayAwake: true, lowPowerOverride: true,
+    batteryOverride: true, now: now)
+  var engine = WakeEngine()
+  let active = try engine.start(
+    source: .appleScript, label: "job", displayAwake: true, lowPowerOverride: true,
+    batteryOverride: true, now: now)
+  engine.restore(holds: [timed], now: now)
+  #expect(engine.holds.filter { $0.label == "job" } == [active])
+}
+
+@Test func resumeRestoresEveryAppleScriptHoldFromTheBatch() throws {
+  var engine = WakeEngine()
+  try engine.start(source: .appleScript, label: "job", duration: 60)
+  try engine.start(source: .appleScript, label: "job", duration: 60, displayAwake: true)
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.holds.isEmpty)
+  let restored = engine.resumeAfterUserReturn()
+  #expect(restored?.holds.count == 2)
+  #expect(engine.holds.count == 2)
+  #expect(engine.desiredState.displayAwake)
+}
