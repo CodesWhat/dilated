@@ -24,3 +24,16 @@ test('a preview timer expires at its absolute deadline and never displays negati
   assert.equal(state.remainingTime(120_000, 120_001), '00:00');
   assert.equal(state.remainingTime(null, 0), '30:00');
 });
+
+test('remaining time reads like the app: hours and minutes, minutes rounded up, then seconds', () => {
+  assert.equal(typeof state.formatRemaining, 'function');
+  assert.equal(state.formatRemaining(5400_000, 0), '1h 30m');
+  assert.equal(state.formatRemaining(3600_000, 0), '1h 0m');
+  assert.equal(state.formatRemaining(3599_000, 0), '60m');
+  assert.equal(state.formatRemaining(61_000, 0), '2m');
+  assert.equal(state.formatRemaining(59_000, 0), '59s');
+  assert.equal(state.formatRemaining(60_000, 0), '1m');
+  assert.equal(state.formatRemaining(59_001, 0), '1m');
+  assert.equal(state.formatRemaining(45_000, 0), '45s');
+  assert.equal(state.formatRemaining(1_000, 5_000), '0s');
+});
