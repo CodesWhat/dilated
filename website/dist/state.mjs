@@ -13,3 +13,11 @@ export function remainingTime(deadline, now) {
   const seconds = deadline === null ? 1800 : Math.max(0, Math.ceil((deadline - now) / 1000));
   return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 }
+
+// Mirrors AppModel.remaining: "Xh Ym" from an hour, "Nm" from a minute (rounded up), else "Ns".
+export function formatRemaining(deadline, now) {
+  const seconds = Math.max(0, Math.ceil((deadline - now) / 1000));
+  return seconds >= 3600
+    ? `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`
+    : seconds >= 60 ? `${Math.floor((seconds + 59) / 60)}m` : `${seconds}s`;
+}
