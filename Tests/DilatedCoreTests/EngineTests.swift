@@ -379,6 +379,20 @@ struct EngineTests {
   #expect(!engine.automationPaused)
 }
 
+@Test func anEmptyPendingRecordSurvivesARepeatedSwitchAndStillResumesAutomation() throws {
+  var engine = WakeEngine()
+  let lease = try engine.start(source: .lease, label: "a", duration: 60)
+  engine.suspendForUserSwitch(capture: true)
+  engine.stop(id: lease.id)
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.userReturnRestoration?.holds.isEmpty == true)
+  let restored = engine.resumeAfterUserReturn()
+  #expect(restored?.wasPaused == false)
+  #expect(!engine.automationPaused)
+  #expect(engine.holds.isEmpty)
+  #expect(engine.attention == nil)
+}
+
 @Test func restoreSkipsADuplicateAppleScriptHoldButNotAManualOne() throws {
   var source = WakeEngine()
   let script = try source.start(source: .appleScript, label: "job", duration: 60)

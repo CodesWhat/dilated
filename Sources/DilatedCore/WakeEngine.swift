@@ -161,8 +161,7 @@ public struct WakeEngine: Sendable {
       if let existing {
         let known = Set(existing.holds.map(\.id))
         let merged = existing.holds + captured.filter { !known.contains($0.id) }
-        record =
-          merged.isEmpty ? nil : UserReturnRestoration(holds: merged, wasPaused: existing.wasPaused)
+        record = UserReturnRestoration(holds: merged, wasPaused: existing.wasPaused)
       } else {
         record =
           captured.isEmpty
