@@ -16,7 +16,11 @@ import SwiftUI
         SettingsRow(
           title: "Enable Drive Alive",
           detail: "Write a few bytes to the selected volumes, then remove the temporary file."
-        ) { Toggle("", isOn: $model.settings.driveAlive.enabled).labelsHidden() }
+        ) {
+          Toggle("Enable Drive Alive", isOn: $model.settings.driveAlive.enabled).labelsHidden()
+            .accessibilityHint(
+              "Write a few bytes to the selected volumes, then remove the temporary file.")
+        }
         SettingsRow(title: "Write interval") {
           Stepper(value: $model.settings.driveAlive.intervalSeconds, in: 30...3600, step: 30) {
             Text("\(model.settings.driveAlive.intervalSeconds) seconds").monospacedDigit()
