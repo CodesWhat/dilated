@@ -80,7 +80,7 @@ import SwiftUI
           ForEach(model.engine.holds) { hold in
             SettingsRow(title: hold.label, detail: "Keep working with the lid closed") {
               Toggle(
-                hold.label,
+                "Work with lid closed for \(hold.label)",
                 isOn: Binding(
                   get: { hold.closedLid == true },
                   set: { enabled in
