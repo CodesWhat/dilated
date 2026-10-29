@@ -104,11 +104,15 @@ struct SettingsGroup<Content: View>: View {
       Rectangle().fill(DesignPalette.hair).frame(height: 1)
       Group(subviews: content()) { rows in
         VStack(spacing: 0) {
-          ForEach(rows.indices, id: \.self) { index in
-            if index > 0 {
-              Rectangle().fill(DesignPalette.hair2).frame(height: 1).padding(.horizontal, 12)
-            }
-            rows[index].padding(.horizontal, 12).padding(.vertical, 8)
+          ForEach(rows) { row in
+            row.padding(.horizontal, 12).padding(.vertical, 8)
+              .frame(maxWidth: rows.count > 1 ? .infinity : nil)
+              .padding(.top, row.id == rows.first?.id ? 0 : 1)
+              .overlay(alignment: .top) {
+                if row.id != rows.first?.id {
+                  Rectangle().fill(DesignPalette.hair2).frame(height: 1).padding(.horizontal, 12)
+                }
+              }
           }
         }
       }
