@@ -929,7 +929,7 @@ import Testing
     let service = InstallationFixture(power: fixture.power)
     service.status = .notRegistered
     service.registrationStatus = .enabled
-    let installation = HelperInstallation(service: service)
+    let installation = HelperInstallation(service: service, startupResetTimeout: .seconds(60))
     let firstStatus = AsyncStream<Void>.makeStream()
     controller.onChange = {
       if controller.state?.phase == .starting {
@@ -974,7 +974,7 @@ import Testing
     let service = InstallationFixture(power: fixture.power)
     service.status = .notRegistered
     service.registrationStatus = .enabled
-    let installation = HelperInstallation(service: service)
+    let installation = HelperInstallation(service: service, startupResetTimeout: .milliseconds(300))
     await installation.nextStep(controller: controller)
     #expect(installation.lastError?.contains("startup reset") == true)
     #expect(!installation.busy)
