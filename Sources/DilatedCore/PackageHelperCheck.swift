@@ -3,6 +3,10 @@ import Foundation
 public enum PackageHelperCheck {
   public static func verifyAbsent(appExecutable: URL) async throws {
     try await verifyAppAbsent(executable: appExecutable)
+    try await verifyHelperAbsent()
+  }
+
+  public static func verifyHelperAbsent() async throws {
     let errors = Pipe()
     defer {
       try? errors.fileHandleForReading.close()

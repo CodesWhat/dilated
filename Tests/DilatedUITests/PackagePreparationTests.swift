@@ -84,7 +84,7 @@ import Testing
         service: helper,
         readPower: {
           .init(effectiveDisabled: false, storedDisabled: false)
-        }))
+        }, verifyHelperAbsent: {}))
     defer { model.shutdown() }
     #expect(await model.prepareForPackage(.update, app: app))
     #expect(!helper.unregisterCalled)
