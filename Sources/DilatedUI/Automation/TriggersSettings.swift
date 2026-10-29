@@ -333,13 +333,12 @@ private enum TriggerKind: String, CaseIterable {
           }
         }
         Button("Refresh processes") {
-          processes = ProcessCatalog.read().sorted {
-            $0.name.localizedStandardCompare($1.name) == .orderedAscending
-          }
+          processes = ProcessCatalog.pickerList()
         }
         Text("Tracks this process instance. A future process with the same PID won't match.").font(
           .caption
         ).foregroundStyle(.secondary)
+          .onAppear { processes = ProcessCatalog.pickerList() }
       case .mirrored(let mirrored):
         Toggle(
           "Displays are mirrored",

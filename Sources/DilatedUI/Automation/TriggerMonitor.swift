@@ -11,6 +11,13 @@ struct NativeProcess: Identifiable, Sendable {
 }
 
 enum ProcessCatalog {
+  static func pickerList(_ processes: [NativeProcess] = read()) -> [NativeProcess] {
+    processes.sorted {
+      let order = $0.name.localizedStandardCompare($1.name)
+      return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+    }
+  }
+
   static func read() -> [NativeProcess] {
     let count = proc_listallpids(nil, 0)
     guard count > 0 else { return [] }

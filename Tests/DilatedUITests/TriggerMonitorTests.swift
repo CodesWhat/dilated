@@ -35,4 +35,32 @@ import Testing
     process.waitUntilExit()
     #expect(!ProcessCatalog.read().contains { $0.id == process.processIdentifier })
   }
+
+  @Test func pickerListSortsByNaturalNameThenPid() {
+    func native(_ id: Int32, _ name: String) -> NativeProcess {
+      NativeProcess(
+        id: id, name: name, path: "",
+        identity: ProcessIdentity(pid: id, startedAtMicroseconds: 1))
+    }
+    let sorted = ProcessCatalog.pickerList([
+      native(5, "b"), native(9, "a10"), native(3, "a9"), native(7, "a"), native(2, "a"),
+    ])
+    #expect(sorted.map(\.id) == [2, 7, 3, 9, 5])
+  }
+
+  @Test func pickerListContainsLiveProcessWithItsCatalogIdentity() throws {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+    process.arguments = ["15"]
+    try process.run()
+    defer {
+      if process.isRunning {
+        process.terminate()
+        process.waitUntilExit()
+      }
+    }
+    let pid = process.processIdentifier
+    let identity = try #require(ProcessCatalog.read().first { $0.id == pid }?.identity)
+    #expect(ProcessCatalog.pickerList().contains { $0.identity == identity })
+  }
 }
