@@ -3,6 +3,7 @@ import DilatedCore
 import Foundation
 import ServiceManagement
 import Testing
+import os
 
 @testable import DilatedUI
 
@@ -589,6 +590,32 @@ import Testing
       readPower: {
         .init(effectiveDisabled: false, storedDisabled: false)
       }, verifyHelperAbsent: { throw NSError(domain: "test", code: 1) })
+    let controller = fixture.controller()
+    defer { controller.invalidate() }
+    try await controller.enable(policy: .init())
+    await #expect(throws: (any Error).self) {
+      try await installation.remove(controller: controller)
+    }
+    #expect(service.operations.isEmpty)
+    #expect(controller.hasLease)
+  }
+
+  @Test func notFoundHelperCannotBeRemovedWhenSleepChangesDuringAbsenceCheck() async throws {
+    let fixture = await ControllerFixture()
+    let service = InstallationFixture(power: fixture.power)
+    service.status = .notFound
+    let reads = OSAllocatedUnfairLock(initialState: 0)
+    let installation = HelperInstallation(
+      service: service,
+      readPower: {
+        let count = reads.withLock { state -> Int in
+          state += 1
+          return state
+        }
+        return count == 1
+          ? .init(effectiveDisabled: false, storedDisabled: false)
+          : .init(effectiveDisabled: true, storedDisabled: true)
+      }, verifyHelperAbsent: {})
     let controller = fixture.controller()
     defer { controller.invalidate() }
     try await controller.enable(policy: .init())
