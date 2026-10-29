@@ -4,6 +4,11 @@ import SwiftUI
 @MainActor struct ShortcutsSettings: View {
   @Bindable var model: AppModel
   @State private var editing: ShortcutAction?
+
+  static func accessibilityValue(for shortcut: AwakeShortcut?) -> String {
+    shortcut?.displayName ?? "Not assigned"
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
       SettingsGroup(eyebrow: "KEYBOARD") {
@@ -13,6 +18,7 @@ import SwiftUI
               editing = action
             }
             .accessibilityLabel("Shortcut for \(action.label)")
+            .accessibilityValue(Self.accessibilityValue(for: model.settings.shortcuts[action]))
           }
         }
       }
