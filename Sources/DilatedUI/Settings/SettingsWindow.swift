@@ -447,14 +447,19 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
               model.settings = settings
             } label: {
               VStack(spacing: 10) {
-                TimelineView(.periodic(from: .now, by: 0.25)) { context in
-                  let frame = glyph.frame(
-                    awake: true, elapsed: context.date.timeIntervalSinceReferenceDate,
-                    motion: model.settings.motion, reduceMotion: reduceMotion)
-                  if let image = glyph.image(frame: frame) {
-                    Image(nsImage: image).resizable().interpolation(.none).frame(
-                      width: 32, height: 30)
+                if glyph.animates(motion: model.settings.motion, reduceMotion: reduceMotion) {
+                  TimelineView(.periodic(from: .now, by: 0.25)) { context in
+                    let frame = glyph.frame(
+                      awake: true, elapsed: context.date.timeIntervalSinceReferenceDate,
+                      motion: model.settings.motion, reduceMotion: reduceMotion)
+                    if let image = glyph.image(frame: frame) {
+                      Image(nsImage: image).resizable().interpolation(.none).frame(
+                        width: 32, height: 30)
+                    }
                   }
+                } else if let image = glyph.image(frame: glyph.stillFrame) {
+                  Image(nsImage: image).resizable().interpolation(.none).frame(
+                    width: 32, height: 30)
                 }
                 Text(glyph.label).font(DesignFont.sans(11))
               }.padding(12).frame(maxWidth: .infinity)

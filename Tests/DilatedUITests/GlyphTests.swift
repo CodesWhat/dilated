@@ -46,4 +46,38 @@ import Testing
           == glyph.stillFrame)
     }
   }
+
+  @Test func repeatedImageRequestsReturnTheSameInstance() throws {
+    for glyph in Glyph.allCases {
+      for frame in glyph.frames {
+        let first = try #require(glyph.image(frame: frame))
+        let second = try #require(glyph.image(frame: frame))
+        #expect(first === second)
+      }
+    }
+  }
+
+  @Test func animatesOnlyWhenMotionIsOnAndTheGlyphHasMoreThanOneAwakeFrame() {
+    let elapsedValues: [TimeInterval] = [0, 0.2, 0.5, 1.2, 4.1, 8.1, 100]
+    for glyph in Glyph.allCases {
+      for motion in Motion.allCases {
+        for reduceMotion in [false, true] {
+          let animates = glyph.animates(motion: motion, reduceMotion: reduceMotion)
+          let expected = motion != .off && !reduceMotion && glyph != .catCans
+          #expect(animates == expected)
+          if !animates {
+            let frames = Set(
+              elapsedValues.map {
+                glyph.frame(awake: true, elapsed: $0, motion: motion, reduceMotion: reduceMotion)
+              })
+            #expect(frames.count == 1)
+          }
+        }
+      }
+    }
+    for glyph in [Glyph.bugEyes, .can, .spiralEyes] {
+      #expect(glyph.animates(motion: .subtle, reduceMotion: false))
+      #expect(glyph.animates(motion: .lively, reduceMotion: false))
+    }
+  }
 }
