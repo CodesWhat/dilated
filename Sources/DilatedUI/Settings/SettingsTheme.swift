@@ -106,7 +106,7 @@ struct SettingsGroup<Content: View>: View {
         VStack(spacing: 0) {
           ForEach(rows) { row in
             row.padding(.horizontal, 12).padding(.vertical, 8)
-              .frame(maxWidth: .infinity)
+              .frame(maxWidth: rows.count > 1 ? .infinity : nil)
               .padding(.top, row.id == rows.first?.id ? 0 : 1)
               .overlay(alignment: .top) {
                 if row.id != rows.first?.id {
