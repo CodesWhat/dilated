@@ -218,6 +218,15 @@ import ServiceManagement
       controller.invalidate()
       return
     }
+    if status == .notFound {
+      guard readPower().confirmedDisabled else {
+        throw HelperClientError.rejected(
+          "macOS can't find the helper and hasn't confirmed normal sleep. Repair the helper before removing Dilated."
+        )
+      }
+      controller.invalidate()
+      return
+    }
     try await unregister(controller: controller)
   }
 }
