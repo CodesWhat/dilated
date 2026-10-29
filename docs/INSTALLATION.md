@@ -130,6 +130,10 @@ explicit preparation command instead of a generic Quit step:
    removes the helper, login item and owned CLI link, discards holds and quits.
    Preferences remain available for a later reinstall.
 
+Versions 1.0.0-beta.1 and beta.2 can fail `dilated prepare-update` with
+"Operation not permitted" when macOS reports the helper as not found. Update
+those installs with Check for Updates in Settings instead.
+
 Preparation requires closed-lid and helper changes to have finished. A failure
 keeps the app open and blocks the package operation. Preparation expires after
 ten minutes and is invalidated when the app starts again. The cask checks the

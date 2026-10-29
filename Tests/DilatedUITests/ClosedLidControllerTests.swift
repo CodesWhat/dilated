@@ -544,6 +544,61 @@ import Testing
     #expect(fixture.transport.actions.isEmpty)
   }
 
+  @Test func notFoundHelperIsRemovedWithoutCallingUnregister() async throws {
+    let fixture = await ControllerFixture()
+    let service = InstallationFixture(power: fixture.power)
+    service.status = .notFound
+    let installation = HelperInstallation(
+      service: service,
+      readPower: {
+        .init(effectiveDisabled: false, storedDisabled: false)
+      }, verifyHelperAbsent: {})
+    let controller = fixture.controller()
+    defer { controller.invalidate() }
+    try await controller.enable(policy: .init())
+    #expect(controller.hasLease)
+    try await installation.remove(controller: controller)
+    #expect(service.operations.isEmpty)
+    #expect(!controller.hasLease)
+  }
+
+  @Test func notFoundHelperCannotBeRemovedWithUnknownOrEnabledPowerState() async throws {
+    for power in [
+      ClosedLidReadback(effectiveDisabled: true, storedDisabled: true),
+      ClosedLidReadback(effectiveDisabled: nil, storedDisabled: nil),
+    ] {
+      let fixture = await ControllerFixture()
+      let service = InstallationFixture(power: fixture.power)
+      service.status = .notFound
+      let installation = HelperInstallation(
+        service: service, readPower: { power }, verifyHelperAbsent: {})
+      await #expect(throws: (any Error).self) {
+        try await installation.remove(controller: fixture.controller())
+      }
+      #expect(service.operations.isEmpty)
+      #expect(fixture.transport.actions.isEmpty)
+    }
+  }
+
+  @Test func notFoundHelperThatIsStillLoadedCannotBeRemoved() async throws {
+    let fixture = await ControllerFixture()
+    let service = InstallationFixture(power: fixture.power)
+    service.status = .notFound
+    let installation = HelperInstallation(
+      service: service,
+      readPower: {
+        .init(effectiveDisabled: false, storedDisabled: false)
+      }, verifyHelperAbsent: { throw NSError(domain: "test", code: 1) })
+    let controller = fixture.controller()
+    defer { controller.invalidate() }
+    try await controller.enable(policy: .init())
+    await #expect(throws: (any Error).self) {
+      try await installation.remove(controller: controller)
+    }
+    #expect(service.operations.isEmpty)
+    #expect(controller.hasLease)
+  }
+
   @Test func packageUpdateDoesNotRestoreAnApprovalRevokedSinceLaunch() async throws {
     let fixture = await ControllerFixture()
     let service = InstallationFixture(power: fixture.power)

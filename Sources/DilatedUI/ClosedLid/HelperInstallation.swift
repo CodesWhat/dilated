@@ -37,16 +37,21 @@ import ServiceManagement
   @ObservationIgnored private let service: any HelperInstalling
   @ObservationIgnored private let readPower: () -> ClosedLidReadback
   @ObservationIgnored private let startupResetTimeout: Duration
+  @ObservationIgnored private let verifyHelperAbsent: @Sendable () async throws -> Void
 
   public convenience init() { self.init(service: SystemHelperInstallation()) }
   init(
     service: any HelperInstalling,
     readPower: @escaping () -> ClosedLidReadback = NativeClosedLidPower.readback,
-    startupResetTimeout: Duration = .seconds(5)
+    startupResetTimeout: Duration = .seconds(5),
+    verifyHelperAbsent: @escaping @Sendable () async throws -> Void = {
+      try await PackageHelperCheck.verifyHelperAbsent()
+    }
   ) {
     self.service = service
     self.readPower = readPower
     self.startupResetTimeout = startupResetTimeout
+    self.verifyHelperAbsent = verifyHelperAbsent
     status = service.status
   }
   public var statusCode: String {
@@ -213,6 +218,20 @@ import ServiceManagement
       guard readPower().confirmedDisabled else {
         throw HelperClientError.rejected(
           "The helper isn't registered, but macOS hasn't confirmed normal sleep. Repair the helper before removing Dilated."
+        )
+      }
+      controller.invalidate()
+      return
+    }
+    if status == .notFound {
+      guard readPower().confirmedDisabled else {
+        throw HelperClientError.rejected(
+          "macOS can't find the helper and hasn't confirmed normal sleep. Repair the helper before removing Dilated."
+        )
+      }
+      do { try await verifyHelperAbsent() } catch {
+        throw HelperClientError.rejected(
+          "macOS can't find the helper, but it still appears to be loaded. Repair the helper before removing Dilated."
         )
       }
       controller.invalidate()
