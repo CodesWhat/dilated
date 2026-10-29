@@ -1,4 +1,5 @@
-Resuming holds after a user switch now survives repeated switches and keeps the pause state from before the first one.
-Leases that ended while you were away are released, and every AppleScript hold is restored.
-The docs now describe the public beta.
+Check for Updates is now in the menu bar menu.
+Fixes prepare-update failing with "Operation not permitted" when the helper was never installed, which blocked Homebrew upgrades.
+Fixes a crash when removing a trigger condition. Settings keeps its page and open sheets when accessibility display settings change.
+VoiceOver now names every settings switch and reads each assigned shortcut.
 Closed-lid mode is still experimental. Crash, reboot and update recovery aren't verified on hardware yet.
