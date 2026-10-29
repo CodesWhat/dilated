@@ -55,8 +55,8 @@ import SwiftUI
       window.backgroundColor = .clear
       let glass = self.glass ?? NSGlassEffectView()
       self.glass = glass
-      glass.contentView = hosting
       window.contentView = glass
+      glass.contentView = hosting
     }
   }
   func present() {

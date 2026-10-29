@@ -23,12 +23,16 @@ import Testing
 
     func expectSolid() {
       #expect(window.contentView === hosting)
+      #expect(hosting.window === window)
       #expect(window.backgroundColor == .windowBackgroundColor)
     }
     func expectGlass() {
       let glass = window.contentView as? NSGlassEffectView
       #expect(glass != nil)
       #expect(glass?.contentView === hosting)
+      #expect(hosting.window === window)
+      #expect(hosting.superview != nil)
+      #expect(glass.map { hosting.isDescendant(of: $0) } == true)
       #expect(window.backgroundColor == .clear)
     }
 
