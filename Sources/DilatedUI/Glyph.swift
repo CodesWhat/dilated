@@ -24,7 +24,10 @@ public enum Glyph: String, Codable, CaseIterable, Sendable {
     }
   }
   public var stillFrame: String { self == .bugEyes || self == .spiralEyes ? "on0" : "on" }
+  @MainActor private static var imageCache: [String: NSImage] = [:]
   @MainActor public func image(frame: String) -> NSImage? {
+    let key = "\(rawValue)/\(frame)"
+    if let cached = Self.imageCache[key] { return cached }
     let image = NSImage(size: NSSize(width: 16, height: 15))
     for suffix in ["", "@2x"] {
       guard
@@ -38,7 +41,11 @@ public enum Glyph: String, Codable, CaseIterable, Sendable {
     }
     image.isTemplate = true
     image.accessibilityDescription = "Dilated, \(label)"
+    Self.imageCache[key] = image
     return image
+  }
+  public func animates(motion: Motion, reduceMotion: Bool) -> Bool {
+    motion != .off && !reduceMotion && self != .catCans
   }
   public func frame(awake: Bool, elapsed: TimeInterval, motion: Motion, reduceMotion: Bool)
     -> String
