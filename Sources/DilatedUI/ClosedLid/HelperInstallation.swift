@@ -36,14 +36,17 @@ import ServiceManagement
   public private(set) var lastError: String?
   @ObservationIgnored private let service: any HelperInstalling
   @ObservationIgnored private let readPower: () -> ClosedLidReadback
+  @ObservationIgnored private let startupResetTimeout: Duration
 
   public convenience init() { self.init(service: SystemHelperInstallation()) }
   init(
     service: any HelperInstalling,
-    readPower: @escaping () -> ClosedLidReadback = NativeClosedLidPower.readback
+    readPower: @escaping () -> ClosedLidReadback = NativeClosedLidPower.readback,
+    startupResetTimeout: Duration = .seconds(5)
   ) {
     self.service = service
     self.readPower = readPower
+    self.startupResetTimeout = startupResetTimeout
     status = service.status
   }
   public var statusCode: String {
@@ -166,7 +169,7 @@ import ServiceManagement
   }
 
   private func waitUntilReady(controller: ClosedLidController) async throws {
-    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    let deadline = ContinuousClock.now.advanced(by: startupResetTimeout)
     while true {
       try await controller.refresh()
       guard let state = controller.state else { throw HelperClientError.invalidReply }
