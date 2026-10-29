@@ -7,11 +7,16 @@ import SwiftUI
 
 @MainActor final class SettingsWindow: NSWindowController, NSWindowDelegate {
   private let model: AppModel
+  private let hosting: NSHostingView<SettingsContent>
+  private var glass: NSGlassEffectView?
+  private var solid: Bool?
   private var accessibilityObserver: NSObjectProtocol?
   var onClose: (() -> Void)?
 
   init(model: AppModel) {
     self.model = model
+    hosting = NSHostingView(rootView: SettingsContent(model: model, solid: false) {})
+    hosting.sizingOptions = []
     let window = SettingsNSWindow(
       contentRect: NSRect(origin: .zero, size: SettingsTheme.windowSize),
       styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -23,27 +28,33 @@ import SwiftUI
     window.isReleasedWhenClosed = false
     super.init(window: window)
     window.delegate = self
-    applyContent()
+    applyContent(solid: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)
     window.setContentSize(SettingsTheme.windowSize)
     window.center()
     accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(
       forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil,
       queue: .main
-    ) { [weak self] _ in MainActor.assumeIsolated { self?.applyContent() } }
+    ) { [weak self] _ in
+      MainActor.assumeIsolated {
+        self?.applyContent(
+          solid: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)
+      }
+    }
   }
   required init?(coder: NSCoder) { nil }
-  private func applyContent() {
-    guard let window else { return }
-    let solid = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-    let hosting = NSHostingView(
-      rootView: SettingsContent(model: model, solid: solid) { [weak self] in self?.close() })
-    hosting.sizingOptions = []
+  var hostingViewForTesting: NSView { hosting }
+  func applyContent(solid: Bool) {
+    guard let window, solid != self.solid else { return }
+    self.solid = solid
+    hosting.rootView = SettingsContent(model: model, solid: solid) { [weak self] in self?.close() }
     if solid {
+      glass?.contentView = nil
       window.backgroundColor = .windowBackgroundColor
       window.contentView = hosting
     } else {
       window.backgroundColor = .clear
-      let glass = NSGlassEffectView()
+      let glass = self.glass ?? NSGlassEffectView()
+      self.glass = glass
       glass.contentView = hosting
       window.contentView = glass
     }
