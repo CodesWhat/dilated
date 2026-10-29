@@ -111,6 +111,11 @@ import DilatedCore
     }
     menu.addItem(.separator())
     menu.addItem(action("Settings…", key: ",", body: openSettings))
+    if model.updater.isAvailable {
+      let updates = action("Check for Updates…") { model.updater.checkForUpdates() }
+      updates.isEnabled = model.updater.canCheckForUpdates
+      menu.addItem(updates)
+    }
     menu.addItem(
       action("About Dilated") {
         NSApp.activate()
@@ -124,6 +129,8 @@ import DilatedCore
     menu.items.first?.title = model.statusText
     menu.items.first { $0.keyEquivalent == "d" }?.title =
       model.engine.holds.isEmpty ? "Keep Awake" : "Stop"
+    menu.items.first { $0.title == "Check for Updates…" }?.isEnabled =
+      model.updater.canCheckForUpdates
   }
 
   private static func information(_ title: String) -> NSMenuItem {

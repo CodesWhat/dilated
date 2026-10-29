@@ -7,11 +7,16 @@ import SwiftUI
 
 @MainActor final class SettingsWindow: NSWindowController, NSWindowDelegate {
   private let model: AppModel
+  private let hosting: NSHostingView<SettingsContent>
+  private var glass: NSGlassEffectView?
+  private var solid: Bool?
   private var accessibilityObserver: NSObjectProtocol?
   var onClose: (() -> Void)?
 
   init(model: AppModel) {
     self.model = model
+    hosting = NSHostingView(rootView: SettingsContent(model: model, solid: false) {})
+    hosting.sizingOptions = []
     let window = SettingsNSWindow(
       contentRect: NSRect(origin: .zero, size: SettingsTheme.windowSize),
       styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -23,29 +28,35 @@ import SwiftUI
     window.isReleasedWhenClosed = false
     super.init(window: window)
     window.delegate = self
-    applyContent()
+    applyContent(solid: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)
     window.setContentSize(SettingsTheme.windowSize)
     window.center()
     accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(
       forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil,
       queue: .main
-    ) { [weak self] _ in MainActor.assumeIsolated { self?.applyContent() } }
+    ) { [weak self] _ in
+      MainActor.assumeIsolated {
+        self?.applyContent(
+          solid: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)
+      }
+    }
   }
   required init?(coder: NSCoder) { nil }
-  private func applyContent() {
-    guard let window else { return }
-    let solid = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-    let hosting = NSHostingView(
-      rootView: SettingsContent(model: model, solid: solid) { [weak self] in self?.close() })
-    hosting.sizingOptions = []
+  var hostingViewForTesting: NSView { hosting }
+  func applyContent(solid: Bool) {
+    guard let window, solid != self.solid else { return }
+    self.solid = solid
+    hosting.rootView = SettingsContent(model: model, solid: solid) { [weak self] in self?.close() }
     if solid {
+      glass?.contentView = nil
       window.backgroundColor = .windowBackgroundColor
       window.contentView = hosting
     } else {
       window.backgroundColor = .clear
-      let glass = NSGlassEffectView()
-      glass.contentView = hosting
+      let glass = self.glass ?? NSGlassEffectView()
+      self.glass = glass
       window.contentView = glass
+      glass.contentView = hosting
     }
   }
   func present() {
@@ -346,13 +357,14 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
           }.id(loginRefresh)
         }
         SettingsRow(title: "Keep awake at launch") {
-          Toggle("", isOn: $model.settings.startAtLaunch).labelsHidden()
+          Toggle("Keep awake at launch", isOn: $model.settings.startAtLaunch).labelsHidden()
         }
         SettingsRow(
           title: "Keep awake after wake",
           detail: "Respects your automation pause and safety limits."
         ) {
-          Toggle("", isOn: $model.settings.startAfterWake).labelsHidden()
+          Toggle("Keep awake after wake", isOn: $model.settings.startAfterWake).labelsHidden()
+            .accessibilityHint("Respects your automation pause and safety limits.")
         }
       }
       SettingsGroup(eyebrow: "BEHAVIOR") {
@@ -380,17 +392,27 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
           title: "Stop when the Mac sleeps",
           detail:
             "Ends all holds and pauses automation until Resume. Applies to every system sleep."
-        ) { Toggle("", isOn: $model.settings.stopOnSystemSleep).labelsHidden() }
+        ) {
+          Toggle("Stop when the Mac sleeps", isOn: $model.settings.stopOnSystemSleep).labelsHidden()
+            .accessibilityHint(
+              "Ends all holds and pauses automation until Resume. Applies to every system sleep.")
+        }
         SettingsRow(
           title: "Stop when switching users",
           detail: "Ends all holds and pauses automation."
-        ) { Toggle("", isOn: $model.settings.stopOnUserSwitch).labelsHidden() }
+        ) {
+          Toggle("Stop when switching users", isOn: $model.settings.stopOnUserSwitch).labelsHidden()
+            .accessibilityHint("Ends all holds and pauses automation.")
+        }
         SettingsRow(
           title: "Resume when you return",
           detail:
             "Restores the holds that were running when you switched away, with their original deadlines, and re-checks triggers. Closed-lid is never restored."
         ) {
-          Toggle("", isOn: $model.settings.resumeOnUserReturn).labelsHidden()
+          Toggle("Resume when you return", isOn: $model.settings.resumeOnUserReturn).labelsHidden()
+            .accessibilityHint(
+              "Restores the holds that were running when you switched away, with their original deadlines, and re-checks triggers. Closed-lid is never restored."
+            )
             .disabled(!model.settings.stopOnUserSwitch)
         }
       }
@@ -436,14 +458,19 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
               model.settings = settings
             } label: {
               VStack(spacing: 10) {
-                TimelineView(.periodic(from: .now, by: 0.25)) { context in
-                  let frame = glyph.frame(
-                    awake: true, elapsed: context.date.timeIntervalSinceReferenceDate,
-                    motion: model.settings.motion, reduceMotion: reduceMotion)
-                  if let image = glyph.image(frame: frame) {
-                    Image(nsImage: image).resizable().interpolation(.none).frame(
-                      width: 32, height: 30)
+                if glyph.animates(motion: model.settings.motion, reduceMotion: reduceMotion) {
+                  TimelineView(.periodic(from: .now, by: 0.25)) { context in
+                    let frame = glyph.frame(
+                      awake: true, elapsed: context.date.timeIntervalSinceReferenceDate,
+                      motion: model.settings.motion, reduceMotion: reduceMotion)
+                    if let image = glyph.image(frame: frame) {
+                      Image(nsImage: image).resizable().interpolation(.none).frame(
+                        width: 32, height: 30)
+                    }
                   }
+                } else if let image = glyph.image(frame: glyph.stillFrame) {
+                  Image(nsImage: image).resizable().interpolation(.none).frame(
+                    width: 32, height: 30)
                 }
                 Text(glyph.label).font(DesignFont.sans(11))
               }.padding(12).frame(maxWidth: .infinity)
@@ -474,7 +501,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
             model.settings.useCustomGlyph || model.settings.glyph == .catCans)
         }
         SettingsRow(title: "Show session time") {
-          Toggle("", isOn: $model.settings.countdown).labelsHidden()
+          Toggle("Show session time", isOn: $model.settings.countdown).labelsHidden()
         }
         SettingsRow(title: "Time format") {
           Picker("Time format", selection: $model.settings.countdownFormat) {
@@ -536,7 +563,8 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
       SettingsRow(
         title: "Allow display sleep", detail: "Your Mac keeps working while the screen sleeps."
       ) {
-        Toggle("", isOn: $model.settings.allowDisplaySleep).labelsHidden()
+        Toggle("Allow display sleep", isOn: $model.settings.allowDisplaySleep).labelsHidden()
+          .accessibilityHint("Your Mac keeps working while the screen sleeps.")
       }
       SettingsRow(
         title: "Duration presets", detail: "Minutes, separated by commas. Press Return to save."
@@ -577,7 +605,10 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         detail:
           "Allows holds below the floor while connected to power. Closed-lid limits are separate."
       ) {
-        Toggle("", isOn: $model.settings.batteryFloorIgnoresAC).labelsHidden()
+        Toggle("Ignore battery floor on AC", isOn: $model.settings.batteryFloorIgnoresAC)
+          .labelsHidden().accessibilityHint(
+            "Allows holds below the floor while connected to power. Closed-lid limits are separate."
+          )
           .disabled(model.settings.batteryFloor == 0)
       }
       SettingsRow(
@@ -585,7 +616,10 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         detail:
           "New holds can continue in Low Power Mode, including agent work. The battery floor still applies."
       ) {
-        Toggle("", isOn: $model.settings.overrideLowPower).labelsHidden()
+        Toggle("Override Low Power Mode", isOn: $model.settings.overrideLowPower).labelsHidden()
+          .accessibilityHint(
+            "New holds can continue in Low Power Mode, including agent work. The battery floor still applies."
+          )
       }
       SettingsNote(
         text:
@@ -600,7 +634,8 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
           title: "Allow automation links",
           detail: "Allows dilated://awake, dilated://stop and dilated://toggle links."
         ) {
-          Toggle("", isOn: $model.settings.urlAutomation).labelsHidden()
+          Toggle("Allow automation links", isOn: $model.settings.urlAutomation).labelsHidden()
+            .accessibilityHint("Allows dilated://awake, dilated://stop and dilated://toggle links.")
         }
         SettingsRow(
           title: "Command line tool",

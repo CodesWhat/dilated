@@ -14,6 +14,11 @@ import Testing
     .init(keyCode: kVK_F20, modifiers: cmdKey | controlKey, keyName: "F20")
   }
 
+  @Test func shortcutRowsExposeTheAssignedShortcutAsTheAccessibilityValue() {
+    #expect(ShortcutsSettings.accessibilityValue(for: nil) == "Not assigned")
+    #expect(ShortcutsSettings.accessibilityValue(for: first) == first.displayName)
+  }
+
   @Test func collisionsRestoreTheWorkingAssignmentsAndCallbacks() {
     let registrar = ShortcutRegistrarFixture()
     let bindings = ShortcutBindings(registrar: registrar)

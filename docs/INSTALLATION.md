@@ -1,12 +1,12 @@
 # Installation and removal
 
-Dilated targets macOS 26 or later on Apple Silicon. 1.0.0-beta.2 (build 7) is
+Dilated targets macOS 26 or later on Apple Silicon. 1.0.0-beta.3 (build 8) is
 public as a beta. Download the signed, notarized DMG from
 https://dilated.codeswhat.com/download/file, or run
 `brew install --cask codeswhat/tap/dilated`. The fully qualified name trusts that
 cask. Running `brew info` or `brew fetch` on the bare tap may ask for
 `brew trust --cask codeswhat/tap/dilated`. The GitHub release at
-https://github.com/CodesWhat/dilated/releases/tag/v1.0.0-beta.2 carries the DMG,
+https://github.com/CodesWhat/dilated/releases/tag/v1.0.0-beta.3 carries the DMG,
 ZIP, source tarball, sha256 files and `release-manifest.json`.
 
 The beta passed these checks on the maintainer's Mac: `macOS26ClosedLid`,
@@ -129,6 +129,10 @@ explicit preparation command instead of a generic Quit step:
 3. For removal, run `dilated prepare-uninstall` before Homebrew uninstall. This
    removes the helper, login item and owned CLI link, discards holds and quits.
    Preferences remain available for a later reinstall.
+
+Versions 1.0.0-beta.1 and beta.2 can fail `dilated prepare-update` with
+"Operation not permitted" when macOS reports the helper as not found. Update
+those installs with Check for Updates in Settings instead.
 
 Preparation requires closed-lid and helper changes to have finished. A failure
 keeps the app open and blocks the package operation. Preparation expires after

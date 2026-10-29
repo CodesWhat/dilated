@@ -126,10 +126,21 @@ import UniformTypeIdentifiers
 
 @MainActor struct TriggerRuleEditor: View {
   @State var rule: TriggerRule
+  @State private var criteria: TriggerCriteriaRows
   var save: (TriggerRule) throws -> Void
   var remove: () -> Void
   @State private var error: String?
   @Environment(\.dismiss) private var dismiss
+
+  init(
+    rule: TriggerRule, save: @escaping (TriggerRule) throws -> Void,
+    remove: @escaping () -> Void
+  ) {
+    _rule = State(initialValue: rule)
+    _criteria = State(initialValue: TriggerCriteriaRows(rule.criteria))
+    self.save = save
+    self.remove = remove
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -137,14 +148,14 @@ import UniformTypeIdentifiers
       TextField("Name", text: $rule.name)
       ScrollView {
         VStack(alignment: .leading, spacing: 16) {
-          ForEach(rule.criteria.indices, id: \.self) { index in
+          ForEach($criteria.rows) { $row in
             VStack(alignment: .leading, spacing: 10) {
-              TriggerCriterionEditor(criterion: $rule.criteria[index])
-              Button("Remove condition") { rule.criteria.remove(at: index) }
+              TriggerCriterionEditor(criterion: $row.value)
+              Button("Remove condition") { criteria.remove(id: row.id) }
             }.padding(14).background(DesignPalette.surface, in: RoundedRectangle(cornerRadius: 6))
           }
-          Button("Add condition") { rule.criteria.append(.power(onBattery: false)) }
-            .disabled(rule.criteria.count >= 12)
+          Button("Add condition") { criteria.append(.power(onBattery: false)) }
+            .disabled(!criteria.canAdd)
           Toggle("Keep the display awake", isOn: $rule.displayAwake)
           Toggle("Work with the lid closed", isOn: $rule.closedLid)
           if rule.closedLid {
@@ -185,13 +196,16 @@ import UniformTypeIdentifiers
         Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
         Button("Save") {
           do {
-            try save(rule)
+            var edited = rule
+            edited.criteria = criteria.values
+            try save(edited)
             dismiss()
           } catch { self.error = error.localizedDescription }
         }.keyboardShortcut(.defaultAction)
       }
     }
-    .onChange(of: rule.criteria) { old, new in
+    .onChange(of: criteria.values) { old, new in
+      rule.criteria = new
       let hadCPU = old.contains {
         if case .cpu = $0 { return true }
         return false
@@ -319,13 +333,12 @@ private enum TriggerKind: String, CaseIterable {
           }
         }
         Button("Refresh processes") {
-          processes = ProcessCatalog.read().sorted {
-            $0.name.localizedStandardCompare($1.name) == .orderedAscending
-          }
+          processes = ProcessCatalog.pickerList()
         }
         Text("Tracks this process instance. A future process with the same PID won't match.").font(
           .caption
         ).foregroundStyle(.secondary)
+          .onAppear { processes = ProcessCatalog.pickerList() }
       case .mirrored(let mirrored):
         Toggle(
           "Displays are mirrored",

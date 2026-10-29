@@ -125,3 +125,59 @@ import Testing
     #expect(model.triggerRules.isEmpty)
   }
 }
+
+struct TriggerCriteriaRowsTests {
+  private let power = TriggerCriterion.power(onBattery: true)
+  private let process = TriggerCriterion.process(name: "Xcode")
+  private let cpu = TriggerCriterion.cpu(percent: 50, atLeast: true)
+
+  @Test func removingByIdKeepsOrderAndSurvivorIdentity() {
+    var rows = TriggerCriteriaRows([power, process, cpu])
+    let ids = rows.rows.map(\.id)
+    rows.remove(id: ids[0])
+    #expect(rows.values == [process, cpu])
+    #expect(rows.rows.map(\.id) == [ids[1], ids[2]])
+    var middle = TriggerCriteriaRows([power, process, cpu])
+    let all = middle.rows.map(\.id)
+    middle.remove(id: all[0])
+    middle.remove(id: all[1])
+    #expect(middle.values == [cpu])
+    #expect(middle.rows.map(\.id) == [all[2]])
+  }
+
+  @Test func removingTheLastItemAndUnknownIdsNeverTrap() {
+    var rows = TriggerCriteriaRows([power, process])
+    let ids = rows.rows.map(\.id)
+    rows.remove(id: ids[1])
+    rows.remove(id: ids[1])
+    #expect(rows.values == [power])
+    rows.remove(id: ids[0])
+    #expect(rows.values.isEmpty)
+    rows.remove(id: ids[0])
+    #expect(rows.rows.isEmpty)
+  }
+
+  @Test func valuesAreThePlainListAndAppendRespectsTheCap() {
+    var rows = TriggerCriteriaRows([power])
+    rows.append(process)
+    #expect(rows.values == [power, process])
+    for _ in 0..<20 { rows.append(cpu) }
+    #expect(rows.rows.count == TriggerCriteriaRows.maximum)
+    #expect(!rows.canAdd)
+  }
+
+  @Test func editedRuleRoundTripsThroughJSONUnchanged() throws {
+    var rule = TriggerRule(name: "Round trip", criteria: [power, process, cpu])
+    var rows = TriggerCriteriaRows(rule.criteria)
+    rows.remove(id: rows.rows[1].id)
+    rows.rows[0].value = .power(onBattery: false)
+    rule.criteria = rows.values
+    var plain = TriggerRule(name: "Round trip", criteria: [.power(onBattery: false), cpu])
+    plain.id = rule.id
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    let edited = try encoder.encode(rule)
+    #expect(edited == (try encoder.encode(plain)))
+    #expect(try JSONDecoder().decode(TriggerRule.self, from: edited) == rule)
+  }
+}

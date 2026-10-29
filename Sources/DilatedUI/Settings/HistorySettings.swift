@@ -19,7 +19,10 @@ import UniformTypeIdentifiers
       SettingsGroup(eyebrow: "LOCAL HISTORY") {
         SettingsRow(
           title: "Save awake history", detail: "Stored only on this Mac. No analytics or uploads."
-        ) { Toggle("", isOn: $model.settings.historyEnabled).labelsHidden() }
+        ) {
+          Toggle("Save awake history", isOn: $model.settings.historyEnabled).labelsHidden()
+            .accessibilityHint("Stored only on this Mac. No analytics or uploads.")
+        }
         SettingsRow(
           title: "Keep recent history",
           detail: "Up to 2,000 completed reasons (2 MB) and 1,024 active reasons."

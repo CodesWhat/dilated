@@ -118,6 +118,49 @@ import Testing
     #expect(menu.items.contains { $0.title == model.attention && !$0.isEnabled })
   }
 
+  @Test func checkForUpdatesSitsBetweenSettingsAndAboutOnlyWhenAvailable() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let plain = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      updater: AppUpdater(driver: nil, activity: { .idle }))
+    defer { plain.shutdown() }
+    #expect(
+      !AwakeMenu.make(model: plain, openSettings: {}).items.contains {
+        $0.title == "Check for Updates…"
+      })
+
+    let driver = MenuUpdateDriver()
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      updater: AppUpdater(driver: driver, activity: { .idle }))
+    defer { model.shutdown() }
+    model.updater.start()
+    let menu = AwakeMenu.make(model: model, openSettings: {})
+    let titles = menu.items.map(\.title)
+    let settings = try #require(titles.firstIndex(of: "Settings…"))
+    #expect(titles[settings + 1] == "Check for Updates…")
+    #expect(titles[settings + 2] == "About Dilated")
+    let item = menu.items[settings + 1]
+    #expect(item.isEnabled == model.updater.canCheckForUpdates)
+
+    driver.canCheckForUpdates = false
+    driver.onChange?()
+    #expect(!model.updater.canCheckForUpdates)
+    let disabled = AwakeMenu.make(model: model, openSettings: {})
+    #expect(disabled.items.first { $0.title == "Check for Updates…" }?.isEnabled == false)
+    AwakeMenu.refreshStatus(in: menu, model: model)
+    #expect(!item.isEnabled)
+
+    driver.canCheckForUpdates = true
+    driver.onChange?()
+    AwakeMenu.refreshStatus(in: menu, model: model)
+    #expect(item.isEnabled)
+    let target = try #require(item.target as AnyObject?)
+    _ = target.perform(item.action)
+    #expect(driver.checks == 1)
+  }
+
   @Test func nativeReasonsMenuStopsOnlyTheSelectedHold() throws {
     _ = NSApplication.shared
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -201,4 +244,14 @@ import Testing
     #expect(paused.items.contains { $0.title == "Keep Awake" })
     #expect(!paused.items.contains { $0.title.contains("Closed lid") })
   }
+}
+
+@MainActor private final class MenuUpdateDriver: UpdateDriving {
+  weak var delegate: (any UpdateDriverDelegate)?
+  var onChange: (() -> Void)?
+  var canCheckForUpdates = true
+  var automaticallyChecksForUpdates = false
+  var checks = 0
+  func start() throws {}
+  func checkForUpdates() { checks += 1 }
 }

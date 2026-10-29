@@ -74,6 +74,25 @@ import Testing
     }
   }
 
+  @Test func packageUpdateSucceedsWhenMacOSCannotFindTheHelper() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let helper = NotFoundPackageHelper()
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      helperInstallation: HelperInstallation(
+        service: helper,
+        readPower: {
+          .init(effectiveDisabled: false, storedDisabled: false)
+        }, verifyHelperAbsent: {}))
+    defer { model.shutdown() }
+    #expect(await model.prepareForPackage(.update, app: app))
+    #expect(!helper.unregisterCalled)
+    let handoff = try PackageHandoffStore(directory: directory).requirePrepared(app: app)
+    #expect(handoff.intent == .update)
+    #expect(!handoff.helperWasApproved)
+  }
+
   private var app: URL { URL(fileURLWithPath: "/Applications/Dilated.app") }
   private func makeModel(_ directory: URL) -> AppModel {
     AppModel(
@@ -90,5 +109,16 @@ import Testing
   var status: SMAppService.Status { .notRegistered }
   func register() throws {}
   func unregister() async throws {}
+  func openApproval() {}
+}
+
+@MainActor private final class NotFoundPackageHelper: HelperInstalling {
+  var unregisterCalled = false
+  var status: SMAppService.Status { .notFound }
+  func register() throws {}
+  func unregister() async throws {
+    unregisterCalled = true
+    throw NSError(domain: NSPOSIXErrorDomain, code: Int(POSIXErrorCode.EPERM.rawValue))
+  }
   func openApproval() {}
 }

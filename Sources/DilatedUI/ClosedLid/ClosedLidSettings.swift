@@ -64,10 +64,11 @@ import SwiftUI
           }.labelsHidden().fixedSize()
         }
         SettingsRow(title: "Require a power adapter") {
-          Toggle("", isOn: $model.settings.closedLidACOnly).labelsHidden()
+          Toggle("Require a power adapter", isOn: $model.settings.closedLidACOnly).labelsHidden()
         }
         SettingsRow(title: "Play a sound when closed-lid stops") {
-          Toggle("", isOn: $model.settings.closedLidWarningSound).labelsHidden()
+          Toggle("Play a sound when closed-lid stops", isOn: $model.settings.closedLidWarningSound)
+            .labelsHidden()
         }
         SettingsNote(
           text:
@@ -79,7 +80,7 @@ import SwiftUI
           ForEach(model.engine.holds) { hold in
             SettingsRow(title: hold.label, detail: "Keep working with the lid closed") {
               Toggle(
-                "",
+                "Work with lid closed for \(hold.label)",
                 isOn: Binding(
                   get: { hold.closedLid == true },
                   set: { enabled in
@@ -91,7 +92,8 @@ import SwiftUI
                     }
                   }
                 )
-              ).labelsHidden().disabled(model.closedLid.busy || model.helperInstallation.busy)
+              ).labelsHidden().accessibilityHint("Keep working with the lid closed")
+                .disabled(model.closedLid.busy || model.helperInstallation.busy)
             }
           }
         }
@@ -106,7 +108,10 @@ import SwiftUI
           detail:
             "Allows lid=closed in dilated:// links. Any website can open these links. Stop still pauses all automation."
         ) {
-          Toggle("", isOn: $model.settings.closedLidURLAutomation).labelsHidden()
+          Toggle("Allow closed-lid automation links", isOn: $model.settings.closedLidURLAutomation)
+            .labelsHidden().accessibilityHint(
+              "Allows lid=closed in dilated:// links. Any website can open these links. Stop still pauses all automation."
+            )
         }
       }
       if model.helperInstallation.status == .enabled {
