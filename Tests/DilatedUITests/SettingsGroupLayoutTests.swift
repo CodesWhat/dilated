@@ -19,4 +19,16 @@ import Testing
     view.layoutSubtreeIfNeeded()
     #expect(view.fittingSize.height == 130)
   }
+  @Test func groupHeightIsUnchangedWithANarrowRow() {
+    _ = NSApplication.shared
+    FontRegistry.registerBundledFonts()
+    let view = NSHostingView(
+      rootView: SettingsGroup(eyebrow: "TEST") {
+        Text("a")
+        Button("x") {}
+      }.frame(width: 400))
+    view.setFrameSize(NSSize(width: 400, height: 10))
+    view.layoutSubtreeIfNeeded()
+    #expect(view.fittingSize.height == 105)
+  }
 }
