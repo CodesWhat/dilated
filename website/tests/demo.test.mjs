@@ -121,8 +121,9 @@ test('Quit ends the holds without pausing automation; Settings and About just cl
   assert.deepEqual(quit.holds, []);
   assert.equal(quit.automationPaused, false);
   const model = demo.menuModel(state, 0);
-  assert.deepEqual(labels(model).slice(-3), ['Settings…', 'About Dilated', 'Quit Dilated']);
+  assert.deepEqual(labels(model).slice(-4), ['Settings…', 'Check for Updates…', 'About Dilated', 'Quit Dilated']);
   assert.deepEqual(find(model, 'settings').action, { type: 'close' });
+  assert.deepEqual(find(model, 'updates').action, { type: 'close' });
   assert.deepEqual(find(model, 'about').action, { type: 'close' });
   assert.equal(find(model, 'settings').shortcut, '⌘ ,');
   assert.equal(find(model, 'quit').shortcut, '⌘ Q');

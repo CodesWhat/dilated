@@ -198,7 +198,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored public var onClosedLidBatteryWarning: (() -> Bool)?
   public let closedLid: ClosedLidController
   public let helperInstallation: HelperInstallation
-  public let updater = AppUpdater()
+  public let updater: AppUpdater
   @ObservationIgnored public let endpoint: SocketEndpoint
   @ObservationIgnored private let store: StateStore
   @ObservationIgnored private let readPower: () -> PowerState
@@ -271,7 +271,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     endpoint: SocketEndpoint = .current, power: @escaping () -> PowerState = SystemPower.read,
     assertions: any AssertionControlling = NativeAssertions(),
     closedLid: ClosedLidController? = nil,
-    helperInstallation: HelperInstallation? = nil
+    helperInstallation: HelperInstallation? = nil,
+    updater: AppUpdater? = nil
   ) {
     self.endpoint = endpoint
     self.store = StateStore(directory: endpoint.stateDirectory)
@@ -283,6 +284,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       sounds: NativeFeedbackSounds(directory: endpoint.stateDirectory))
     self.closedLid = closedLid ?? ClosedLidController()
     self.helperInstallation = helperInstallation ?? HelperInstallation()
+    self.updater = updater ?? AppUpdater()
     var loadMessage: String?
     var recoveryIssue: String?
     var loadedSettings = AppSettings()
@@ -344,7 +346,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       self.feedback.closedLidEnded(reason, playSound: !self.settings.closedLidWarningSound)
       if self.settings.closedLidWarningSound { NSSound.beep() }
     }
-    updater.activity = { [weak self] in self?.updateActivity ?? .starting }
+    self.updater.activity = { [weak self] in self?.updateActivity ?? .starting }
   }
 
   public func begin() {
