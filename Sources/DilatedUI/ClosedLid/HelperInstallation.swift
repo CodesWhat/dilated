@@ -234,6 +234,11 @@ import ServiceManagement
           "macOS can't find the helper, but it still appears to be loaded. Repair the helper before removing Dilated."
         )
       }
+      guard readPower().confirmedDisabled else {
+        throw HelperClientError.rejected(
+          "macOS can't find the helper and hasn't confirmed normal sleep. Repair the helper before removing Dilated."
+        )
+      }
       controller.invalidate()
       return
     }
