@@ -1,5 +1,3 @@
-Check for Updates is now in the menu bar menu.
-Fixes prepare-update failing with "Operation not permitted" when the helper was never installed, which blocked Homebrew upgrades.
-Fixes a crash when removing a trigger condition. Settings keeps its page and open sheets when accessibility display settings change.
-VoiceOver now names every settings switch and reads each assigned shortcut.
+Settings is plainer: no accent colours, no tagline, and no focus ring on the selected page when you open it.
+A keyboard-focused page that isn't selected gets a light outline, and VoiceOver reads each sidebar page by name.
 Closed-lid mode is still experimental. Crash, reboot and update recovery aren't verified on hardware yet.

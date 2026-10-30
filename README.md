@@ -16,7 +16,7 @@ Bluetooth devices, selected audio output,
 CPU load and idle time.
 Automatic agent setup remains later work.
 
-1.0.0-beta.3 is a public beta for macOS 26+ on Apple Silicon. Install it from the
+1.0.0-beta.4 is a public beta for macOS 26+ on Apple Silicon. Install it from the
 website download or with `brew install --cask codeswhat/tap/dilated`. Closed-lid
 mode is experimental, and crash, reboot and update recovery haven't been verified
 on hardware yet. Report issues on GitHub.
