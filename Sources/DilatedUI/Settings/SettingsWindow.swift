@@ -147,6 +147,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
   @State private var page: SettingsPage? = .overview
   @FocusState private var focusedPage: SettingsPage?
   @State private var presets = ""
+  @FocusState private var presetsFocused: Bool
   @State private var loginRefresh = 0
   @State private var cliRefresh = 0
   @State private var confirmSettingsReset = false
@@ -239,7 +240,15 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     }
     .font(DesignFont.sans(13)).foregroundStyle(DesignPalette.ink).tint(SettingsTheme.control)
     .frame(minWidth: 860, minHeight: 600)
-    .onAppear { presets = model.settings.presets.map(String.init).joined(separator: ", ") }
+    .onAppear { presets = AppModel.presetsText(model.settings.presets) }
+    .onChange(of: model.settings.presets) { _, saved in
+      if !presetsFocused { presets = AppModel.presetsText(saved) }
+    }
+    .onChange(of: presetsFocused) { _, focused in
+      if !focused && presets != AppModel.presetsText(model.settings.presets) {
+        commitPresets()
+      }
+    }
   }
   private var settingsRecovery: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -572,26 +581,18 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
           .accessibilityHint("Your Mac keeps working while the screen sleeps.")
       }
       SettingsRow(
-        title: "Duration presets", detail: "Minutes, separated by commas. Press Return to save."
+        title: "Duration presets",
+        detail: "Minutes, separated by commas. Saved when you press Return or leave the field."
       ) {
-        TextField("15, 30, 60", text: $presets).frame(width: 180).onSubmit(savePresets)
+        TextField("15, 30, 60", text: $presets).frame(width: 180)
+          .focused($presetsFocused)
+          .onSubmit(commitPresets)
       }
     }
   }
-  private func savePresets() {
-    let parts = presets.split(separator: ",", omittingEmptySubsequences: false)
-    let values = parts.compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
-    guard !values.isEmpty, values.count == parts.count, values.count <= 10,
-      values.allSatisfy({ (1...10080).contains($0) })
-    else {
-      model.message = "Use up to 10 durations between 1 and 10080 minutes."
-      return
-    }
-    model.settings.presets = Array(Set(values)).sorted()
-    if model.settings.defaultMinutes != 0
-      && !model.settings.presets.contains(model.settings.defaultMinutes)
-    {
-      model.settings.defaultMinutes = 0
+  private func commitPresets() {
+    if model.applyPresets(text: presets) {
+      presets = AppModel.presetsText(model.settings.presets)
     }
   }
   private var safety: some View {
