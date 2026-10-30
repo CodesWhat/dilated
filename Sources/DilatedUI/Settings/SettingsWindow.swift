@@ -186,6 +186,12 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
                   page == item ? Color.primary.opacity(0.10) : .clear,
                   in: RoundedRectangle(cornerRadius: 4)
                 )
+                .overlay {
+                  RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(
+                      focusedPage == item && page != item
+                        ? Color.primary.opacity(0.35) : .clear, lineWidth: 1)
+                }
                 .contentShape(Rectangle())
               }
               .buttonStyle(.plain).focusEffectDisabled().help(item.detail)
