@@ -181,14 +181,14 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
                   Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 10)
-                .foregroundStyle(page == item ? Color.white : DesignPalette.sideInk)
+                .foregroundStyle(page == item ? Color.primary : DesignPalette.sideInk)
                 .background(
-                  page == item ? DesignPalette.sideSelection : .clear,
+                  page == item ? Color.primary.opacity(0.10) : .clear,
                   in: RoundedRectangle(cornerRadius: 4)
                 )
                 .contentShape(Rectangle())
               }
-              .buttonStyle(.plain).help(item.detail)
+              .buttonStyle(.plain).focusEffectDisabled().help(item.detail)
               .focused($focusedPage, equals: item)
               .accessibilityAddTraits(page == item ? .isSelected : [])
             }
@@ -202,9 +202,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
               focusedPage = next
             }
         }
-        Text("KEEP YOUR WORK AWAKE")
-          .font(DesignFont.mono(10)).tracking(0.5).foregroundStyle(DesignPalette.sideInk)
-          .padding(.horizontal, 22).padding(.bottom, 22)
+        Spacer(minLength: 0).frame(height: 14)
       }
       .frame(width: SettingsTheme.sidebarWidth).background(DesignSidebarBackground(solid: solid))
       Divider()
@@ -283,7 +281,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         close()
       }.buttonStyle(.borderedProminent)
     }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(
-      DesignPalette.accentSoft, in: RoundedRectangle(cornerRadius: 4))
+      Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 4))
   }
   @ViewBuilder private var pageContent: some View {
     switch page ?? .overview {
@@ -476,7 +474,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
               }.padding(12).frame(maxWidth: .infinity)
                 .background(
                   !model.settings.useCustomGlyph && model.settings.glyph == glyph
-                    ? DesignPalette.accentSoft : .clear,
+                    ? Color.primary.opacity(0.08) : .clear,
                   in: RoundedRectangle(cornerRadius: 10)
                 )
                 .overlay(
