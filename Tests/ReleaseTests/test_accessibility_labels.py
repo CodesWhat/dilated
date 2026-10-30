@@ -26,6 +26,18 @@ class AccessibilityLabelTests(unittest.TestCase):
             "pass the row title and keep .labelsHidden():\n" + "\n".join(hits),
         )
 
+    def test_settings_sidebar_buttons_are_named_by_page(self):
+        path = ROOT / "Sources/DilatedUI/Settings/SettingsWindow.swift"
+        text = path.read_text(encoding="utf-8")
+        start = text.index("ForEach(SettingsPage.allCases)")
+        end = text.index(".onMoveCommand", start)
+        self.assertIn(
+            ".accessibilityLabel(item.rawValue)",
+            text[start:end],
+            "Settings sidebar buttons must expose the page name as their "
+            "accessibility label",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -176,7 +176,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
                 focusedPage = item
               } label: {
                 HStack(spacing: 10) {
-                  Image(systemName: item.symbol).frame(width: 18)
+                  Image(systemName: item.symbol).frame(width: 18).accessibilityHidden(true)
                   Text(item.rawValue).font(DesignFont.sans(13, .semibold))
                   Spacer(minLength: 0)
                 }
@@ -196,6 +196,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
               }
               .buttonStyle(.plain).focusEffectDisabled().help(item.detail)
               .focused($focusedPage, equals: item)
+              .accessibilityLabel(item.rawValue)
               .accessibilityAddTraits(page == item ? .isSelected : [])
             }
           }.padding(.horizontal, 12)
