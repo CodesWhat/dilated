@@ -25,6 +25,80 @@ import Testing
     #expect(model.engine.holds.count == 1)
   }
 
+  @Test func applyPresetsSortsAndDedupesValidText() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    #expect(model.applyPresets(text: "60, 15, 15, 30"))
+    #expect(model.settings.presets == [15, 30, 60])
+    #expect(AppModel.presetsText(model.settings.presets) == "15, 30, 60")
+  }
+
+  @Test func applyPresetsResetsDefaultOnlyWhenItLeavesThePresets() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    #expect(model.applyPresets(text: "15, 30, 60"))
+    model.settings.defaultMinutes = 30
+    #expect(model.applyPresets(text: "30, 45"))
+    #expect(model.settings.defaultMinutes == 30)
+    #expect(model.applyPresets(text: "45, 90"))
+    #expect(model.settings.defaultMinutes == 0)
+  }
+
+  @Test func applyPresetsRejectsInvalidTextWithoutChangingAnything() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    #expect(model.applyPresets(text: "15, 30, 60"))
+    model.settings.defaultMinutes = 30
+    let eleven = (1...11).map(String.init).joined(separator: ", ")
+    for text in ["", "15, abc", "0", "10081", eleven] {
+      model.message = nil
+      #expect(!model.applyPresets(text: text), "\(text)")
+      #expect(model.settings.presets == [15, 30, 60], "\(text)")
+      #expect(model.settings.defaultMinutes == 30, "\(text)")
+      #expect(model.message == "Use up to 10 durations between 1 and 10080 minutes.", "\(text)")
+    }
+  }
+
+  @Test func successfulApplyClearsOnlyThePresetsError() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    #expect(!model.applyPresets(text: "abc"))
+    #expect(model.message != nil)
+    #expect(model.applyPresets(text: "15, 30"))
+    #expect(model.message == nil)
+    model.message = "Something else"
+    #expect(model.applyPresets(text: "15, 45"))
+    #expect(model.message == "Something else")
+    #expect(!model.applyPresets(text: "abc"))
+    model.clearPresetsError()
+    #expect(model.message == nil)
+  }
+
+  @Test func applyPresetsReportsSaveFailureAndKeepsPresets() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer {
+      model.shutdown()
+      try? FileManager.default.setAttributes(
+        [.posixPermissions: 0o700], ofItemAtPath: directory.path)
+      try? FileManager.default.removeItem(at: directory)
+    }
+    #expect(model.applyPresets(text: "15, 30, 60"))
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o500], ofItemAtPath: directory.path)
+    #expect(!model.applyPresets(text: "10, 20"))
+    #expect(model.settings.presets == [15, 30, 60])
+    #expect(model.message?.hasPrefix("Couldn't save settings") == true)
+  }
+
   @Test func plannedUpdateRestoresOnlyTimersWithTheirOriginalDeadlines() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }

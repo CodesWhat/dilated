@@ -1147,6 +1147,36 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     try await setClosedLid(id: id, enabled: enabled, allowPrompt: false, requireAutomation: true)
   }
+  static func presetsText(_ presets: [Int]) -> String {
+    presets.map(String.init).joined(separator: ", ")
+  }
+  private static let presetsError = "Use up to 10 durations between 1 and 10080 minutes."
+  func clearPresetsError() {
+    if message == Self.presetsError { message = nil }
+  }
+  @discardableResult func applyPresets(text: String) -> Bool {
+    let parts = text.split(separator: ",", omittingEmptySubsequences: false)
+    let values = parts.compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+    guard !values.isEmpty, values.count == parts.count, values.count <= 10,
+      values.allSatisfy({ (1...10080).contains($0) })
+    else {
+      message = Self.presetsError
+      return false
+    }
+    var value = settings
+    value.presets = Array(Set(values)).sorted()
+    if value.defaultMinutes != 0 && !value.presets.contains(value.defaultMinutes) {
+      value.defaultMinutes = 0
+    }
+    do { try applySettings(value) } catch {
+      message = "Couldn't save settings: \(error.localizedDescription)"
+      onChange?()
+      return false
+    }
+    onChange?()
+    clearPresetsError()
+    return true
+  }
   func setTriggersEnabled(_ enabled: Bool) throws {
     guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
     var value = settings
