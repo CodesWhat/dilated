@@ -6,7 +6,7 @@ import Testing
 
 @MainActor private final class Signal {
   private var fired = false
-  private var waiter: CheckedContinuation<Void, Never>?
+  private var waiter: CheckedContinuation<Void, any Error>?
 
   func fire() {
     fired = true
@@ -14,13 +14,38 @@ import Testing
     waiter = nil
   }
 
-  func wait() async {
+  func cancel() {
+    waiter?.resume(throwing: CancellationError())
+    waiter = nil
+  }
+
+  func wait() async throws {
     if fired { return }
-    await withCheckedContinuation { waiter = $0 }
+    try Task.checkCancellation()
+    try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation {
+        (continuation: CheckedContinuation<Void, any Error>) in
+        if Task.isCancelled {
+          continuation.resume(throwing: CancellationError())
+        } else {
+          waiter = continuation
+        }
+      }
+    } onCancel: {
+      Task { @MainActor in self.cancel() }
+    }
   }
 }
 
 @MainActor struct DriveAliveTests {
+  @Test func cancellingAWaitingSignalEndsTheWaitInsteadOfHanging() async {
+    let signal = Signal()
+    let waiting = Task { try await signal.wait() }
+    await Task.yield()
+    waiting.cancel()
+    await #expect(throws: CancellationError.self) { try await waiting.value }
+  }
+
   @Test func volumeModesPreserveLegacyChoicesAndUnknownValuesCannotStartIdleWrites() throws {
     let json =
       #"{"driveAlive":{"enabled":true,"onlyWhileAwake":false,"volumes":[{"id":"uuid:test","name":"Test","path":"/Volumes/Test"}]},"countdown":true}"#
@@ -131,7 +156,7 @@ import Testing
       .init(id: "awake", name: "Awake", path: "/Volumes/Awake", mode: .awakeOnly), always,
     ]
     controller.configure(settings, awake: true, paused: false)
-    await held.wait()
+    try await held.wait()
     try #require(continuation != nil)
     controller.configure(settings, awake: false, paused: false)
     #expect(pulses == ["awake"] && schedules == 0)
@@ -254,12 +279,12 @@ import Testing
     var settings = DriveFixture.configuration
     settings.volumes.append(.init(id: "second", name: "Second", path: "/Volumes/Second"))
     controller.configure(settings, awake: true, paused: false)
-    await held.wait()
+    try await held.wait()
     try #require(continuation != nil)
     controller.stop()
     continuation?.resume()
     continuation = nil
-    await finished.wait()
+    try await finished.wait()
     #expect(writeFinished)
     #expect(pulses == 1 && schedules == 0)
   }
@@ -290,14 +315,14 @@ import Testing
     defer { controller.stop() }
     var settings = DriveFixture.configuration
     controller.configure(settings, awake: true, paused: false)
-    await held.wait()
+    try await held.wait()
     try #require(continuation != nil)
     settings.intervalSeconds = 120
     controller.configure(settings, awake: true, paused: false)
     #expect(pulses == 1 && delays.isEmpty)
     continuation?.resume()
     continuation = nil
-    await scheduled.wait()
+    try await scheduled.wait()
     #expect(pulses == 2)
     #expect(delays == [120])
   }
@@ -348,7 +373,7 @@ import Testing
       selected,
     ]
     controller.configure(settings, awake: false, paused: false)
-    await didSchedule.wait()
+    try await didSchedule.wait()
     try #require(scheduled != nil)
     #expect(pulses == [selected.id])
     #expect(controller.statuses["native-awake-only"] == nil)
