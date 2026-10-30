@@ -245,8 +245,11 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
       if !presetsFocused { presets = AppModel.presetsText(saved) }
     }
     .onChange(of: presetsFocused) { _, focused in
-      if !focused && presets != AppModel.presetsText(model.settings.presets) {
+      guard !focused else { return }
+      if presets != AppModel.presetsText(model.settings.presets) {
         commitPresets()
+      } else {
+        model.clearPresetsError()
       }
     }
   }
