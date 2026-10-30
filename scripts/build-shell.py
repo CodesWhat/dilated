@@ -33,7 +33,7 @@ def main():
     os.chdir(root)
     output = root / 'build/automation-shell'
     output.mkdir(parents=True, exist_ok=True)
-    subprocess.run(['xcodegen', 'generate', '--spec', 'packaging/automation-shell.yml',
+    subprocess.run(['xcodegen', 'generate', '--spec', 'packaging/automation-shell/project.yml',
                     '--project', str(output)], check=True, timeout=30)
     log = output / f'{args.configuration}-build.log'
     bounded_build([

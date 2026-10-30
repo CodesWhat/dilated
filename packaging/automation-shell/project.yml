@@ -15,7 +15,7 @@ targets:
     type: bundle
     platform: macOS
     sources:
-      - path: ../Sources/Dilated
+      - path: ../../Sources/Dilated
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.codeswhat.dilated
