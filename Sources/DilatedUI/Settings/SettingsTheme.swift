@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Colours, type and spacing for Dilated's control panel.
 enum SettingsTheme {
-  static let controlNS = DesignPalette.NS.accentMark
+  static let controlNS = DesignPalette.NS.ink
   static let control = Color(nsColor: controlNS)
 
   static let windowSize = NSSize(width: 900, height: 620)
@@ -97,10 +97,10 @@ struct SettingsGroup<Content: View>: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       Text(eyebrow).font(SettingsFont.mono(SettingsFont.eyebrow)).tracking(1)
-        .foregroundStyle(DesignPalette.accentText)
+        .foregroundStyle(DesignPalette.ink2)
         .padding(.horizontal, 12).padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DesignPalette.accentSoft).accessibilityAddTraits(.isHeader)
+        .accessibilityAddTraits(.isHeader)
       Rectangle().fill(DesignPalette.hair).frame(height: 1)
       Group(subviews: content()) { rows in
         VStack(spacing: 0) {
