@@ -19,6 +19,17 @@ import Testing
     #expect(ShortcutsSettings.accessibilityValue(for: first) == first.displayName)
   }
 
+  @Test(arguments: [UInt16(kVK_Tab), UInt16(kVK_Return), UInt16(kVK_Space)])
+  func recorderLeavesNavigationAndActivationKeysToTheSheet(key: UInt16) {
+    for flags: NSEvent.ModifierFlags in [[], .shift] {
+      #expect(ShortcutsSettings.passesRecorderKeyThrough(keyCode: key, modifiers: flags))
+    }
+    for flags: NSEvent.ModifierFlags in [.command, .control, .option] {
+      #expect(!ShortcutsSettings.passesRecorderKeyThrough(keyCode: key, modifiers: flags))
+    }
+    #expect(!ShortcutsSettings.passesRecorderKeyThrough(keyCode: UInt16(kVK_ANSI_A), modifiers: []))
+  }
+
   @Test func collisionsRestoreTheWorkingAssignmentsAndCallbacks() {
     let registrar = ShortcutRegistrarFixture()
     let bindings = ShortcutBindings(registrar: registrar)

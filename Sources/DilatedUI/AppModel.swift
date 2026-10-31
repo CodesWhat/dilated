@@ -346,6 +346,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       self.feedback.closedLidEnded(reason, playSound: !self.settings.closedLidWarningSound)
       if self.settings.closedLidWarningSound { NSSound.beep() }
     }
+    self.updater.onChange = { [weak self] in self?.onChange?() }
     self.updater.activity = { [weak self] in self?.updateActivity ?? .starting }
   }
 

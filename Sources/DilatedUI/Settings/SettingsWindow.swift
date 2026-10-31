@@ -61,7 +61,7 @@ import SwiftUI
   }
   func present() {
     showWindow(nil)
-    NSApp.activate(ignoringOtherApps: true)
+    NSApp.activate()
     window?.makeKeyAndOrderFront(nil)
   }
   func windowWillClose(_ notification: Notification) {

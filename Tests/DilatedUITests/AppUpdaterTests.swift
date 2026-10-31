@@ -5,6 +5,18 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct AppUpdaterTests {
+  @Test func startupReportsUnavailableDriverToExistingConsumers() {
+    let driver = UpdateDriverFixture()
+    driver.canCheckForUpdates = false
+    let updater = AppUpdater(driver: driver, activity: { .idle })
+    #expect(updater.canCheckForUpdates)
+    var changes = 0
+    updater.onChange = { changes += 1 }
+    updater.start()
+    #expect(!updater.canCheckForUpdates)
+    #expect(changes == 1)
+  }
+
   @Test func installationWaitsForClosedLidAndHelperWork() {
     let activity = UpdateActivityFixture()
     let driver = UpdateDriverFixture()
