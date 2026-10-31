@@ -190,6 +190,8 @@ private final class DownloadEventTarget: Sendable {
     requestRefresh()
   }
 
+  var pendingReadForTesting: Task<Void, Never>? { readTask }
+
   func tick() {
     guard active, let quietDeadline, clock() >= quietDeadline, readTask == nil else { return }
     requestRefresh()

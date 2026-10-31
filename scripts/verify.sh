@@ -2,7 +2,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swift build --arch arm64 --jobs 4
-bash scripts/swift-test.sh --jobs 4
+# Mounted views render synchronously on the main actor; keep deadline tests in a separate run.
+mounted_suites='Settings(ContentInteraction|GroupLayout|Render|Scroll)Tests|MountedSettingsTests|TriggerEditorInteractionTests'
+bash scripts/swift-test.sh --jobs 4 --skip "$mounted_suites"
+bash scripts/swift-test.sh --jobs 4 --filter "$mounted_suites"
 python3 -m unittest discover -s Tests/ReleaseTests
 node --test website/tests/*.test.mjs
 for module in website/dist/*.mjs; do node --check "$module"; done

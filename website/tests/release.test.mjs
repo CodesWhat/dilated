@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFile } from 'node:fs/promises';
 
 const release = await import('../dist/release.mjs').catch(() => ({}));
 const baseURL = 'https://example.com/dilated/';
@@ -12,6 +13,19 @@ const metadata = {
   minimumMacOS: '26.0',
   architecture: 'arm64',
 };
+
+test('the static page describes the public beta while downloads wait for verified metadata', async () => {
+  const html = await readFile(new URL('../dist/index.html', import.meta.url), 'utf8');
+  assert.doesNotMatch(html, /no public download|first release is in testing|currently in testing/i);
+  assert.match(html, /data-release-copy>[^<]*public beta/i);
+  assert.match(html, /<a[^>]*href="https:\/\/github\.com\/CodesWhat\/dilated\/releases"[^>]*>Release history/);
+  const downloadLinks = [...html.matchAll(/<a\b[^>]*data-release-link[^>]*>/g)].map(match => match[0]);
+  assert.ok(downloadLinks.length > 0);
+  for (const link of downloadLinks) {
+    const href = link.match(/\bhref="([^"]*)"/)?.[1];
+    assert.ok(href === '#availability' || (href === undefined && /\bhidden\b/.test(link)), link);
+  }
+});
 
 test('only a complete accepted release enables the download', () => {
   assert.equal(typeof release.validateRelease, 'function');

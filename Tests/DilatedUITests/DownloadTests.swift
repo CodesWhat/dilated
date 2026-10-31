@@ -192,7 +192,7 @@ import Testing
       if failure { fixture.readFails = true } else { fixture.snapshot.files = [:] }
       fixture.event?()
       await fixture.drain()
-      #expect(fixture.ends.count == 1)
+      try #require(fixture.ends.count == 1)
       #expect((fixture.ends[0] != nil) == failure)
       #expect(fixture.cancellations == 1)
     }
@@ -303,6 +303,7 @@ import Testing
     defer { try? FileManager.default.removeItem(at: directory) }
     var power = PowerState()
     let model = AppModel(endpoint: .init(stateDirectory: directory), power: { power })
+    defer { model.shutdown() }
     let fixture = DownloadFixture()
     _ = try model.startDownload(fixture.target, quietSeconds: 30, makeMonitor: fixture.monitor)
     await fixture.drain()
@@ -311,9 +312,43 @@ import Testing
     #expect(model.engine.holds.isEmpty && fixture.cancellations == 1)
     power.lowPowerMode = false
     model.refreshPower()
-    _ = try model.startDownload(fixture.target, quietSeconds: 30, makeMonitor: fixture.monitor)
+    var readGate: CheckedContinuation<DownloadSnapshot, Never>?
+    var readReturned = false
+    var completions = 0
+    var retainedMonitor: DownloadMonitor?
+    _ = try model.startDownload(fixture.target, quietSeconds: 30) { target, seconds, finished in
+      let monitor = DownloadMonitor(
+        target: target, quietSeconds: seconds,
+        read: { _ in
+          let snapshot = await withCheckedContinuation { readGate = $0 }
+          readReturned = true
+          return snapshot
+        },
+        subscribe: { _, _ in { fixture.cancellations += 1 } }, clock: { 0 },
+        finished: {
+          completions += 1
+          finished($0)
+        })
+      retainedMonitor = monitor
+      return monitor
+    }
+    let monitor = try #require(retainedMonitor)
+    defer {
+      readGate?.resume(returning: .init(files: [:]))
+      monitor.stop()
+    }
+    let pending = try #require(monitor.pendingReadForTesting)
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while readGate == nil && ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(1))
+    }
+    let gate = try #require(readGate)
     model.shutdown()
-    await fixture.drain()
+    #expect(pending.isCancelled)
+    gate.resume(returning: .init(files: [:]))
+    readGate = nil
+    await pending.value
+    #expect(readReturned && completions == 0)
     #expect(model.engine.holds.isEmpty && fixture.cancellations == 2)
   }
 }
@@ -331,6 +366,7 @@ import Testing
   var cancellations = 0
   var ends: [String?] = []
   var event: (@MainActor @Sendable () -> Void)?
+  private weak var lastMonitor: DownloadMonitor?
   func monitor() -> DownloadMonitor {
     monitor(target, 30) { [weak self] in self?.ends.append($0) }
   }
@@ -338,9 +374,10 @@ import Testing
     _ target: DownloadTarget, _ quietSeconds: TimeInterval,
     _ finished: @escaping @MainActor (String?) -> Void
   ) -> DownloadMonitor {
-    DownloadMonitor(
+    let monitor = DownloadMonitor(
       target: target, quietSeconds: quietSeconds,
       read: { [self] _ in
+        try await Task.sleep(for: .milliseconds(5))
         reads += 1
         if readFails { throw CocoaError(.fileReadNoPermission) }
         if let readError { throw readError }
@@ -350,6 +387,9 @@ import Testing
         self.event = event
         return { [self] in cancellations += 1 }
       }, clock: { [self] in uptime }, finished: finished)
+    lastMonitor = monitor
+    return monitor
   }
-  func drain() async { for _ in 0..<20 { await Task.yield() } }
+  var pendingRead: Task<Void, Never>? { lastMonitor?.pendingReadForTesting }
+  func drain() async { await pendingRead?.value }
 }

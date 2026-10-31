@@ -21,7 +21,9 @@ struct TriggerTests {
     var input = TriggerInputs()
     input.processNames = ["make"]
     evaluator.reconcile(rules: [rule], inputs: input, engine: &engine, now: start)
-    #expect(evaluator.activeHoldIDs[rule.id] == engine.holds.first?.id)
+    try #require(engine.holds.count == 1)
+    let hold = try #require(engine.holds.first)
+    #expect(evaluator.activeHoldIDs[rule.id] == hold.id)
     #expect(!engine.desiredState.closedLid)
     evaluator.reconcile(rules: [], inputs: input, engine: &engine, now: start)
     #expect(evaluator.activeHoldIDs.isEmpty && engine.holds.isEmpty)

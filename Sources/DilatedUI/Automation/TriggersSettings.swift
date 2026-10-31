@@ -126,6 +126,9 @@ import UniformTypeIdentifiers
 }
 
 @MainActor struct TriggerRuleEditor: View {
+  #if DEBUG
+    var didAppear: ((Self) -> Void)?
+  #endif
   @State var rule: TriggerRule
   @State private var criteria: TriggerCriteriaRows
   var save: (TriggerRule) throws -> Void
@@ -220,6 +223,9 @@ import UniformTypeIdentifiers
     }
     .padding(24).frame(width: 560, height: 600)
     .font(DesignFont.sans(13)).foregroundStyle(DesignPalette.ink).background(DesignPalette.bg)
+    #if DEBUG
+      .onAppear { didAppear?(self) }
+    #endif
   }
 }
 
