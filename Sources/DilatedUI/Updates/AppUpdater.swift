@@ -34,6 +34,7 @@ enum UpdateLaunchPolicy {
 
 @MainActor @Observable public final class AppUpdater: UpdateDriverDelegate {
   @ObservationIgnored private let driver: (any UpdateDriving)?
+  @ObservationIgnored var onChange: (() -> Void)?
   @ObservationIgnored var activity: () -> UpdateActivity
   @ObservationIgnored private var pendingInstall: (() -> Void)?
   private var requestedStart = false
@@ -114,8 +115,10 @@ enum UpdateLaunchPolicy {
     refreshDriver()
   }
   private func refreshDriver() {
+    let previous = canCheckForUpdates
     driverCanCheck = driver?.canCheckForUpdates ?? false
     automaticallyChecksForUpdates = driver?.automaticallyChecksForUpdates ?? false
+    if previous != canCheckForUpdates { onChange?() }
   }
   public func checkForUpdates() {
     refreshActivity()
