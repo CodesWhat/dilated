@@ -19,7 +19,20 @@ struct PackageHelperTests {
         process.waitUntilExit()
       }
     }
-    try await Task.sleep(for: .milliseconds(50))
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    let pattern = "^" + NSRegularExpression.escapedPattern(for: executable.path) + "($|[[:space:]])"
+    var ready = false
+    while ContinuousClock.now < deadline {
+      let found = try await BoundedProcess.run(
+        executable: URL(fileURLWithPath: "/usr/bin/pgrep"),
+        arguments: ["-f", pattern], timeout: 0.5)
+      if !found.timedOut, found.status == 0 {
+        ready = true
+        break
+      }
+      try await Task.sleep(for: .milliseconds(20))
+    }
+    try #require(ready, "The child did not adopt the expected app identity.")
     await #expect(throws: (any Error).self) {
       try await PackageHelperCheck.verifyAppAbsent(executable: executable)
     }

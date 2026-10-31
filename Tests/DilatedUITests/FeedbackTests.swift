@@ -365,8 +365,14 @@ import Testing
   var permissionGate: CheckedContinuation<FeedbackAuthorization, Never>?
   var delaySend = false
   var sendGate: CheckedContinuation<Void, Never>?
-  func controller() -> FeedbackController { FeedbackController(service: self, sounds: self) }
+  private weak var lastController: FeedbackController?
+  func controller() -> FeedbackController {
+    let controller = FeedbackController(service: self, sounds: self)
+    lastController = controller
+    return controller
+  }
   func authorization() async -> FeedbackAuthorization {
+    try? await Task.sleep(for: .milliseconds(5))
     if delayAuthorization {
       let result = await withCheckedContinuation { authorizationGate = $0 }
       authorizationReturned = true
@@ -389,5 +395,7 @@ import Testing
     played.append(choice)
   }
   func stop() { stops += 1 }
-  func drain() async { for _ in 0..<30 { await Task.yield() } }
+  func drain() async {
+    for delivery in lastController?.pendingDeliveriesForTesting ?? [] { await delivery.value }
+  }
 }

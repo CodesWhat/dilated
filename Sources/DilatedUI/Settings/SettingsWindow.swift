@@ -247,7 +247,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         }
         .padding(.horizontal, 28).padding(.top, 12).padding(.bottom, 28)
         .frame(maxWidth: .infinity, alignment: .leading)
-      }.background(DesignPalette.bg)
+      }.background(DesignPalette.bg).id(page)
     }
     .font(DesignFont.sans(13)).foregroundStyle(DesignPalette.ink).tint(SettingsTheme.control)
     .frame(minWidth: 860, minHeight: 600)

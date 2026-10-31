@@ -67,12 +67,14 @@ import Testing
     #expect(!observer.isAuthorized && observer.read() == nil && reads == 2)
   }
 
-  @Test func queuedPermissionChangesAreIgnoredAfterStopOrDeinit() async {
+  @Test func queuedPermissionChangesAreIgnoredAfterStopOrDeinit() {
     let source = TestWiFiAuthorization()
     let access = WiFiAccess { source }
     var changes = 0
+    var pending: [@MainActor @Sendable () -> Void] = []
     var observer: WiFiObserver? = WiFiObserver(
-      access: access, readSSIDs: { [] }, changed: { changes += 1 })
+      access: access, readSSIDs: { [] }, schedule: { pending.append($0) }, changed: { changes += 1 }
+    )
     observer?.setEnabled(true)
     observer?.setEnabled(true)
     source.permission = .allowed
@@ -80,19 +82,22 @@ import Testing
     source.permission = .denied
     source.changed?()
     observer?.stop()
-    await Task.yield()
+    for callback in pending { callback() }
+    pending.removeAll()
     #expect(changes == 0)
     observer?.setEnabled(true)
     source.permission = .allowed
     source.changed?()
-    await Task.yield()
+    for callback in pending { callback() }
+    pending.removeAll()
     #expect(changes == 1)
     weak var released = observer
     source.permission = .denied
     source.changed?()
     observer = nil
     #expect(released == nil)
-    await Task.yield()
+    for callback in pending { callback() }
+    pending.removeAll()
     #expect(changes == 1)
   }
 

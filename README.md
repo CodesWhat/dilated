@@ -2,6 +2,8 @@
 
 Keeps your Mac awake. A native macOS 26 menu bar app for Apple Silicon.
 
+From [CodesWhat](https://codeswhat.com): small, sharp tools from one developer and a lot of agents.
+
 The local preview includes timed and indefinite awake holds, display-sleep controls,
 battery and Low Power Mode guards, four menu bar glyphs, optional compact/clock countdowns or end time, Settings,
 configurable global shortcuts, local history and statistics, URL automation, AppleScript,

@@ -54,6 +54,8 @@ struct FeedbackNotice: Sendable {
   @ObservationIgnored private var requests: [FeedbackNotice.Kind: UUID] = [:]
   @ObservationIgnored private var tasks: [FeedbackNotice.Kind: Task<Void, Never>] = [:]
 
+  var pendingDeliveriesForTesting: [Task<Void, Never>] { Array(tasks.values) }
+
   init(service: any FeedbackService, sounds: any FeedbackSoundPlaying) {
     self.service = service
     self.sounds = sounds
