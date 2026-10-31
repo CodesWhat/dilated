@@ -59,6 +59,13 @@ import SwiftUI
       glass.contentView = hosting
     }
   }
+  func dismissSheetForPackage(_ request: ControlRequest, response: ControlResponse) {
+    guard response.ok, request.action == .prepareUpdate || request.action == .prepareUninstall,
+      let window, let sheet = window.attachedSheet
+    else { return }
+    window.endSheet(sheet, returnCode: .cancel)
+  }
+
   func present() {
     showWindow(nil)
     NSApp.activate()

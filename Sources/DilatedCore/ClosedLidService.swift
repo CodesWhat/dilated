@@ -51,7 +51,10 @@ public actor ClosedLidService {
     }
     switch request.action {
     case .status:
-      readback = await power.readback()
+      let current = operation
+      let currentPhase = phase
+      let observed = await power.readback()
+      if operation == current, phase == currentPhase { readback = observed }
       return reply(true)
     case .enable:
       guard phase == .off, resetConfirmed, readback.confirmedDisabled else {
@@ -109,7 +112,9 @@ public actor ClosedLidService {
       await reset()
       return
     }
+    let current = operation
     let observed = await power.readback()
+    guard operation == current else { return }
     readback = observed
     if phase == .on, governor.lease != nil, !observed.confirmedEnabled {
       if let stopped = governor.reconcile(environment: environment(), now: clock()) {
