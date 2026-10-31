@@ -113,6 +113,32 @@ import Testing
     #expect(lastNotification == expectedMessage)
   }
 
+  @Test func presetRetryPreservesAnIdenticalErrorFromAnotherSettingsSave() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer {
+      model.shutdown()
+      try? FileManager.default.setAttributes(
+        [.posixPermissions: 0o700], ofItemAtPath: directory.path)
+      try? FileManager.default.removeItem(at: directory)
+    }
+    try #require(model.applyPresets(text: "15, 30, 60"))
+    let originalDefault = model.settings.defaultMinutes
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o500], ofItemAtPath: directory.path)
+    try #require(!model.applyPresets(text: "10, 20"))
+    let presetError = try #require(model.message)
+    model.settings.defaultMinutes = 30
+    try #require(model.message == presetError)
+    try #require(model.settings.defaultMinutes == originalDefault)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o700], ofItemAtPath: directory.path)
+    try #require(model.applyPresets(text: "10, 20"))
+    #expect(model.message == presetError)
+    #expect(model.settings.defaultMinutes == originalDefault)
+    #expect(model.settings.presets == [10, 20])
+  }
+
   @Test func plannedUpdateRestoresOnlyTimersWithTheirOriginalDeadlines() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }

@@ -191,7 +191,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored public var onShortcutAssignment:
     (([ShortcutAction: AwakeShortcut]) -> String?)?
   public var shortcutRecording = false { didSet { onChange?() } }
-  public var message: String?
+  public var message: String? {
+    didSet { messageIsPresetSaveError = false }
+  }
   public private(set) var now = Date()
   @ObservationIgnored public var onChange: (() -> Void)?
   @ObservationIgnored public var onBatteryOverrideNeeded: ((TimeInterval?) -> Void)?
@@ -1152,7 +1154,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     presets.map(String.init).joined(separator: ", ")
   }
   private static let presetsError = "Use up to 10 durations between 1 and 10080 minutes."
-  @ObservationIgnored private var presetsSaveError: String?
+  @ObservationIgnored private var messageIsPresetSaveError = false
   func clearPresetsError() {
     if message == Self.presetsError { message = nil }
   }
@@ -1171,14 +1173,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
       value.defaultMinutes = 0
     }
     do { try applySettings(value) } catch {
-      let issue = "Couldn't save settings: \(error.localizedDescription)"
-      presetsSaveError = issue
-      message = issue
+      message = "Couldn't save settings: \(error.localizedDescription)"
+      messageIsPresetSaveError = true
       onChange?()
       return false
     }
-    if message == presetsSaveError { message = nil }
-    presetsSaveError = nil
+    if messageIsPresetSaveError { message = nil }
     clearPresetsError()
     onChange?()
     return true
