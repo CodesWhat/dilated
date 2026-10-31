@@ -196,6 +196,7 @@ pass: `macOS26ClosedLid`, `heartbeatExpiry` and `stopResume`. Anything else that
 is failed or not run stays in the record with its evidence. Staging then names
 those checks as unverified in the public release manifest, `latest.json` and the
 cask caveats, and the public manifest reports `acceptanceVerified: false` while
-any are open. A GA version keeps the full gate above, with all 14 checks passed.
+any are open. A GA version keeps the full gate above, with every required check
+passed.
 Accepted release staging also generates `dilated.rb` with the exact version and
 DMG digest as a versioned release asset. It does not publish the Homebrew tap.
