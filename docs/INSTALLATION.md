@@ -1,20 +1,22 @@
 # Installation and removal
 
-Dilated targets macOS 26 or later on Apple Silicon. 1.0.0-beta.5 (build 10) is
+Dilated targets macOS 26 or later on Apple Silicon. 1.0.0-beta.6 (build 11) is
 public as a beta. Download the signed, notarized DMG from
 https://dilated.codeswhat.com/download/file, or run
 `brew install --cask codeswhat/tap/dilated`. The fully qualified name trusts that
 cask. Running `brew info` or `brew fetch` on the bare tap may ask for
 `brew trust --cask codeswhat/tap/dilated`. The GitHub release at
-https://github.com/CodesWhat/dilated/releases/tag/v1.0.0-beta.5 carries the DMG,
+https://github.com/CodesWhat/dilated/releases/tag/v1.0.0-beta.6 carries the DMG,
 ZIP, source tarball, sha256 files and `release-manifest.json`.
 
 The beta passed these checks on the maintainer's Mac: `macOS26ClosedLid`,
-`heartbeatExpiry` and `stopResume`, plus a real Homebrew cask install over a
-prepared earlier build. These hardware checks are not verified yet and are listed
-in the cask caveats and `latest.json`: `macOS27ClosedLid`,
+`heartbeatExpiry`, `stopResume` and `sparkleUpgrade`, plus a real Homebrew cask
+install and upgrade over prepared earlier builds. These receipts come from
+earlier betas; they do not establish a fresh hardware run for every release.
+These hardware checks are not verified yet and are listed in the cask caveats
+and `latest.json`: `macOS27ClosedLid`,
 `helperCrashRecovery`, `appCrashRecovery`, `guardTransitions`, `rebootRecovery`,
-`approvalDenied`, `helperUpgrade`, `sparkleUpgrade`,
+`approvalDenied`, `helperUpgrade`,
 `uninstallNormalSleep` and `nativeUI`. A signed or notarized build alone does not
 close them.
 
