@@ -1,4 +1,2 @@
-Duration presets save when you leave the field, and shortcut recording lets you reach the sheet buttons with the keyboard.
-All four glyph previews loop through every state. Trigger action labels identify the rule or condition.
-Update availability refreshes the open menu. Prepared updates close Settings sheets, and helper status ignores stale power readings.
-Closed-lid mode is still experimental. Crash, reboot and update recovery remain unverified on hardware.
+Settings pages open at the top when you switch between panes.
+Closed-lid mode remains experimental. Crash, reboot and update recovery remain unverified on hardware.

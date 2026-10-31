@@ -6,6 +6,31 @@ exclude_patterns = [
   "**/node_modules/**",
 ]
 
+[file_types.osv-scanner]
+# Qlty replaces this list, so retain its existing lockfile targets.
+globs = [
+  "**/conan.lock",
+  "**/pubspec.lock",
+  "**/mix.lock",
+  "**/go.mod",
+  "**/buildscript-gradle.lockfile",
+  "**/gradle.lockfile",
+  "**/gradle/verification-metadata.xml",
+  "**/pom.xml",
+  "**/package-lock.json",
+  "**/pnpm-lock.yaml",
+  "**/yarn.lock",
+  "**/composer.lock",
+  "**/Pipfile.lock",
+  "**/poetry.lock",
+  "**/requirements.txt",
+  "**/pdm.lock",
+  "**/renv.lock",
+  "**/Gemfile.lock",
+  "**/Cargo.lock",
+  "**/Package.resolved",
+]
+
 [smells]
 mode = "comment"
 
@@ -21,6 +46,7 @@ name = "bandit"
 
 [[plugin]]
 name = "osv-scanner"
+version = "2.4.0"
 
 [[plugin]]
 name = "radarlint-python"

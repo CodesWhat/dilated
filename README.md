@@ -2,6 +2,8 @@
 
 Keeps your Mac awake. A native macOS 26 menu bar app for Apple Silicon.
 
+From [CodesWhat](https://codeswhat.com): small, sharp tools from one developer and a lot of agents.
+
 The local preview includes timed and indefinite awake holds, display-sleep controls,
 battery and Low Power Mode guards, four menu bar glyphs, optional compact/clock countdowns or end time, Settings,
 configurable global shortcuts, local history and statistics, URL automation, AppleScript,
@@ -16,7 +18,7 @@ Bluetooth devices, selected audio output,
 CPU load and idle time.
 Automatic agent setup remains later work.
 
-1.0.0-beta.6 is a public beta for macOS 26+ on Apple Silicon. Install it from the
+1.0.0-beta.7 is a public beta for macOS 26+ on Apple Silicon. Install it from the
 website download or with `brew install --cask codeswhat/tap/dilated`. Closed-lid
 mode is experimental, and crash, reboot and update recovery haven't been verified
 on hardware yet. Report issues on GitHub.

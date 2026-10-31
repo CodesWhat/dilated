@@ -133,6 +133,8 @@ private final class NativeWiFiAuthorization: NSObject, WiFiAuthorizationSource,
 }
 
 @MainActor final class WiFiObserver {
+  typealias Schedule = @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
+  private let schedule: Schedule
   private let suppliedAccess: WiFiAccess?
   private let readSSIDs: () -> Set<Data>?
   private let changed: () -> Void
@@ -144,8 +146,10 @@ private final class NativeWiFiAuthorization: NSObject, WiFiAuthorizationSource,
 
   init(
     access: WiFiAccess? = nil, readSSIDs: (() -> Set<Data>?)? = nil,
+    schedule: @escaping Schedule = { action in Task { @MainActor in action() } },
     changed: @escaping () -> Void
   ) {
+    self.schedule = schedule
     suppliedAccess = access
     self.readSSIDs = readSSIDs ?? { WiFiCatalog.read() }
     self.changed = changed
@@ -187,7 +191,7 @@ private final class NativeWiFiAuthorization: NSObject, WiFiAuthorizationSource,
     guard !notificationPending else { return }
     notificationPending = true
     let generation = generation
-    Task { @MainActor [weak self] in
+    schedule { [weak self] in
       guard let self, self.access != nil, self.generation == generation else { return }
       self.notificationPending = false
       self.changed()
