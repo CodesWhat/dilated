@@ -1152,6 +1152,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     presets.map(String.init).joined(separator: ", ")
   }
   private static let presetsError = "Use up to 10 durations between 1 and 10080 minutes."
+  @ObservationIgnored private var presetsSaveError: String?
   func clearPresetsError() {
     if message == Self.presetsError { message = nil }
   }
@@ -1170,12 +1171,16 @@ public struct AppSettings: Codable, Equatable, Sendable {
       value.defaultMinutes = 0
     }
     do { try applySettings(value) } catch {
-      message = "Couldn't save settings: \(error.localizedDescription)"
+      let issue = "Couldn't save settings: \(error.localizedDescription)"
+      presetsSaveError = issue
+      message = issue
       onChange?()
       return false
     }
-    onChange?()
+    if message == presetsSaveError { message = nil }
+    presetsSaveError = nil
     clearPresetsError()
+    onChange?()
     return true
   }
   func setTriggersEnabled(_ enabled: Bool) throws {
