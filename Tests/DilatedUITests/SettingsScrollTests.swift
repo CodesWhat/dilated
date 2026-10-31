@@ -43,9 +43,11 @@ import ViewInspector
         let clip = scroll.contentView
         try #require(clip.bounds.height > 500)
         try #require(document.bounds.height > clip.bounds.height + 1)
-        let top =
+        var topBounds = clip.bounds
+        topBounds.origin.y =
           document.isFlipped
-          ? document.bounds.minY : document.bounds.maxY - clip.bounds.height
+          ? document.frame.minY - clip.bounds.height : document.frame.maxY + clip.bounds.height
+        let top = clip.constrainBoundsRect(topBounds).minY
         let bottom =
           document.isFlipped
           ? document.bounds.maxY - clip.bounds.height : document.bounds.minY
