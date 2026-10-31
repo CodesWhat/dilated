@@ -32,6 +32,7 @@ if $verify; then
         echo "--verify only operates on build/Dilated.app" >&2
         exit 1
     fi
+    app="$resolved_app"
     other_app="$(ps -axo pid=,comm= | while read -r pid executable; do
         if [[ "$executable" == */Contents/MacOS/DilatedApp && "$executable" != "$app/Contents/MacOS/DilatedApp" ]]; then
             echo "$pid"

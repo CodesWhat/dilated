@@ -14,7 +14,7 @@ class BuildRunTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='dilated-build-run-')
         self.addCleanup(self.temp.cleanup)
-        self.root = pathlib.Path(self.temp.name)
+        self.root = pathlib.Path(self.temp.name).resolve()
         (self.root / 'scripts').mkdir()
         shutil.copy(ROOT / 'scripts/build-app.sh', self.root / 'scripts/build-app.sh')
         self.bin = self.root / 'bin'
@@ -118,3 +118,21 @@ class BuildRunTests(unittest.TestCase):
         result = self.run_script('debug', '--verify')
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.calls.exists())
+
+    def test_verify_accepts_relative_build_output(self):
+        self.successful_build_fixture()
+        result = self.run_script('debug', '--verify', DILATED_BUILD_DIR='build')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Running Dilated PID: 456', result.stdout)
+        self.assertIn(f'open:-n {self.root}/build/Dilated.app', self.calls.read_text())
+
+    def test_relative_output_prepares_the_expected_running_dev_app(self):
+        app = self.root / 'build/Dilated.app/Contents/MacOS'
+        app.mkdir(parents=True)
+        cli = app / 'dilated'
+        cli.write_text('#!/bin/bash\necho prepare:$* >> "$CALLS"\n')
+        cli.chmod(0o755)
+        self.stub('ps', f'if [ ! -f "$CALLS" ]; then echo "123 {app}/DilatedApp"; fi')
+        result = self.run_script('debug', '--verify', DILATED_BUILD_DIR='build')
+        self.assertEqual(result.returncode, 71, result.stderr)
+        self.assertEqual(self.calls.read_text().splitlines(), ['prepare:prepare-update', 'swift'])
