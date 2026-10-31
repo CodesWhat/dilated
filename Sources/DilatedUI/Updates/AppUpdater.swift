@@ -107,15 +107,16 @@ enum UpdateLaunchPolicy {
     refreshActivity()
   }
   private func startDriver() {
+    let previous = canCheckForUpdates
     do {
       try driver?.start()
       started = true
       errorMessage = nil
     } catch { errorMessage = error.localizedDescription }
-    refreshDriver()
+    refreshDriver(previousAvailability: previous)
   }
-  private func refreshDriver() {
-    let previous = canCheckForUpdates
+  private func refreshDriver(previousAvailability: Bool? = nil) {
+    let previous = previousAvailability ?? canCheckForUpdates
     driverCanCheck = driver?.canCheckForUpdates ?? false
     automaticallyChecksForUpdates = driver?.automaticallyChecksForUpdates ?? false
     if previous != canCheckForUpdates { onChange?() }

@@ -12,7 +12,7 @@ import SwiftUI
 
   static func passesRecorderKeyThrough(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
     [UInt16(kVK_Tab), UInt16(kVK_Return), UInt16(kVK_Space)].contains(keyCode)
-      && modifiers.intersection([.command, .control, .option]).isEmpty
+      && modifiers.isDisjoint(with: [.command, .control, .option])
   }
 
   var body: some View {
