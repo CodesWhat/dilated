@@ -303,6 +303,7 @@ import Testing
     defer { try? FileManager.default.removeItem(at: directory) }
     var power = PowerState()
     let model = AppModel(endpoint: .init(stateDirectory: directory), power: { power })
+    defer { model.shutdown() }
     let fixture = DownloadFixture()
     _ = try model.startDownload(fixture.target, quietSeconds: 30, makeMonitor: fixture.monitor)
     await fixture.drain()
@@ -311,10 +312,43 @@ import Testing
     #expect(model.engine.holds.isEmpty && fixture.cancellations == 1)
     power.lowPowerMode = false
     model.refreshPower()
-    _ = try model.startDownload(fixture.target, quietSeconds: 30, makeMonitor: fixture.monitor)
-    let pending = try #require(fixture.pendingRead)
+    var readGate: CheckedContinuation<DownloadSnapshot, Never>?
+    var readReturned = false
+    var completions = 0
+    var retainedMonitor: DownloadMonitor?
+    _ = try model.startDownload(fixture.target, quietSeconds: 30) { target, seconds, finished in
+      let monitor = DownloadMonitor(
+        target: target, quietSeconds: seconds,
+        read: { _ in
+          let snapshot = await withCheckedContinuation { readGate = $0 }
+          readReturned = true
+          return snapshot
+        },
+        subscribe: { _, _ in { fixture.cancellations += 1 } }, clock: { 0 },
+        finished: {
+          completions += 1
+          finished($0)
+        })
+      retainedMonitor = monitor
+      return monitor
+    }
+    let monitor = try #require(retainedMonitor)
+    defer {
+      readGate?.resume(returning: .init(files: [:]))
+      monitor.stop()
+    }
+    let pending = try #require(monitor.pendingReadForTesting)
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while readGate == nil && ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(1))
+    }
+    let gate = try #require(readGate)
     model.shutdown()
+    #expect(pending.isCancelled)
+    gate.resume(returning: .init(files: [:]))
+    readGate = nil
     await pending.value
+    #expect(readReturned && completions == 0)
     #expect(model.engine.holds.isEmpty && fixture.cancellations == 2)
   }
 }
