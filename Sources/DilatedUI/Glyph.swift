@@ -44,6 +44,11 @@ public enum Glyph: String, Codable, CaseIterable, Sendable {
     Self.imageCache[key] = image
     return image
   }
+  public func previewFrame(elapsed: TimeInterval, reduceMotion: Bool) -> String {
+    guard !reduceMotion, elapsed.isFinite else { return stillFrame }
+    let phase = max(0, elapsed).truncatingRemainder(dividingBy: Double(frames.count) * 0.75)
+    return frames[Int(phase / 0.75)]
+  }
   public func animates(motion: Motion, reduceMotion: Bool) -> Bool {
     motion != .off && !reduceMotion && self != .catCans
   }

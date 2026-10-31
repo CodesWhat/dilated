@@ -475,11 +475,11 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
               model.settings = settings
             } label: {
               VStack(spacing: 10) {
-                if glyph.animates(motion: model.settings.motion, reduceMotion: reduceMotion) {
-                  TimelineView(.periodic(from: .now, by: 0.25)) { context in
-                    let frame = glyph.frame(
-                      awake: true, elapsed: context.date.timeIntervalSinceReferenceDate,
-                      motion: model.settings.motion, reduceMotion: reduceMotion)
+                if !reduceMotion {
+                  TimelineView(.periodic(from: .now, by: 0.75)) { context in
+                    let frame = glyph.previewFrame(
+                      elapsed: context.date.timeIntervalSinceReferenceDate,
+                      reduceMotion: reduceMotion)
                     if let image = glyph.image(frame: frame) {
                       Image(nsImage: image).resizable().interpolation(.none).frame(
                         width: 32, height: 30)

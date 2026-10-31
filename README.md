@@ -26,6 +26,11 @@ Build the local app with `bash scripts/build-app.sh`, then open
 script uses ad-hoc signing by default; `DILATED_SIGN_IDENTITY` can select an
 installed signing identity. Xcode and XcodeGen are required. The app shell extracts
 App Intents metadata while the core, UI, CLI and helper remain Swift packages.
+`bash scripts/build-app.sh debug --verify` safely stops the running dev copy,
+rebuilds it, launches it and reports its PID. It refuses alternate output paths
+and waits for other Dilated copies to be quit first. Add `--logs` to stream app
+logs for five minutes after launch.
+
 Real Shortcuts execution requires a developer-signed build on the tested Mac;
 an ad-hoc build can appear in the action catalog but fail to run.
 
