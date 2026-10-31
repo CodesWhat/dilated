@@ -192,7 +192,7 @@ import Testing
       if failure { fixture.readFails = true } else { fixture.snapshot.files = [:] }
       fixture.event?()
       await fixture.drain()
-      #expect(fixture.ends.count == 1)
+      try #require(fixture.ends.count == 1)
       #expect((fixture.ends[0] != nil) == failure)
       #expect(fixture.cancellations == 1)
     }
@@ -312,8 +312,9 @@ import Testing
     power.lowPowerMode = false
     model.refreshPower()
     _ = try model.startDownload(fixture.target, quietSeconds: 30, makeMonitor: fixture.monitor)
+    let pending = try #require(fixture.pendingRead)
     model.shutdown()
-    await fixture.drain()
+    await pending.value
     #expect(model.engine.holds.isEmpty && fixture.cancellations == 2)
   }
 }
@@ -331,6 +332,7 @@ import Testing
   var cancellations = 0
   var ends: [String?] = []
   var event: (@MainActor @Sendable () -> Void)?
+  private weak var lastMonitor: DownloadMonitor?
   func monitor() -> DownloadMonitor {
     monitor(target, 30) { [weak self] in self?.ends.append($0) }
   }
@@ -338,9 +340,10 @@ import Testing
     _ target: DownloadTarget, _ quietSeconds: TimeInterval,
     _ finished: @escaping @MainActor (String?) -> Void
   ) -> DownloadMonitor {
-    DownloadMonitor(
+    let monitor = DownloadMonitor(
       target: target, quietSeconds: quietSeconds,
       read: { [self] _ in
+        try await Task.sleep(for: .milliseconds(5))
         reads += 1
         if readFails { throw CocoaError(.fileReadNoPermission) }
         if let readError { throw readError }
@@ -350,6 +353,9 @@ import Testing
         self.event = event
         return { [self] in cancellations += 1 }
       }, clock: { [self] in uptime }, finished: finished)
+    lastMonitor = monitor
+    return monitor
   }
-  func drain() async { for _ in 0..<20 { await Task.yield() } }
+  var pendingRead: Task<Void, Never>? { lastMonitor?.pendingReadForTesting }
+  func drain() async { await pendingRead?.value }
 }

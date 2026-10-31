@@ -327,69 +327,76 @@ import Testing
     #expect(delays == [120])
   }
 
-  @Test(.enabled(if: ProcessInfo.processInfo.environment["DILATED_DRIVE_FIXTURE"] != nil))
-  func nativeSelectedVolumeAcceptsWritesOrRejectsReadOnlyMounts() async throws {
-    let path = try #require(ProcessInfo.processInfo.environment["DILATED_DRIVE_FIXTURE"])
-    let folder = URL(fileURLWithPath: path)
-    let selected = try #require(try NativeDriveAlive.mounted().first { $0.volume.path == path })
-    let before = try FileManager.default.contentsOfDirectory(atPath: path).sorted()
-    if selected.readOnly {
-      await #expect(throws: (any Error).self) { try await NativeDriveAlive.pulse(selected.volume) }
-    } else {
-      try await NativeDriveAlive.pulse(selected.volume)
+  @Suite(.serialized)
+  @MainActor struct NativeFixtureTests {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["DILATED_DRIVE_FIXTURE"] != nil))
+    func nativeSelectedVolumeAcceptsWritesOrRejectsReadOnlyMounts() async throws {
+      let path = try #require(ProcessInfo.processInfo.environment["DILATED_DRIVE_FIXTURE"])
+      let folder = URL(fileURLWithPath: path)
+      let selected = try #require(try NativeDriveAlive.mounted().first { $0.volume.path == path })
+      let before = try FileManager.default.contentsOfDirectory(atPath: path).sorted()
+      if selected.readOnly {
+        await #expect(throws: (any Error).self) {
+          try await NativeDriveAlive.pulse(selected.volume)
+        }
+      } else {
+        try await NativeDriveAlive.pulse(selected.volume)
+      }
+      #expect(try FileManager.default.contentsOfDirectory(atPath: path).sorted() == before)
+      #expect(try Data(contentsOf: folder.appendingPathComponent("user-file")) == Data([1, 2, 3]))
     }
-    #expect(try FileManager.default.contentsOfDirectory(atPath: path).sorted() == before)
-    #expect(try Data(contentsOf: folder.appendingPathComponent("user-file")) == Data([1, 2, 3]))
-  }
 
-  @Test(
-    .enabled(if: ProcessInfo.processInfo.environment["DILATED_DRIVE_FIXTURE"] != nil),
-    .timeLimit(.minutes(1)))
-  func nativeMixedModesPulseOnlyTheEligibleVolumeAndStillPause() async throws {
-    let path = try #require(ProcessInfo.processInfo.environment["DILATED_DRIVE_FIXTURE"])
-    let mount = try #require(try NativeDriveAlive.mounted().first { $0.volume.path == path })
-    let before = try FileManager.default.contentsOfDirectory(atPath: path).sorted()
-    var selected = mount.volume
-    selected.mode = .always
-    var pulses: [String] = []
-    var scheduled: (@MainActor @Sendable () -> Void)?
-    let didSchedule = Signal()
-    let controller = DriveAliveController(
-      clock: { 1000 },
-      pulse: { volume in
-        pulses.append(volume.id)
-        try await NativeDriveAlive.pulse(volume)
-      },
-      schedule: { _, fire in
-        scheduled = fire
-        didSchedule.fire()
-        return {}
-      })
-    defer { controller.stop() }
-    var settings = DriveAliveSettings()
-    settings.enabled = true
-    settings.volumes = [
-      .init(id: "native-awake-only", name: "Inactive", path: "/Volumes/Missing", mode: .awakeOnly),
-      selected,
-    ]
-    controller.configure(settings, awake: false, paused: false)
-    try await didSchedule.wait()
-    try #require(scheduled != nil)
-    #expect(pulses == [selected.id])
-    #expect(controller.statuses["native-awake-only"] == nil)
-    if mount.readOnly {
-      #expect(controller.statuses[selected.id]?.contains("read-only") == true)
-    } else {
-      #expect(controller.statuses[selected.id] == "Active")
+    @Test(
+      .enabled(if: ProcessInfo.processInfo.environment["DILATED_DRIVE_FIXTURE"] != nil),
+      .timeLimit(.minutes(1)))
+    func nativeMixedModesPulseOnlyTheEligibleVolumeAndStillPause() async throws {
+      let path = try #require(ProcessInfo.processInfo.environment["DILATED_DRIVE_FIXTURE"])
+      let mount = try #require(try NativeDriveAlive.mounted().first { $0.volume.path == path })
+      let before = try FileManager.default.contentsOfDirectory(atPath: path).sorted()
+      var selected = mount.volume
+      selected.mode = .always
+      var pulses: [String] = []
+      var scheduled: (@MainActor @Sendable () -> Void)?
+      let didSchedule = Signal()
+      let controller = DriveAliveController(
+        clock: { 1000 },
+        pulse: { volume in
+          pulses.append(volume.id)
+          try await NativeDriveAlive.pulse(volume)
+        },
+        schedule: { _, fire in
+          scheduled = fire
+          didSchedule.fire()
+          return {}
+        })
+      defer { controller.stop() }
+      var settings = DriveAliveSettings()
+      settings.enabled = true
+      settings.volumes = [
+        .init(
+          id: "native-awake-only", name: "Inactive", path: "/Volumes/Missing", mode: .awakeOnly),
+        selected,
+      ]
+      controller.configure(settings, awake: false, paused: false)
+      try await didSchedule.wait()
+      try #require(scheduled != nil)
+      #expect(pulses == [selected.id])
+      #expect(controller.statuses["native-awake-only"] == nil)
+      if mount.readOnly {
+        #expect(controller.statuses[selected.id]?.contains("read-only") == true)
+      } else {
+        #expect(controller.statuses[selected.id] == "Active")
+      }
+      controller.configure(settings, awake: false, paused: true)
+      scheduled?()
+      for _ in 0..<20 { await Task.yield() }
+      #expect(pulses == [selected.id])
+      #expect(try FileManager.default.contentsOfDirectory(atPath: path).sorted() == before)
+      #expect(
+        try Data(contentsOf: URL(fileURLWithPath: path).appendingPathComponent("user-file"))
+          == Data([1, 2, 3]))
     }
-    controller.configure(settings, awake: false, paused: true)
-    scheduled?()
-    for _ in 0..<20 { await Task.yield() }
-    #expect(pulses == [selected.id])
-    #expect(try FileManager.default.contentsOfDirectory(atPath: path).sorted() == before)
-    #expect(
-      try Data(contentsOf: URL(fileURLWithPath: path).appendingPathComponent("user-file"))
-        == Data([1, 2, 3]))
+
   }
 
   @Test func writerCreatesOnlyANewFileAndCleansUpWithoutTouchingExistingFiles() throws {
