@@ -13,7 +13,8 @@ let package = Package(
     .executable(name: "dilated-helper", targets: ["DilatedHelper"]),
   ],
   dependencies: [
-    .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")
+    .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
+    .package(url: "https://github.com/nalexn/ViewInspector", exact: "0.10.5"),
   ],
   targets: [
     .target(name: "DilatedCore"),
@@ -32,6 +33,8 @@ let package = Package(
     .executableTarget(name: "DilatedHelper", dependencies: ["DilatedCore"]),
     .testTarget(name: "DilatedCoreTests", dependencies: ["DilatedCore"]),
     .testTarget(name: "DilatedControlTests", dependencies: ["DilatedControl"]),
-    .testTarget(name: "DilatedUITests", dependencies: ["DilatedUI"]),
+    .testTarget(
+      name: "DilatedUITests",
+      dependencies: ["DilatedUI", .product(name: "ViewInspector", package: "ViewInspector")]),
   ]
 )

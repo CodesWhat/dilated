@@ -16,7 +16,7 @@ Bluetooth devices, selected audio output,
 CPU load and idle time.
 Automatic agent setup remains later work.
 
-1.0.0-beta.5 is a public beta for macOS 26+ on Apple Silicon. Install it from the
+1.0.0-beta.6 is a public beta for macOS 26+ on Apple Silicon. Install it from the
 website download or with `brew install --cask codeswhat/tap/dilated`. Closed-lid
 mode is experimental, and crash, reboot and update recovery haven't been verified
 on hardware yet. Report issues on GitHub.
@@ -26,6 +26,11 @@ Build the local app with `bash scripts/build-app.sh`, then open
 script uses ad-hoc signing by default; `DILATED_SIGN_IDENTITY` can select an
 installed signing identity. Xcode and XcodeGen are required. The app shell extracts
 App Intents metadata while the core, UI, CLI and helper remain Swift packages.
+`bash scripts/build-app.sh debug --verify` safely stops the running dev copy,
+rebuilds it, launches it and reports its PID. It refuses alternate output paths
+and waits for other Dilated copies to be quit first. Add `--logs` to stream app
+logs for five minutes after launch.
+
 Real Shortcuts execution requires a developer-signed build on the tested Mac;
 an ad-hoc build can appear in the action catalog but fail to run.
 

@@ -4,11 +4,60 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 configuration="${1:-debug}"
+if [[ $# -gt 0 ]]; then shift; fi
 case "$configuration" in debug|release) ;; *) echo "Use debug or release" >&2; exit 1 ;; esac
+verify=false
+logs=false
+for option in "$@"; do
+    case "$option" in
+        --verify) verify=true ;;
+        --logs) logs=true ;;
+        *) echo "Unknown option: $option" >&2; exit 1 ;;
+    esac
+done
+if $logs && ! $verify; then
+    echo "--logs requires --verify" >&2
+    exit 1
+fi
+app="${DILATED_BUILD_DIR:-$PWD/build}/Dilated.app"
+dev_pids() {
+    ps -axo pid=,comm= | while read -r pid executable; do
+        if [[ "$executable" == "$app/Contents/MacOS/DilatedApp" ]]; then echo "$pid"; fi
+        true
+    done
+}
+if $verify; then
+    resolved_app="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$app")"
+    if [[ "$resolved_app" != "$(pwd -P)/build/Dilated.app" ]]; then
+        echo "--verify only operates on build/Dilated.app" >&2
+        exit 1
+    fi
+    app="$resolved_app"
+    other_app="$(ps -axo pid=,comm= | while read -r pid executable; do
+        if [[ "$executable" == */Contents/MacOS/DilatedApp && "$executable" != "$app/Contents/MacOS/DilatedApp" ]]; then
+            echo "$pid"
+        fi
+        true
+    done)"
+    if [[ -n "$other_app" ]]; then
+        echo "Quit the other Dilated app before --verify; refusing to control another Dilated app." >&2
+        exit 1
+    fi
+    if [[ -n "$(dev_pids)" ]]; then
+        "$app/Contents/MacOS/dilated" prepare-update
+        for ((attempt=0; attempt<50; attempt++)); do
+            [[ -z "$(dev_pids)" ]] && break
+            sleep 0.1
+        done
+        if [[ -n "$(dev_pids)" ]]; then
+            echo "The dev app did not quit; refusing to rebuild its bundle." >&2
+            exit 1
+        fi
+    fi
+fi
 swift build -c "$configuration" --arch arm64 --jobs 4
 python3 scripts/build-shell.py "$configuration"
 bin_dir="$(swift build -c "$configuration" --arch arm64 --show-bin-path)"
-app="${DILATED_BUILD_DIR:-$PWD/build}/Dilated.app"
 if pgrep -f "$app/Contents/MacOS/DilatedApp" >/dev/null; then
     echo "Quit the running build of Dilated before rebuilding its bundle." >&2
     exit 1
@@ -76,3 +125,19 @@ codesign --force --identifier com.codeswhat.dilated.helper "${sign_options[@]}" 
 codesign --force "${sign_options[@]}" "$timestamp" --entitlements packaging/Dilated.entitlements --sign "$sign_as" "$app"
 codesign --verify --deep --strict "$app"
 echo "$app"
+if $verify; then
+    open -n "$app"
+    for ((attempt=0; attempt<50; attempt++)); do
+        running="$(dev_pids)"
+        if [[ -n "$running" ]]; then break; fi
+        sleep 0.1
+    done
+    if [[ -z "$running" ]]; then
+        echo "The dev app did not launch within 5 seconds." >&2
+        exit 1
+    fi
+    echo "Running Dilated PID: $running"
+    if $logs; then
+        exec log stream --predicate 'process == "DilatedApp"' --timeout 5m
+    fi
+fi

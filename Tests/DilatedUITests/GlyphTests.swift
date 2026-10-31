@@ -4,6 +4,18 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct GlyphTests {
+  @Test func pickerPreviewLoopsThroughEveryAvailableState() {
+    for glyph in Glyph.allCases {
+      for loop in 0..<3 {
+        for (index, frame) in glyph.frames.enumerated() {
+          let elapsed = Double(loop * glyph.frames.count + index) * 0.75 + 0.1
+          #expect(glyph.previewFrame(elapsed: elapsed, reduceMotion: false) == frame)
+          #expect(glyph.previewFrame(elapsed: elapsed, reduceMotion: true) == glyph.stillFrame)
+        }
+      }
+    }
+  }
+
   @Test func awakeEyesGlanceBothWaysThenRest() {
     let glyph = Glyph.bugEyes
     func frame(_ elapsed: TimeInterval, _ motion: Motion = .subtle) -> String {

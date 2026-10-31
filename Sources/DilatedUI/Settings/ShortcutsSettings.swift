@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 
 @MainActor struct ShortcutsSettings: View {
@@ -7,6 +8,11 @@ import SwiftUI
 
   static func accessibilityValue(for shortcut: AwakeShortcut?) -> String {
     shortcut?.displayName ?? "Not assigned"
+  }
+
+  static func passesRecorderKeyThrough(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
+    [UInt16(kVK_Tab), UInt16(kVK_Return), UInt16(kVK_Space)].contains(keyCode)
+      && modifiers.isDisjoint(with: [.command, .control, .option])
   }
 
   var body: some View {
@@ -73,6 +79,13 @@ import SwiftUI
       monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
         let consumed = MainActor.assumeIsolated {
           guard recording else { return false }
+          if ShortcutsSettings.passesRecorderKeyThrough(
+            keyCode: event.keyCode, modifiers: event.modifierFlags)
+          {
+            recording = false
+            error = nil
+            return false
+          }
           if event.keyCode == 53 {
             dismiss()
             return true

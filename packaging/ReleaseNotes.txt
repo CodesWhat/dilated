@@ -1,3 +1,4 @@
-Settings is plainer: no accent colours, no tagline, and no focus ring on the selected page when you open it.
-A keyboard-focused page that isn't selected gets a light outline, and VoiceOver reads each sidebar page by name.
-Closed-lid mode is still experimental. Crash, reboot and update recovery aren't verified on hardware yet.
+Duration presets save when you leave the field, and shortcut recording lets you reach the sheet buttons with the keyboard.
+All four glyph previews loop through every state. Trigger action labels identify the rule or condition.
+Update availability refreshes the open menu. Prepared updates close Settings sheets, and helper status ignores stale power readings.
+Closed-lid mode is still experimental. Crash, reboot and update recovery remain unverified on hardware.

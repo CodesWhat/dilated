@@ -144,17 +144,16 @@ import Testing
     let item = menu.items[settings + 1]
     #expect(item.isEnabled == model.updater.canCheckForUpdates)
 
+    model.onChange = { AwakeMenu.refreshStatus(in: menu, model: model) }
     driver.canCheckForUpdates = false
     driver.onChange?()
     #expect(!model.updater.canCheckForUpdates)
     let disabled = AwakeMenu.make(model: model, openSettings: {})
     #expect(disabled.items.first { $0.title == "Check for Updates…" }?.isEnabled == false)
-    AwakeMenu.refreshStatus(in: menu, model: model)
     #expect(!item.isEnabled)
 
     driver.canCheckForUpdates = true
     driver.onChange?()
-    AwakeMenu.refreshStatus(in: menu, model: model)
     #expect(item.isEnabled)
     let target = try #require(item.target as AnyObject?)
     _ = target.perform(item.action)

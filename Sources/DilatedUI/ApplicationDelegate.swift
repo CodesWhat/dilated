@@ -22,8 +22,10 @@ import IOKit.ps
     let model = AppModel()
     self.model = model
     do {
-      server = try LocalSocketServer(endpoint: model.endpoint) { request in
-        await model.control(request)
+      server = try LocalSocketServer(endpoint: model.endpoint) { [weak self] request in
+        let response = await model.control(request)
+        await self?.settings?.dismissSheetForPackage(request, response: response)
+        return response
       }
     } catch {
       AutomationService.shared.unavailable()

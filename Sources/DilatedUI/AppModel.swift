@@ -191,7 +191,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored public var onShortcutAssignment:
     (([ShortcutAction: AwakeShortcut]) -> String?)?
   public var shortcutRecording = false { didSet { onChange?() } }
-  public var message: String?
+  public var message: String? {
+    didSet { messageIsPresetSaveError = false }
+  }
   public private(set) var now = Date()
   @ObservationIgnored public var onChange: (() -> Void)?
   @ObservationIgnored public var onBatteryOverrideNeeded: ((TimeInterval?) -> Void)?
@@ -346,6 +348,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       self.feedback.closedLidEnded(reason, playSound: !self.settings.closedLidWarningSound)
       if self.settings.closedLidWarningSound { NSSound.beep() }
     }
+    self.updater.onChange = { [weak self] in self?.onChange?() }
     self.updater.activity = { [weak self] in self?.updateActivity ?? .starting }
   }
 
@@ -1146,6 +1149,39 @@ public struct AppSettings: Codable, Equatable, Sendable {
       }
     }
     try await setClosedLid(id: id, enabled: enabled, allowPrompt: false, requireAutomation: true)
+  }
+  static func presetsText(_ presets: [Int]) -> String {
+    presets.map(String.init).joined(separator: ", ")
+  }
+  private static let presetsError = "Use up to 10 durations between 1 and 10080 minutes."
+  @ObservationIgnored private var messageIsPresetSaveError = false
+  func clearPresetsError() {
+    if message == Self.presetsError { message = nil }
+  }
+  @discardableResult func applyPresets(text: String) -> Bool {
+    let parts = text.split(separator: ",", omittingEmptySubsequences: false)
+    let values = parts.compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+    guard !values.isEmpty, values.count == parts.count, values.count <= 10,
+      values.allSatisfy({ (1...10080).contains($0) })
+    else {
+      message = Self.presetsError
+      return false
+    }
+    var value = settings
+    value.presets = Array(Set(values)).sorted()
+    if value.defaultMinutes != 0 && !value.presets.contains(value.defaultMinutes) {
+      value.defaultMinutes = 0
+    }
+    do { try applySettings(value) } catch {
+      message = "Couldn't save settings: \(error.localizedDescription)"
+      messageIsPresetSaveError = true
+      onChange?()
+      return false
+    }
+    if messageIsPresetSaveError { message = nil }
+    clearPresetsError()
+    onChange?()
+    return true
   }
   func setTriggersEnabled(_ enabled: Bool) throws {
     guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }

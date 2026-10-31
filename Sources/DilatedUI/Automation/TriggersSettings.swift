@@ -42,6 +42,7 @@ import UniformTypeIdentifiers
               )
             ).labelsHidden()
             Button("Edit") { editing = rule }
+              .accessibilityLabel("Edit \(rule.name)")
             Menu("Pause") {
               Button("5 minutes") {
                 change(rule) { $0.pausedUntil = Date().addingTimeInterval(300) }
@@ -55,7 +56,7 @@ import UniformTypeIdentifiers
               }
               Button("Resume this trigger") { model.resumeTrigger(id: rule.id) }
               Button("Turn off") { change(rule) { $0.enabled = false } }
-            }.fixedSize()
+            }.fixedSize().accessibilityLabel("Pause \(rule.name)")
           }
           ForEach(Array(rule.criteria.enumerated()), id: \.offset) { _, criterion in
             Text(criterion.summary).foregroundStyle(.secondary).fixedSize(
@@ -152,6 +153,7 @@ import UniformTypeIdentifiers
             VStack(alignment: .leading, spacing: 10) {
               TriggerCriterionEditor(criterion: $row.value)
               Button("Remove condition") { criteria.remove(id: row.id) }
+                .accessibilityLabel("Remove condition: \(row.value.summary)")
             }.padding(14).background(DesignPalette.surface, in: RoundedRectangle(cornerRadius: 6))
           }
           Button("Add condition") { criteria.append(.power(onBattery: false)) }

@@ -4,7 +4,48 @@ import Testing
 
 @testable import DilatedUI
 
+@MainActor private final class Signal {
+  private var fired = false
+  private var waiter: CheckedContinuation<Void, any Error>?
+
+  func fire() {
+    fired = true
+    waiter?.resume()
+    waiter = nil
+  }
+
+  func cancel() {
+    waiter?.resume(throwing: CancellationError())
+    waiter = nil
+  }
+
+  func wait() async throws {
+    if fired { return }
+    try Task.checkCancellation()
+    try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation {
+        (continuation: CheckedContinuation<Void, any Error>) in
+        if Task.isCancelled {
+          continuation.resume(throwing: CancellationError())
+        } else {
+          waiter = continuation
+        }
+      }
+    } onCancel: {
+      Task { @MainActor in self.cancel() }
+    }
+  }
+}
+
 @MainActor struct DriveAliveTests {
+  @Test func cancellingAWaitingSignalEndsTheWaitInsteadOfHanging() async {
+    let signal = Signal()
+    let waiting = Task { try await signal.wait() }
+    await Task.yield()
+    waiting.cancel()
+    await #expect(throws: CancellationError.self) { try await waiting.value }
+  }
+
   @Test func volumeModesPreserveLegacyChoicesAndUnknownValuesCannotStartIdleWrites() throws {
     let json =
       #"{"driveAlive":{"enabled":true,"onlyWhileAwake":false,"volumes":[{"id":"uuid:test","name":"Test","path":"/Volumes/Test"}]},"countdown":true}"#
@@ -78,9 +119,11 @@ import Testing
     #expect(controller.statuses[awake.id] == nil)
   }
 
-  @Test func losingAwakeEligibilityCancelsThatWriteAndContinuesOtherEligibleVolumesSerially()
+  @Test(.timeLimit(.minutes(1)))
+  func losingAwakeEligibilityCancelsThatWriteAndContinuesOtherEligibleVolumesSerially()
     async throws
   {
+    let held = Signal()
     var continuation: CheckedContinuation<Void, Never>?
     var pulses: [String] = []
     var schedules = 0
@@ -92,7 +135,12 @@ import Testing
         overlapping = overlapping || writing
         writing = true
         pulses.append(volume.id)
-        if volume.id == "awake" { await withCheckedContinuation { continuation = $0 } }
+        if volume.id == "awake" {
+          await withCheckedContinuation {
+            continuation = $0
+            held.fire()
+          }
+        }
         writing = false
       },
       schedule: { _, _ in
@@ -108,20 +156,13 @@ import Testing
       .init(id: "awake", name: "Awake", path: "/Volumes/Awake", mode: .awakeOnly), always,
     ]
     controller.configure(settings, awake: true, paused: false)
-    for _ in 0..<100 where continuation == nil { try await Task.sleep(for: .milliseconds(1)) }
+    try await held.wait()
     try #require(continuation != nil)
     controller.configure(settings, awake: false, paused: false)
     #expect(pulses == ["awake"] && schedules == 0)
     continuation?.resume()
     continuation = nil
-    let timeout = Task {
-      do { try await Task.sleep(for: .seconds(5)) } catch { return }
-      completed.continuation.finish()
-    }
-    defer {
-      timeout.cancel()
-      completed.continuation.finish()
-    }
+    defer { completed.continuation.finish() }
     var completion = completed.stream.makeAsyncIterator()
     #expect(await completion.next() != nil)
     #expect(pulses == ["awake", always.id] && schedules == 1 && !overlapping)
@@ -213,7 +254,10 @@ import Testing
     #expect(controller.statuses[DriveFixture.volume.id] == "Active")
   }
 
-  @Test func shutdownDuringAWriteDoesNotStartAnotherVolumeOrTimer() async throws {
+  @Test(.timeLimit(.minutes(1)))
+  func shutdownDuringAWriteDoesNotStartAnotherVolumeOrTimer() async throws {
+    let held = Signal()
+    let finished = Signal()
     var continuation: CheckedContinuation<Void, Never>?
     var pulses = 0
     var writeFinished = false
@@ -221,8 +265,12 @@ import Testing
     let controller = DriveAliveController(
       pulse: { _ in
         pulses += 1
-        await withCheckedContinuation { continuation = $0 }
+        await withCheckedContinuation {
+          continuation = $0
+          held.fire()
+        }
         writeFinished = true
+        finished.fire()
       },
       schedule: { _, _ in
         schedules += 1
@@ -231,20 +279,20 @@ import Testing
     var settings = DriveFixture.configuration
     settings.volumes.append(.init(id: "second", name: "Second", path: "/Volumes/Second"))
     controller.configure(settings, awake: true, paused: false)
-    for _ in 0..<100 where continuation == nil { try await Task.sleep(for: .milliseconds(1)) }
+    try await held.wait()
     try #require(continuation != nil)
     controller.stop()
     continuation?.resume()
     continuation = nil
-    let deadline = ContinuousClock.now + .seconds(5)
-    while !writeFinished && ContinuousClock.now < deadline {
-      try await Task.sleep(for: .milliseconds(1))
-    }
+    try await finished.wait()
     #expect(writeFinished)
     #expect(pulses == 1 && schedules == 0)
   }
 
-  @Test func changingSettingsWaitsForTheExistingWriteBeforeStartingAnotherCycle() async throws {
+  @Test(.timeLimit(.minutes(1)))
+  func changingSettingsWaitsForTheExistingWriteBeforeStartingAnotherCycle() async throws {
+    let held = Signal()
+    let scheduled = Signal()
     var continuation: CheckedContinuation<Void, Never>?
     var pulses = 0
     var delays: [TimeInterval] = []
@@ -252,26 +300,29 @@ import Testing
       clock: { 1000 },
       pulse: { _ in
         pulses += 1
-        if pulses == 1 { await withCheckedContinuation { continuation = $0 } }
+        if pulses == 1 {
+          await withCheckedContinuation {
+            continuation = $0
+            held.fire()
+          }
+        }
       },
       schedule: { seconds, _ in
         delays.append(seconds)
+        scheduled.fire()
         return {}
       })
     defer { controller.stop() }
     var settings = DriveFixture.configuration
     controller.configure(settings, awake: true, paused: false)
-    for _ in 0..<100 where continuation == nil { try await Task.sleep(for: .milliseconds(1)) }
+    try await held.wait()
     try #require(continuation != nil)
     settings.intervalSeconds = 120
     controller.configure(settings, awake: true, paused: false)
     #expect(pulses == 1 && delays.isEmpty)
     continuation?.resume()
     continuation = nil
-    let deadline = ContinuousClock.now + .seconds(5)
-    while delays.isEmpty && ContinuousClock.now < deadline {
-      try await Task.sleep(for: .milliseconds(1))
-    }
+    try await scheduled.wait()
     #expect(pulses == 2)
     #expect(delays == [120])
   }
@@ -291,7 +342,9 @@ import Testing
     #expect(try Data(contentsOf: folder.appendingPathComponent("user-file")) == Data([1, 2, 3]))
   }
 
-  @Test(.enabled(if: ProcessInfo.processInfo.environment["DILATED_DRIVE_FIXTURE"] != nil))
+  @Test(
+    .enabled(if: ProcessInfo.processInfo.environment["DILATED_DRIVE_FIXTURE"] != nil),
+    .timeLimit(.minutes(1)))
   func nativeMixedModesPulseOnlyTheEligibleVolumeAndStillPause() async throws {
     let path = try #require(ProcessInfo.processInfo.environment["DILATED_DRIVE_FIXTURE"])
     let mount = try #require(try NativeDriveAlive.mounted().first { $0.volume.path == path })
@@ -300,6 +353,7 @@ import Testing
     selected.mode = .always
     var pulses: [String] = []
     var scheduled: (@MainActor @Sendable () -> Void)?
+    let didSchedule = Signal()
     let controller = DriveAliveController(
       clock: { 1000 },
       pulse: { volume in
@@ -308,6 +362,7 @@ import Testing
       },
       schedule: { _, fire in
         scheduled = fire
+        didSchedule.fire()
         return {}
       })
     defer { controller.stop() }
@@ -318,10 +373,7 @@ import Testing
       selected,
     ]
     controller.configure(settings, awake: false, paused: false)
-    let deadline = ContinuousClock.now + .seconds(5)
-    while scheduled == nil && ContinuousClock.now < deadline {
-      try await Task.sleep(for: .milliseconds(5))
-    }
+    try await didSchedule.wait()
     try #require(scheduled != nil)
     #expect(pulses == [selected.id])
     #expect(controller.statuses["native-awake-only"] == nil)
