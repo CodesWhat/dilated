@@ -148,12 +148,16 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
 }
 
 @MainActor struct SettingsContent: View {
+  #if DEBUG
+    var didAppear: ((Self) -> Void)?
+  #endif
   @Bindable var model: AppModel
   var solid = false
   var close: () -> Void = {}
   @State private var page: SettingsPage? = .overview
   @FocusState private var focusedPage: SettingsPage?
   @State private var presets = ""
+  @State private var presetsLoaded = false
   @FocusState private var presetsFocused: Bool
   @State private var loginRefresh = 0
   @State private var cliRefresh = 0
@@ -247,7 +251,15 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     }
     .font(DesignFont.sans(13)).foregroundStyle(DesignPalette.ink).tint(SettingsTheme.control)
     .frame(minWidth: 860, minHeight: 600)
-    .onAppear { presets = AppModel.presetsText(model.settings.presets) }
+    .onAppear {
+      if !presetsLoaded {
+        presets = AppModel.presetsText(model.settings.presets)
+        presetsLoaded = true
+      }
+      #if DEBUG
+        didAppear?(self)
+      #endif
+    }
     .onChange(of: model.settings.presets) { _, saved in
       if !presetsFocused { presets = AppModel.presetsText(saved) }
     }

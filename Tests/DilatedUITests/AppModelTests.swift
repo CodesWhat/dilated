@@ -82,7 +82,8 @@ import Testing
     #expect(model.message == nil)
   }
 
-  @Test func applyPresetsReportsSaveFailureAndKeepsPresets() throws {
+  @Test(arguments: [false, true])
+  func presetSaveRetryClearsOnlyItsOwnFailure(replaceMessage: Bool) throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
     defer {
@@ -91,12 +92,51 @@ import Testing
         [.posixPermissions: 0o700], ofItemAtPath: directory.path)
       try? FileManager.default.removeItem(at: directory)
     }
-    #expect(model.applyPresets(text: "15, 30, 60"))
+    try #require(model.applyPresets(text: "15, 30, 60"))
     try FileManager.default.setAttributes(
       [.posixPermissions: 0o500], ofItemAtPath: directory.path)
-    #expect(!model.applyPresets(text: "10, 20"))
+    try #require(!model.applyPresets(text: "10, 20"))
     #expect(model.settings.presets == [15, 30, 60])
-    #expect(model.message?.hasPrefix("Couldn't save settings") == true)
+    let failure = try #require(model.message)
+    try #require(failure.hasPrefix("Couldn't save settings"))
+    model.clearPresetsError()
+    #expect(model.message == failure)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o700], ofItemAtPath: directory.path)
+    if replaceMessage { model.message = "Something else" }
+    let expectedMessage = replaceMessage ? "Something else" : nil
+    var lastNotification: String? = "No notification"
+    model.onChange = { [weak model] in lastNotification = model?.message }
+    try #require(model.applyPresets(text: "10, 20"))
+    #expect(model.settings.presets == [10, 20])
+    #expect(model.message == expectedMessage)
+    #expect(lastNotification == expectedMessage)
+  }
+
+  @Test func presetRetryPreservesAnIdenticalErrorFromAnotherSettingsSave() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer {
+      model.shutdown()
+      try? FileManager.default.setAttributes(
+        [.posixPermissions: 0o700], ofItemAtPath: directory.path)
+      try? FileManager.default.removeItem(at: directory)
+    }
+    try #require(model.applyPresets(text: "15, 30, 60"))
+    let originalDefault = model.settings.defaultMinutes
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o500], ofItemAtPath: directory.path)
+    try #require(!model.applyPresets(text: "10, 20"))
+    let presetError = try #require(model.message)
+    model.settings.defaultMinutes = 30
+    try #require(model.message == presetError)
+    try #require(model.settings.defaultMinutes == originalDefault)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o700], ofItemAtPath: directory.path)
+    try #require(model.applyPresets(text: "10, 20"))
+    #expect(model.message == presetError)
+    #expect(model.settings.defaultMinutes == originalDefault)
+    #expect(model.settings.presets == [10, 20])
   }
 
   @Test func plannedUpdateRestoresOnlyTimersWithTheirOriginalDeadlines() async throws {
