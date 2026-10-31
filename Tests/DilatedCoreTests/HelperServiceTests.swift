@@ -7,6 +7,64 @@ import Testing
 struct HelperServiceTests {
   private let owner = UUID()
 
+  @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+  func oldReadbacksCannotOverwriteANewerEnable(tick: Bool) async throws {
+    let hardware = SuspendedReadbackHardware()
+    let driver = SerialPowerDriver(runner: hardware, readback: { await hardware.readback() })
+    let service = ClosedLidService(
+      power: driver,
+      environment: { .init(powerSource: .ac, thermal: .nominal, lidClosed: false) },
+      clock: { 0 }, buildIdentity: "test-helper")
+    await service.start()
+    await hardware.suspendNextRead()
+    let oldRead = Task { () -> HelperReply? in
+      if tick {
+        await service.tick()
+        return nil
+      }
+      return await service.handle(.init(action: .status), owner: owner)
+    }
+    await hardware.waitForRead()
+    let enabled = await service.handle(.init(action: .enable, policy: .init()), owner: owner)
+    #expect(enabled.ok)
+    #expect(enabled.state?.enabled == true)
+    await hardware.releaseRead()
+    if let status = await oldRead.value {
+      #expect(status.state?.enabled == true)
+      #expect(status.state?.ready == true)
+      #expect(status.state?.readback.confirmedEnabled == true)
+    }
+    let calls = await hardware.calls
+    #expect(calls == [.setSleepDisabled(false), .setSleepDisabled(true)])
+  }
+
+  @Test(.timeLimit(.minutes(1)))
+  func aReadStartedDuringEnableCannotOverwriteItsCompletion() async throws {
+    let hardware = SuspendedReadbackHardware()
+    let driver = SerialPowerDriver(runner: hardware, readback: { await hardware.readback() })
+    let service = ClosedLidService(
+      power: driver,
+      environment: { .init(powerSource: .ac, thermal: .nominal, lidClosed: false) },
+      clock: { 0 }, buildIdentity: "test-helper")
+    await service.start()
+    await hardware.suspendNextEnable()
+    let enable = Task {
+      await service.handle(.init(action: .enable, policy: .init()), owner: owner)
+    }
+    await hardware.waitForEnable()
+    await hardware.suspendNextRead()
+    let status = Task { await service.handle(.init(action: .status), owner: owner) }
+    await hardware.waitForRead()
+    await hardware.releaseEnable()
+    let enabled = await enable.value
+    #expect(enabled.state?.enabled == true)
+    await hardware.releaseRead()
+    let observed = await status.value
+    #expect(observed.state?.enabled == true)
+    #expect(observed.state?.ready == true)
+    #expect(observed.state?.readback.confirmedEnabled == true)
+  }
+
   @Test func startupResetsBeforeEnableAndTheProtocolVersionIsChecked() async throws {
     let power = TestHelperPower()
     let inputs = HelperInputs()
@@ -231,4 +289,58 @@ private actor TestHelperPower: ClosedLidPowerControlling {
   func sleep() { sleeps += 1 }
   func allowReset() { failReset = false }
   func dropFlag() { state = ClosedLidReadback(effectiveDisabled: false, storedDisabled: false) }
+}
+
+private actor SuspendedReadbackHardware: PowerCommandRunning {
+  var calls: [PowerCommand] = []
+  private var enabled = false
+  private var suspendRead = false
+  private let entered = AsyncStream<Void>.makeStream()
+  private let released = AsyncStream<Void>.makeStream()
+  private let enableEntered = AsyncStream<Void>.makeStream()
+  private let enableReleased = AsyncStream<Void>.makeStream()
+  private var suspendEnable = false
+
+  func run(_ command: PowerCommand) async {
+    calls.append(command)
+    if case .setSleepDisabled(let value) = command {
+      if value && suspendEnable {
+        suspendEnable = false
+        enableEntered.continuation.yield(())
+        enableEntered.continuation.finish()
+        var iterator = enableReleased.stream.makeAsyncIterator()
+        _ = await iterator.next()
+      }
+      enabled = value
+    }
+  }
+  func suspendNextEnable() { suspendEnable = true }
+  func waitForEnable() async {
+    var iterator = enableEntered.stream.makeAsyncIterator()
+    _ = await iterator.next()
+  }
+  func releaseEnable() {
+    enableReleased.continuation.yield(())
+    enableReleased.continuation.finish()
+  }
+  func suspendNextRead() { suspendRead = true }
+  func readback() async -> ClosedLidReadback {
+    let observed = ClosedLidReadback(effectiveDisabled: enabled, storedDisabled: enabled)
+    if suspendRead {
+      suspendRead = false
+      entered.continuation.yield(())
+      entered.continuation.finish()
+      var iterator = released.stream.makeAsyncIterator()
+      _ = await iterator.next()
+    }
+    return observed
+  }
+  func waitForRead() async {
+    var iterator = entered.stream.makeAsyncIterator()
+    _ = await iterator.next()
+  }
+  func releaseRead() {
+    released.continuation.yield(())
+    released.continuation.finish()
+  }
 }
