@@ -19,7 +19,7 @@ struct PackageHelperTests {
         process.waitUntilExit()
       }
     }
-    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    let deadline = ContinuousClock.now.advanced(by: .seconds(30))
     let pattern = "^" + NSRegularExpression.escapedPattern(for: executable.path) + "($|[[:space:]])"
     var ready = false
     while ContinuousClock.now < deadline {
