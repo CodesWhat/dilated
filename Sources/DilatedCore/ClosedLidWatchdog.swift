@@ -66,15 +66,17 @@ public struct ClosedLidWatchdog: Sendable {
   /// session can run indefinitely, and the poll ends the watchdog once the marker goes away.
   public func run() async -> Outcome {
     guard markerIsOurs else { return .markerGone }
-    // Two plain tasks and a stream, not a task group: the group's child-task allocations abort
-    // the older Swift runtime on CI ("freed pointer was not the last allocation").
+    // Two plain tasks race through a stream; whichever reports first decides the outcome.
     let (stream, events) = AsyncStream.makeStream(of: Event.self)
     let exit = Task {
       await waitForExit()
       if !Task.isCancelled { events.yield(.exited) }
     }
     let poll = Task {
-      while (try? await sleep(pollInterval)) != nil {
+      // A plain do/catch, not `(try? await sleep(...)) != nil`: Swift on macOS 26 aborts in
+      // swift_task_dealloc on that form inside a Task closure (CI crash report, 2026-11-02).
+      while true {
+        do { try await sleep(pollInterval) } catch { return }
         if !markerIsOurs {
           events.yield(.markerGone)
           return
