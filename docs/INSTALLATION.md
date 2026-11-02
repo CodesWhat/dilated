@@ -1,12 +1,12 @@
 # Installation and removal
 
-Dilated targets macOS 26 or later on Apple Silicon. 1.0.0-beta.8 (build 13) is
+Dilated targets macOS 26 or later on Apple Silicon. 1.0.0-beta.9 (build 14) is
 public as a beta. Download the signed, notarized DMG from
 https://dilated.codeswhat.com/download/file, or run
 `brew install --cask codeswhat/tap/dilated`. The fully qualified name trusts that
 cask. Running `brew info` or `brew fetch` on the bare tap may ask for
 `brew trust --cask codeswhat/tap/dilated`. The GitHub release at
-https://github.com/CodesWhat/dilated/releases/tag/v1.0.0-beta.8 carries the DMG,
+https://github.com/CodesWhat/dilated/releases/tag/v1.0.0-beta.9 carries the DMG,
 ZIP, source tarball, sha256 files and `release-manifest.json`.
 
 The beta passed these checks on the maintainer's Mac: `macOS26ClosedLid`,
@@ -217,7 +217,7 @@ Keep failed and unavailable checks open rather than substituting them.
 Alpha, beta and release candidate versions use a scoped gate. The record must
 still list every check with a status of `passed`, `failed` or `notRun` and
 non-empty evidence, and passed checks need a machine and macOS. These three must
-pass: `macOS26ClosedLid`, `heartbeatExpiry` and `stopResume`. Anything else that
+pass: `heartbeatExpiry`, `stopResume` and `appCrashRecovery`, plus a closed-lid check on at least one of macOS 26 (`macOS26ClosedLid`) or macOS 27 (`macOS27ClosedLid`). Anything else that
 is failed or not run stays in the record with its evidence. Staging then names
 those checks as unverified in the public release manifest, `latest.json` and the
 cask caveats, and the public manifest reports `acceptanceVerified: false` while
