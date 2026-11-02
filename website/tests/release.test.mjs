@@ -100,7 +100,10 @@ test('a beta release changes the download label, copy, summary and caveat', () =
   assert.equal(beta.label, 'Download beta for Mac');
   assert.equal(beta.copy, 'Dilated 1.0.0-beta.1 is a public beta for macOS 26.0+ on Apple Silicon. Free software from CodesWhat, under MIT.');
   assert.equal(beta.summary, 'BETA 1.0.0-beta.1 · MACOS 26.0+ · APPLE SILICON · MIT LICENSE');
-  assert.equal(beta.caveat, 'Closed-lid mode is experimental in this beta. Not yet verified on hardware: rebootRecovery, nativeUI.');
+  assert.equal(beta.caveat, 'Closed-lid mode is experimental in this beta. Not yet verified on hardware: recovery after a reboot and the native interface.');
+  const many = release.releaseCopy(release.validateRelease({ ...metadata, prerelease: true, unverified: ['macOS27ClosedLid', 'helperCrashRecovery', 'someFutureCheck', 'otherNewCheck', 'constructor'] }, baseURL));
+  assert.equal(many.caveat, 'Closed-lid mode is experimental in this beta. Not yet verified on hardware: closed-lid mode on macOS 27, recovery after a helper crash, and other checks.');
+  assert.doesNotMatch(many.caveat.replaceAll('macOS', ''), /[a-z][A-Z]/);
   const clean = release.releaseCopy(release.validateRelease({ ...metadata, version: '1.0.0-beta.2', prerelease: true }, baseURL));
   assert.equal(clean.caveat, '');
   const ga = release.releaseCopy(release.validateRelease(metadata, baseURL));
