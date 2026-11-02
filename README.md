@@ -28,7 +28,6 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 
 - [Documentation](#documentation)
 - [Quick Start](#quick-start)
-- [Screenshots](#screenshots)
 - [Why Dilated](#why-dilated)
 - [Features](#features)
 - [Privacy and Permissions](#privacy-and-permissions)
@@ -70,17 +69,11 @@ Closed-lid mode needs a privileged helper and your approval in macOS. The [insta
 
 <hr>
 
-<h2 align="center" id="screenshots">Screenshots</h2>
-
-The repo doesn't carry app screenshots. The [website](https://dilated.codeswhat.com/) has an interactive preview of the menu.
-
-<hr>
-
 <h2 align="center" id="why-dilated">Why Dilated</h2>
 
-Sometimes a Mac needs to stay awake: a long build, a download, a backup, an agent working through a task. Dilated does that from the menu bar and gets out of the way. You can hold for a set time or until you stop it, let a trigger do it when a condition is true, or call it from a script.
+Sometimes a Mac needs to stay awake: a long build, a download, a backup, an agent working through a task. Dilated does that from the menu bar, and the [website](https://dilated.codeswhat.com/) has an interactive preview of the menu. You can hold for a set time or until you stop it, let a trigger do it when a condition is true, or call it from a script.
 
-It checks itself before it keeps your Mac up. Battery floors and Low Power Mode guards can end a hold, and Stop releases everything. It's a beta, and closed-lid mode is the part with the least hardware testing.
+Battery floor and Low Power Mode guards can end a hold before it drains your battery, and Stop releases everything and pauses automation until you resume it. It's a beta, and closed-lid mode is the part with the least hardware testing.
 
 <hr>
 
@@ -142,6 +135,8 @@ The package app product and internal executable are named `DilatedApp` so they d
 
 Open an [issue](https://github.com/CodesWhat/dilated/issues) for bugs. Include the Dilated and macOS versions and steps to reproduce. Report security problems through GitHub's [private vulnerability reporting](https://github.com/CodesWhat/dilated/security/advisories/new), not in a public issue.
 
+<hr>
+
 <h2 align="center" id="star-history">Star History</h2>
 
 <div align="center">
@@ -153,6 +148,8 @@ Open an [issue](https://github.com/CodesWhat/dilated/issues) for bugs. Include t
     </picture>
   </a>
 </div>
+
+<hr>
 
 <h2 align="center" id="codeswhat-ecosystem">CodesWhat Ecosystem</h2>
 
@@ -166,6 +163,8 @@ Open an [issue](https://github.com/CodesWhat/dilated/issues) for bugs. Include t
 </table>
 
 Dilated and Mouthtype are the two desktop apps here. The other three tools are for Docker hosts.
+
+<hr>
 
 <h2 align="center" id="license">License</h2>
 
