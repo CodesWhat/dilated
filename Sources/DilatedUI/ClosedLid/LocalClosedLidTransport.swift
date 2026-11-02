@@ -32,9 +32,12 @@ import Foundation
         let elapsed = origin.duration(to: .now).components
         return Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
       }
+    let beat: (@Sendable () async -> Void)? =
+      if let sessionGuard { { await sessionGuard.beat() } } else { nil }
     let service = ClosedLidService(
       power: power, environment: environment, clock: resolved,
-      buildIdentity: Self.buildIdentity)
+      buildIdentity: Self.buildIdentity,
+      heartbeat: beat)
     self.service = service
     self.backoff = backoff
     self.sessionGuard = sessionGuard

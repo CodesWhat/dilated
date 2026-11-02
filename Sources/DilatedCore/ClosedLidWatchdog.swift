@@ -12,7 +12,7 @@ public struct ClosedLidWatchdog: Sendable {
     case markerGone
   }
 
-  private enum Event: Sendable { case exited, markerGone }
+  private enum Event: Sendable { case exited, markerGone, heartbeatStalled }
 
   /// First retry delay after a failed revert. It doubles up to `maxRevertBackoff`.
   public static let initialRevertBackoff = Duration.seconds(5)
@@ -34,6 +34,12 @@ public struct ClosedLidWatchdog: Sendable {
   private let clearMarker: @Sendable () -> Void
   private let acquireLock: @Sendable () async -> (@Sendable () -> Void)?
   private let sleep: @Sendable (Duration) async throws -> Void
+  private let readHeartbeat: @Sendable () -> String?
+  private let heartbeatTimeout: Duration?
+
+  /// How long the heartbeat may sit unchanged before the app counts as hung: the governor's
+  /// lease plus a margin for a slow tick or a briefly busy machine.
+  public static let heartbeatTimeout = Duration.seconds(ClosedLidGovernor.leaseSeconds + 30)
 
   /// `onExit` registers a handler called once when the app exits (possibly at once, possibly
   /// from any thread) and returns a cancel closure. `acquireLock` returns a release closure, or
@@ -45,8 +51,12 @@ public struct ClosedLidWatchdog: Sendable {
     power: any ClosedLidPowerControlling,
     clearMarker: @escaping @Sendable () -> Void,
     acquireLock: @escaping @Sendable () async -> (@Sendable () -> Void)? = { {} },
-    sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+    readHeartbeat: @escaping @Sendable () -> String? = { nil },
+    heartbeatTimeout: Duration? = nil
   ) {
+    self.readHeartbeat = readHeartbeat
+    self.heartbeatTimeout = heartbeatTimeout
     self.generation = generation
     self.pollInterval = pollInterval
     self.readMarker = readMarker
@@ -74,13 +84,19 @@ public struct ClosedLidWatchdog: Sendable {
     let cancelExit = onExit { events.yield(.exited) }
     let timer = DispatchSource.makeTimerSource(
       queue: DispatchQueue(label: "dilated.closed-lid-watchdog.poll"))
+    let stall = HeartbeatStallTracker(timeout: heartbeatTimeout)
     timer.setEventHandler {
-      if !markerIsOurs { events.yield(.markerGone) }
+      if !markerIsOurs {
+        events.yield(.markerGone)
+      } else if stall.isStalled(readHeartbeat()) {
+        events.yield(.heartbeatStalled)
+      }
     }
     let interval = pollInterval.components
     let nanos = max(
       Int(interval.seconds) * 1_000_000_000 + Int(interval.attoseconds / 1_000_000_000), 1_000_000)
     timer.schedule(deadline: .now() + .nanoseconds(nanos), repeating: .nanoseconds(nanos))
+    _ = stall.isStalled(readHeartbeat())
     timer.resume()
     let event: Event? = await withTaskCancellationHandler {
       var first: Event?
@@ -97,7 +113,7 @@ public struct ClosedLidWatchdog: Sendable {
     events.finish()
     switch event {
     case .markerGone, nil: return .markerGone
-    case .exited: return await revert()
+    case .exited, .heartbeatStalled: return await revert()
     }
   }
 
@@ -118,6 +134,28 @@ public struct ClosedLidWatchdog: Sendable {
       do { try await sleep(Self.revertBackoff(attempt: attempt)) } catch { return .revertFailed }
       attempt += 1
     }
+  }
+}
+
+/// Remembers the last heartbeat value and when the watchdog first saw it, on a clock that stops
+/// while the Mac sleeps. Only the value changing counts as life, so a wall clock that jumps
+/// can't cause or hide a stall. Called from the poll timer's serial queue only.
+private final class HeartbeatStallTracker: @unchecked Sendable {
+  private let timeout: Duration?
+  private var lastValue: String?
+  private var changedAt = SuspendingClock.now
+
+  init(timeout: Duration?) { self.timeout = timeout }
+
+  func isStalled(_ value: String?) -> Bool {
+    guard let timeout else { return false }
+    let now = SuspendingClock.now
+    if value != lastValue {
+      lastValue = value
+      changedAt = now
+      return false
+    }
+    return changedAt.duration(to: now) >= timeout
   }
 }
 
@@ -281,7 +319,9 @@ public enum ClosedLidWatchdogCommand {
       acquireLock: {
         guard let lock = try? await store.acquireLock() else { return nil }
         return { lock.release() }
-      })
+      },
+      readHeartbeat: { store.readHeartbeat() },
+      heartbeatTimeout: ClosedLidWatchdog.heartbeatTimeout)
     return await watchdog.run() == .revertFailed ? 1 : 0
   }
 }
