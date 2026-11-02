@@ -133,14 +133,34 @@ public struct SudoPowerRunner: PowerCommandRunning {
     ["-n", pmsetPath, "-a", "disablesleep", disabled ? "1" : "0"]
   }
 
+  static func lacksPermission(status: Int32, detail: String) -> Bool {
+    guard status == 1 else { return false }
+    return ["a password is required", "not allowed", "may not run sudo"].contains {
+      detail.contains($0)
+    }
+  }
+
   public func run(_ command: PowerCommand) async throws {
     switch command {
     case .setSleepDisabled(let disabled):
+      let errors = Pipe()
+      defer {
+        try? errors.fileHandleForReading.close()
+        try? errors.fileHandleForWriting.close()
+      }
       let result = try await BoundedProcess.run(
         executable: sudo, arguments: Self.arguments(disabled: disabled), timeout: 3,
-        environment: [:])
+        standardError: errors.fileHandleForWriting, environment: [:])
+      try errors.fileHandleForWriting.close()
       if result.timedOut { throw ClosedLidPowerError.commandTimedOut }
-      guard result.status == 0 else { throw ClosedLidPowerError.permissionUnavailable }
+      guard result.status == 0 else {
+        let detail = String(
+          decoding: try errors.fileHandleForReading.read(upToCount: 8192) ?? Data(),
+          as: UTF8.self)
+        throw Self.lacksPermission(status: result.status, detail: detail)
+          ? ClosedLidPowerError.permissionUnavailable
+          : ClosedLidPowerError.commandFailed(result.status)
+      }
     case .sleep:
       try NativePowerRunner.requestSystemSleep()
     }

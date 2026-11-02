@@ -83,6 +83,28 @@ struct HelperServiceTests {
     #expect(calls == [false, true])
   }
 
+  @Test(.timeLimit(.minutes(1)))
+  func anEnableSentDuringStartupWaitsForTheResetAndSucceeds() async throws {
+    let power = GatedResetPower()
+    let service = ClosedLidService(
+      power: power,
+      environment: { .init(powerSource: .ac, thermal: .nominal, lidClosed: false) },
+      clock: { 0 }, buildIdentity: "test-helper")
+    let first = Task { await service.start() }
+    await power.waitForReset()
+    let second = Task { () -> HelperReply in
+      await service.start()
+      return await service.handle(.init(action: .enable, policy: .init()), owner: owner)
+    }
+    try await Task.sleep(for: .milliseconds(50))
+    await power.releaseReset()
+    let enabled = await second.value
+    await first.value
+    #expect(enabled.ok)
+    #expect(enabled.state?.enabled == true)
+    #expect(await power.resets == 1)
+  }
+
   @Test func aFailedStartupResetRefusesEnableAndCanBeRetried() async throws {
     let power = TestHelperPower(failReset: true)
     let inputs = HelperInputs()
@@ -340,6 +362,39 @@ private actor SuspendedReadbackHardware: PowerCommandRunning {
     _ = await iterator.next()
   }
   func releaseRead() {
+    released.continuation.yield(())
+    released.continuation.finish()
+  }
+}
+
+private actor GatedResetPower: ClosedLidPowerControlling {
+  private(set) var resets = 0
+  private var state = ClosedLidReadback(effectiveDisabled: true, storedDisabled: true)
+  private var gated = true
+  private let entered = AsyncStream<Void>.makeStream()
+  private let released = AsyncStream<Void>.makeStream()
+
+  func setSleepDisabled(_ disabled: Bool) async throws -> ClosedLidReadback {
+    if !disabled {
+      resets += 1
+      if gated {
+        gated = false
+        entered.continuation.yield(())
+        entered.continuation.finish()
+        var iterator = released.stream.makeAsyncIterator()
+        _ = await iterator.next()
+      }
+    }
+    state = ClosedLidReadback(effectiveDisabled: disabled, storedDisabled: disabled)
+    return state
+  }
+  func readback() -> ClosedLidReadback { state }
+  func sleep() {}
+  func waitForReset() async {
+    var iterator = entered.stream.makeAsyncIterator()
+    _ = await iterator.next()
+  }
+  func releaseReset() {
     released.continuation.yield(())
     released.continuation.finish()
   }

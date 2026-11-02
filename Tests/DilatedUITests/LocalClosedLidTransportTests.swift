@@ -75,8 +75,13 @@ import Testing
   @Test func theFlagDefaultsOffAndKeepsTheHelperTransport() {
     let defaults = UserDefaults(suiteName: "local-lid-\(UUID().uuidString)")!
     #expect(defaults.bool(forKey: LocalClosedLidTransport.defaultsKey) == false)
-    let controller = ClosedLidController.configured(defaults: defaults)
-    #expect(!controller.hasLease)
+    let off = ClosedLidController.configured(defaults: defaults)
+    #expect(!off.hasLease)
+    #expect(!off.usesLocalTransport)
+    defaults.set(true, forKey: LocalClosedLidTransport.defaultsKey)
+    let on = ClosedLidController.configured(defaults: defaults)
+    defer { on.invalidate() }
+    #expect(on.usesLocalTransport)
   }
 }
 
