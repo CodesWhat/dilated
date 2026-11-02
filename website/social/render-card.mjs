@@ -1,5 +1,5 @@
 // Renders social/card.html to dist/assets/social-card.png (1200x630).
-// Run from website/ after `npm ci`: node social/render-card.mjs
+// Run from website/ after `npm ci` and `npx playwright install chromium`: node social/render-card.mjs
 import { chromium } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 

@@ -68,6 +68,9 @@ enum AboutInfo {
           }
         }
       }
+      Text(SupportLinks.credits).font(DesignFont.sans(11.5)).foregroundStyle(DesignPalette.ink2)
+        .multilineTextAlignment(.center).frame(maxWidth: .infinity)
+        .fixedSize(horizontal: false, vertical: true)
     }
   }
 }

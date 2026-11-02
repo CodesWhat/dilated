@@ -33,6 +33,7 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 - [Privacy and Permissions](#privacy-and-permissions)
 - [Roadmap](#roadmap)
 - [Build and Contribute](#build-and-contribute)
+- [Support](#support)
 - [Community and Support](#community-and-support)
 - [Star History](#star-history)
 - [CodesWhat Ecosystem](#codeswhat-ecosystem)
@@ -128,6 +129,12 @@ brew install lefthook gitleaks && lefthook install
 Run the checks with `bash scripts/verify.sh`. You need Xcode, XcodeGen, Python 3, Ruby and Node.js 24. It runs Swift tests, release packaging checks (including an isolated app build and launch), website tests, and formatting and syntax checks. CI uses the same entry point. After building the bundle, `python3 scripts/smoke-test.py` runs the bounded app and CLI integration check with disposable state.
 
 The package app product and internal executable are named `DilatedApp` so they don't collide with the `dilated` CLI on case-insensitive macOS filesystems. The app users see is Dilated.
+
+<hr>
+
+<h2 align="center" id="support">Support</h2>
+
+Dilated is free and open source. If it saves you time, you can support it on [GitHub Sponsors](https://github.com/sponsors/CodesWhat) or [donate directly](https://codeswhat.com/support).
 
 <hr>
 

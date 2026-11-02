@@ -118,6 +118,35 @@ import Testing
     #expect(menu.items.contains { $0.title == model.attention && !$0.isEnabled })
   }
 
+  @Test func supportSubmenuSitsBetweenAboutAndQuit() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    let menu = AwakeMenu.make(model: model, openSettings: {})
+    let titles = menu.items.map(\.title)
+    let about = try #require(titles.firstIndex(of: "About Dilated"))
+    #expect(titles[about + 1] == "Support Dilated")
+    #expect(titles[about + 2] == "Quit Dilated")
+    let support = menu.items[about + 1]
+    #expect(support.image == nil)
+    let submenu = try #require(support.submenu)
+    #expect(submenu.items.map(\.title) == ["GitHub Sponsors", "Donate"])
+    #expect(
+      SupportLinks.all.map(\.url.absoluteString) == [
+        "https://github.com/sponsors/CodesWhat", "https://codeswhat.com/support",
+      ])
+    #expect(submenu.items.allSatisfy { $0.image == nil && $0.action != nil && $0.target != nil })
+    if let directory = ProcessInfo.processInfo.environment["SUPPORT_RENDER_DIR"] {
+      try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+      let dump = (titles + ["Support Dilated >"] + submenu.items.map { "  " + $0.title })
+        .joined(separator: "\n")
+      try dump.write(
+        to: URL(fileURLWithPath: directory).appendingPathComponent("menu.txt"), atomically: true,
+        encoding: .utf8)
+    }
+  }
+
   @Test func checkForUpdatesSitsBetweenSettingsAndAboutOnlyWhenAvailable() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
