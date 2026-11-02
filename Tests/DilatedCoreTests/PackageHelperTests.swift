@@ -10,7 +10,7 @@ struct PackageHelperTests {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/bin/sh")
     process.arguments = [
-      "-c", "exec -a \"$1\" /bin/sleep 10", "package-check-test", executable.path,
+      "-c", "exec -a \"$1\" /bin/sleep 120", "package-check-test", executable.path,
     ]
     try process.run()
     defer {

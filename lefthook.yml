@@ -27,7 +27,7 @@ pre-commit:
       glob: "*.sh"
       run: |
         command -v bash >/dev/null 2>&1 || { echo "bash is required: brew install bash" >&2; exit 1; }
-        bash -n {staged_files}
+        for script in {staged_files}; do bash -n "$script"; done
 
 commit-msg:
   commands:

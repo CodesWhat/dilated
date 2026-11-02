@@ -1,6 +1,6 @@
 # Dilated
 
-[![Coverage](https://codecov.io/gh/CodesWhat/dilated/branch/dev%2Fm2/graph/badge.svg)](https://codecov.io/gh/CodesWhat/dilated/branch/dev%2Fm2)
+[![Coverage](https://codecov.io/gh/CodesWhat/dilated/branch/main/graph/badge.svg)](https://codecov.io/gh/CodesWhat/dilated/branch/main)
 
 Keeps your Mac awake. A native macOS 26 menu bar app for Apple Silicon.
 
