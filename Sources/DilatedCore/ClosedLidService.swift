@@ -10,6 +10,7 @@ public actor ClosedLidService {
   private var readback = ClosedLidReadback()
   private var message: String?
   private var started = false
+  private var startup: Task<Void, Never>?
   private var resetConfirmed = false
   private var pendingSleep = false
   private var operation = UUID()
@@ -26,9 +27,14 @@ public actor ClosedLidService {
   }
 
   public func start() async {
-    guard !started else { return }
+    if let startup {
+      await startup.value
+      return
+    }
     started = true
-    await reset()
+    let task = Task { await self.reset() }
+    startup = task
+    await task.value
   }
 
   public func handlePayload(_ payload: Data, owner: UUID) async -> Data {

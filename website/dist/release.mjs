@@ -27,6 +27,28 @@ export function validateRelease(data, baseURL) {
   }
 }
 
+const checkPhrases = new Map([
+  ['macOS26ClosedLid', 'closed-lid mode on macOS 26'],
+  ['macOS27ClosedLid', 'closed-lid mode on macOS 27'],
+  ['helperCrashRecovery', 'recovery after a helper crash'],
+  ['appCrashRecovery', 'recovery after an app crash'],
+  ['heartbeatExpiry', 'holds ending when the app stops responding'],
+  ['stopResume', 'Stop and Resume'],
+  ['guardTransitions', 'battery and Low Power Mode guards'],
+  ['rebootRecovery', 'recovery after a reboot'],
+  ['approvalDenied', 'declining the helper approval'],
+  ['helperUpgrade', 'helper upgrades'],
+  ['sparkleUpgrade', 'in-app updates'],
+  ['uninstallNormalSleep', 'normal sleep after uninstall'],
+  ['nativeUI', 'the native interface'],
+]);
+
+export function describeUnverified(ids) {
+  const phrases = [...new Set(ids.map(id => checkPhrases.get(id) ?? 'other checks'))];
+  if (phrases.length < 3) return phrases.join(' and ');
+  return `${phrases.slice(0, -1).join(', ')}, and ${phrases.at(-1)}`;
+}
+
 export function releaseCopy(release) {
   const beta = release.prerelease;
   return {
@@ -36,7 +58,7 @@ export function releaseCopy(release) {
       : `Dilated ${release.version} is ready for macOS ${release.minimumMacOS}+ on Apple Silicon. Free software from CodesWhat, under MIT.`,
     summary: `${beta ? 'BETA ' : 'V'}${release.version} · MACOS ${release.minimumMacOS}+ · APPLE SILICON · MIT LICENSE`,
     caveat: release.unverified.length
-      ? `Closed-lid mode is experimental in this beta. Not yet verified on hardware: ${release.unverified.join(', ')}.`
+      ? `Closed-lid mode is experimental in this beta. Not yet verified on hardware: ${describeUnverified(release.unverified)}.`
       : '',
   };
 }

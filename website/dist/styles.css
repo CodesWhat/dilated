@@ -56,3 +56,34 @@
 @media(max-width:519px){.sample-submenu,.sample-host[data-flip=left]>.sample-submenu{position:static;width:auto;min-width:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}.sample-submenu [role^=menuitem]{padding-left:36px}.sample-submenu .sample-check{left:21px}.sample-menu{min-width:0}}
 .sample-eye-left,.sample-eye-right{opacity:0}.menu-demo[data-awake=true] .sample-eye-base{animation:sample-center 10s step-end infinite}.menu-demo[data-awake=true] .sample-eye-left{animation:sample-left 10s step-end infinite}.menu-demo[data-awake=true] .sample-eye-right{animation:sample-right 10s step-end infinite}@keyframes sample-center{0%,7.5%,15%,100%{opacity:1}2.5%,10%{opacity:0}}@keyframes sample-left{0%,7.5%,100%{opacity:0}2.5%{opacity:1}}@keyframes sample-right{0%,15%,100%{opacity:0}10%{opacity:1}}@media(max-width:1100px){.sample-app>span{display:none}}@media(max-width:767px){.menu-demo{min-height:480px}.sample-app>span{display:inline}.sample-disclaimer{font-size:9px}}@media(max-width:370px){.sample-app>span{display:none}.sample-disclaimer{font-size:8px}.sample-invitation{right:66px;font-size:10px}}@media(prefers-reduced-motion:reduce){.menu-demo[data-awake=true] .sample-eye-base{opacity:1}.sample-eye-left,.sample-eye-right{opacity:0!important}}
 .release-caveat{max-width:430px;margin:16px auto 0;font:10px/1.7 var(--mono);color:var(--muted)}.release-caveat[hidden]{display:none}
+
+/* Readability floor: no visible text under 12px, and 44px minimum tap targets. */
+.eyebrow,.gas-station-copy>.eyebrow,.night-hero-top>.eyebrow,.night-stamp>.eyebrow,.section-line>span,.section-line .eyebrow,.availability>.eyebrow,.night-coordinates,.night-stamp>span:last-child,.scene-label,.scene-menubar,.scene-menubar i,.scene-icons,.scene-icons>span,.shift-rows>div>span,.field-running,.field-title-row>p>span,.specimen-label,.specimen-scale,.manners>div>span,.hero-preview-link,.gas-station-copy>.hero-availability,.availability>.availability-spec,.release-details>p,.release-details summary,.release-details code,.release-caveat,.shelf-caption,.pack-top,.pack-facts b,.pack-bottom,.command-example>div,.command-example button,.command-example>p,.command-guide dt,.command-guide dd,footer p,footer>div,footer>span,.sample-trigger>span,.sample-invitation,.sample-disclaimer,.sample-header,.night-subline .button,.gas-station-bottom .button{font-size:12px}
+.availability>.availability-access{font-size:12px!important}
+.availability>.testing-note{font-size:12px!important}
+.pack-facts b{line-height:2}
+.shelf-caption{position:static;display:block;margin-top:44px;max-width:420px}
+.package-stage{flex-direction:column}
+.retail-strip{display:flex;align-items:center;gap:12px;padding-right:12px}
+.retail-strip-window{flex:1;min-width:0;overflow:hidden}
+.ticker-control{position:static;transform:none;flex:none;width:44px;height:44px;box-shadow:none}
+.hero-preview-link{display:inline-flex;align-items:center;min-height:44px}
+.command-example button{min-width:44px;min-height:44px;padding:6px 10px}
+.command-example>div{padding-block:0}
+.release-details summary{display:flex;align-items:center;min-height:44px}
+.button,.gas-station-bottom .button,.night-subline .button{min-height:44px}
+.footer-brand,footer>div a{display:inline-flex;align-items:center;min-height:44px}
+footer p a{display:inline-block;padding-block:12px;margin-block:-12px}
+.sample-trigger{position:relative;height:44px;min-width:44px;margin-block:-4px}
+.sample-trigger:hover,.sample-trigger[aria-expanded=true]{background:transparent}
+.sample-trigger:before{content:'';position:absolute;inset:7px 0;border-radius:4px}
+.sample-trigger:hover:before,.sample-trigger[aria-expanded=true]:before{background:#29251c1c}
+.sample-trigger>*{position:relative}
+@media(max-width:767px){
+.masthead{height:auto;flex-wrap:wrap;padding-block:10px;gap:0 10px}
+.masthead nav{width:100%;flex-wrap:wrap;gap:0 14px;font-size:12px}
+.masthead nav>a:not(.nav-source){display:inline-flex;align-items:center;min-height:44px}
+.nav-source{display:inline-flex;align-items:center;min-height:44px}
+.field-title-row>p,.margin-note>span{font-size:12px}
+}
+@media(max-width:370px){.night-subline p{font-size:12px}}
