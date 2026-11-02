@@ -1241,7 +1241,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   private func requireClosedLidSetup() async throws {
     if closedLid.usesLocalTransport {
       await closedLidPermission.refresh()
-      guard closedLidPermission.state == .ready else {
+      guard closedLidPermission.state?.isUsable == true else {
         throw InputError("Set up closed-lid permission in Dilated first.")
       }
       return

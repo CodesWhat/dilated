@@ -5,6 +5,14 @@ import Testing
 @testable import DilatedControl
 
 struct ControlTests {
+  @Test func onlyTheAdminPromptCommandsGetTheLongReadTimeout() {
+    #expect(LocalSocketClient.adminPromptSeconds == 300)
+    #expect(LocalSocketClient.usesAdminPrompt(.lidPermissionInstall))
+    #expect(LocalSocketClient.usesAdminPrompt(.lidPermissionRemove))
+    #expect(!LocalSocketClient.usesAdminPrompt(.lidPermissionStatus))
+    #expect(!LocalSocketClient.usesAdminPrompt(.status))
+  }
+
   @Test func packageCommandsHaveExplicitIntentAndRejectHoldOptions() {
     #expect((try? CLIInput.parse(["prepare-update", "--json"]))?.request?.action == .prepareUpdate)
     #expect((try? CLIInput.parse(["prepare-uninstall"]))?.request?.action == .prepareUninstall)
@@ -73,8 +81,11 @@ struct ControlTests {
       Set(
         [
           ClosedLidPermissionState.notInstalled, .needsRepair, .blocked, .ready, .notAdmin,
+          .allowedByOtherRule,
         ].map(\.word))
-        == ["notInstalled", "needsRepair", "blocked", "ready", "notAdmin"])
+        == [
+          "notInstalled", "needsRepair", "blocked", "ready", "notAdmin", "allowedByOtherRule",
+        ])
   }
 
   @Test func minimalWireRequestsUseSafeDefaults() throws {

@@ -90,6 +90,7 @@ import Observation
     case .needsRepair: "Closed-lid permission needs repair"
     case .blocked: "macOS isn't honoring the permission"
     case .notAdmin: "Closed-lid needs an administrator account"
+    case .allowedByOtherRule: "Another app's sudo rule allows closed-lid"
     }
   }
 
@@ -106,12 +107,14 @@ import Observation
       "The permission file is in place, but sudo isn't honoring the rule. Repair it, or check that /etc/sudoers includes /etc/sudoers.d."
     case .notAdmin:
       "Closed-lid permission only works for administrators. Switch to an administrator account to use it."
+    case .allowedByOtherRule:
+      "Another app's sudo rule already allows this, so closed-lid works now. Set Up adds Dilated's own rule so it doesn't depend on that app."
     }
   }
 
   public var setUpTitle: String? {
     switch state {
-    case .notInstalled: "Set Up"
+    case .notInstalled, .allowedByOtherRule: "Set Up"
     case .needsRepair, .blocked: "Repair"
     default: nil
     }
@@ -132,6 +135,7 @@ import Observation
     case .needsRepair: "Closed-lid permission needs repair."
     case .blocked: "Closed-lid permission is in place, but macOS isn't honoring it."
     case .notAdmin: "Closed-lid needs an administrator account."
+    case .allowedByOtherRule: "Closed-lid works through another app's sudo rule."
     case nil: "Closed-lid permission hasn't been checked."
     }
   }

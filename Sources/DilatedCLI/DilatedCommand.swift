@@ -279,7 +279,8 @@ import Foundation
     Starts allow display sleep unless --display-awake is supplied.
     --override-low-power explicitly allows a new hold in Low Power Mode.
     --lid requires the app's approved helper and its closed-lid safety limits.
-    lid-permission status prints notInstalled, needsRepair, blocked, ready or notAdmin.
+    lid-permission status prints notInstalled, needsRepair, blocked, ready, notAdmin or
+    allowedByOtherRule (another app's sudo rule already covers closed-lid).
     lid-permission install and remove ask for your administrator password in the app.
     With closed-lid permission turned on, the helper commands map to it and are deprecated.
     helper setup opens macOS approval when needed. Move the app to Applications first.

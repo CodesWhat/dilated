@@ -94,6 +94,19 @@ struct ClosedLidSessionTests {
     #expect(launches.values[1].generation != first.generation)
   }
 
+  @Test func concurrentEnablesStillLaunchOneWatchdog() async throws {
+    let store = makeStore()
+    let launches = LaunchLog()
+    let power = RecordingPower(store: store)
+    let guardian = ClosedLidSessionGuard(
+      power: power, store: store, launchWatchdog: { launches.record($0) })
+    try await withThrowingTaskGroup(of: Void.self) { group in
+      for _ in 0..<8 { group.addTask { _ = try await guardian.setSleepDisabled(true) } }
+      try await group.waitForAll()
+    }
+    #expect(launches.values.count == 1)
+  }
+
   @Test func aFailedWatchdogLaunchRefusesToEnable() async throws {
     struct Refused: Error {}
     let store = makeStore()

@@ -3,6 +3,8 @@ import Foundation
 
 public enum ClosedLidPermissionState: Equatable, Sendable {
   case notInstalled, needsRepair, blocked, ready, notAdmin
+  /// Our rule file is absent but another app's sudoers rule already allows both `pmset` commands.
+  case allowedByOtherRule
 
   /// The word the CLI prints and the control socket carries.
   public var word: String {
@@ -12,8 +14,12 @@ public enum ClosedLidPermissionState: Equatable, Sendable {
     case .blocked: "blocked"
     case .ready: "ready"
     case .notAdmin: "notAdmin"
+    case .allowedByOtherRule: "allowedByOtherRule"
     }
   }
+
+  /// Whether closed-lid can run: our own rule works, or another app's rule covers it.
+  public var isUsable: Bool { self == .ready || self == .allowedByOtherRule }
 }
 
 public struct ClosedLidFileInfo: Equatable, Sendable {
@@ -56,7 +62,10 @@ public struct ClosedLidPermission: Sendable {
     "%admin ALL=(root) NOPASSWD: DILATED_PMSET",
   ]
   public static let ruleContent = Data((ruleLines.joined(separator: "\n") + "\n").utf8)
-  static let probeArguments = ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", "1"]
+  /// One `sudo -n -l` probe per command the rule has to cover. Both must succeed.
+  static let probeArgumentSets = ["1", "0"].map {
+    ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", $0]
+  }
 
   static let installScript = [
     "set -eu",
@@ -87,10 +96,15 @@ public struct ClosedLidPermission: Sendable {
     return "do shell script \"\(escaped)\" with administrator privileges"
   }
 
-  /// AppleScript error -128 is the user dismissing the admin prompt.
-  static func outcome(errorNumber: Int?, message: String?) -> PrivilegedScriptOutcome {
-    if errorNumber == -128 { return .cancelled }
-    return .failed(message ?? "The administrator command failed.")
+  /// `osascript` reports the user dismissing the admin prompt as AppleScript error -128.
+  static func outcome(status: Int32, stderr: String, timedOut: Bool = false)
+    -> PrivilegedScriptOutcome
+  {
+    if timedOut { return .failed("The administrator prompt timed out.") }
+    if status == 0 { return .succeeded }
+    if stderr.contains("-128") || stderr.contains("User canceled") { return .cancelled }
+    let message = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+    return .failed(message.isEmpty ? "The administrator command failed." : message)
   }
 
   public struct Seams: Sendable {
@@ -120,7 +134,7 @@ public struct ClosedLidPermission: Sendable {
   private let runner: any PrivilegedScriptRunning
 
   public init(
-    seams: Seams = .live, runner: any PrivilegedScriptRunning = AppleScriptAdminRunner()
+    seams: Seams = .live, runner: any PrivilegedScriptRunning = OsascriptAdminRunner()
   ) {
     self.seams = seams
     self.runner = runner
@@ -128,7 +142,9 @@ public struct ClosedLidPermission: Sendable {
 
   public func state() async -> ClosedLidPermissionState {
     guard seams.isAdmin() else { return .notAdmin }
-    guard let info = seams.stat(Self.rulePath) else { return .notInstalled }
+    guard let info = seams.stat(Self.rulePath) else {
+      return await seams.probe() ? .allowedByOtherRule : .notInstalled
+    }
     guard info.isRegularFile, info.owner == 0, info.group == 0, info.mode == 0o444,
       seams.readFile(Self.rulePath) == Self.ruleContent
     else { return .needsRepair }
@@ -171,12 +187,15 @@ public struct ClosedLidPermission: Sendable {
   }
 
   static func liveProbe() async -> Bool {
-    guard
-      let result = try? await BoundedProcess.run(
-        executable: URL(fileURLWithPath: SudoPowerRunner.sudoPath), arguments: probeArguments,
-        timeout: 3, environment: [:])
-    else { return false }
-    return !result.timedOut && result.status == 0
+    for arguments in probeArgumentSets {
+      guard
+        let result = try? await BoundedProcess.run(
+          executable: URL(fileURLWithPath: SudoPowerRunner.sudoPath), arguments: arguments,
+          timeout: 3, environment: [:]),
+        !result.timedOut, result.status == 0
+      else { return false }
+    }
+    return true
   }
 
   static func currentUserIsAdmin() -> Bool {
@@ -196,21 +215,91 @@ public struct ClosedLidPermission: Sendable {
   }
 }
 
-/// Runs a fixed shell script as root through the standard macOS administrator prompt.
-public struct AppleScriptAdminRunner: PrivilegedScriptRunning {
-  public init() {}
+/// Runs a fixed shell script as root through the standard macOS administrator prompt, using
+/// `osascript` in a child process so the app (and its control socket) stays responsive while the
+/// dialog is open. The 5 minute bound is separate from `BoundedProcess`'s 3 second cap.
+public struct OsascriptAdminRunner: PrivilegedScriptRunning {
+  public static let promptTimeout: TimeInterval = 300
+  private let executable: URL
+  private let timeout: TimeInterval
+
+  public init(
+    executable: URL = URL(fileURLWithPath: "/usr/bin/osascript"),
+    timeout: TimeInterval = OsascriptAdminRunner.promptTimeout
+  ) {
+    self.executable = executable
+    self.timeout = timeout
+  }
 
   public func run(script source: String) async -> PrivilegedScriptOutcome {
-    await MainActor.run {
-      var error: NSDictionary?
-      guard let script = NSAppleScript(source: source) else {
-        return .failed("The administrator command couldn't be prepared.")
+    await Self.execute(executable: executable, arguments: ["-e", source], timeout: timeout)
+  }
+
+  /// Runs the process on a dispatch thread, never the main actor or the cooperative pool.
+  static func execute(executable: URL, arguments: [String], timeout: TimeInterval) async
+    -> PrivilegedScriptOutcome
+  {
+    let process = Process()
+    process.executableURL = executable
+    process.arguments = arguments
+    process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8"]
+    let errors = Pipe()
+    process.standardInput = FileHandle.nullDevice
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = errors
+    let state = ExecutionState()
+    return await withTaskCancellationHandler {
+      await withCheckedContinuation {
+        (continuation: CheckedContinuation<PrivilegedScriptOutcome, Never>) in
+        DispatchQueue.global(qos: .userInitiated).async {
+          do { try process.run() } catch {
+            continuation.resume(returning: .failed("The administrator command couldn't start."))
+            return
+          }
+          state.attach(process)
+          let watchdog = DispatchWorkItem {
+            state.markTimedOut()
+            state.terminate()
+          }
+          DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
+          let data = errors.fileHandleForReading.readDataToEndOfFile()
+          process.waitUntilExit()
+          watchdog.cancel()
+          continuation.resume(
+            returning: ClosedLidPermission.outcome(
+              status: process.terminationStatus, stderr: String(decoding: data, as: UTF8.self),
+              timedOut: state.timedOut))
+        }
       }
-      _ = script.executeAndReturnError(&error)
-      guard let error else { return .succeeded }
-      return ClosedLidPermission.outcome(
-        errorNumber: (error[NSAppleScript.errorNumber] as? NSNumber)?.intValue,
-        message: error[NSAppleScript.errorMessage] as? String)
+    } onCancel: {
+      state.terminate()
+    }
+  }
+
+  private final class ExecutionState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+    private var cancelled = false
+    private(set) var timedOutFlag = false
+
+    var timedOut: Bool { lock.withLock { timedOutFlag } }
+
+    func attach(_ process: Process) {
+      let stopNow = lock.withLock {
+        self.process = process
+        return cancelled
+      }
+      if stopNow, process.isRunning { process.terminate() }
+    }
+
+    func markTimedOut() { lock.withLock { timedOutFlag = true } }
+
+    func terminate() {
+      let held = lock.withLock {
+        cancelled = true
+        return process
+      }
+      if let held, held.isRunning { held.terminate() }
     }
   }
 }

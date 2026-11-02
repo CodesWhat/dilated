@@ -85,6 +85,33 @@ struct ClosedLidWatchdogSpawnerTests {
     #expect(ProcessStartTime.micros(pid: child) != nil)
   }
 
+  @Test func aNewGenerationReplacesTheOldWatchdog() async throws {
+    let executable = try #require(Self.executable)
+    let first = try Fixture()
+    let second = try Fixture()
+    let current = ClosedLidWatchdogSpawner.Current()
+    var older: pid_t?
+    var newer: pid_t?
+    defer {
+      first.cleanUp(watchdog: older)
+      second.cleanUp(watchdog: newer)
+    }
+    older = try ClosedLidWatchdogSpawner.spawn(
+      first.launch, executable: executable, current: current)
+    newer = try ClosedLidWatchdogSpawner.spawn(
+      second.launch, executable: executable, current: current)
+    let oldPID = try #require(older)
+    let newPID = try #require(newer)
+    #expect(oldPID != newPID)
+    // The replaced watchdog is signalled and reaped; exactly one stays.
+    for _ in 0..<200 where ProcessStartTime.micros(pid: oldPID) != nil {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(ProcessStartTime.micros(pid: oldPID) == nil)
+    #expect(ProcessStartTime.micros(pid: newPID) != nil)
+    #expect(current.running == newPID)
+  }
+
   @Test func aMissingExecutableIsRefused() {
     #expect(throws: WatchdogSpawnError.self) {
       try ClosedLidWatchdogSpawner.spawn(

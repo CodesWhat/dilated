@@ -54,6 +54,23 @@ private struct WorldRunner: PrivilegedScriptRunning {
   func run(script: String) async -> PrivilegedScriptOutcome { world.pop(script) }
 }
 
+private actor GateRunner: PrivilegedScriptRunning {
+  private var continuation: CheckedContinuation<PrivilegedScriptOutcome, Never>?
+  private var early: PrivilegedScriptOutcome?
+  func run(script: String) async -> PrivilegedScriptOutcome {
+    if let early { return early }
+    return await withCheckedContinuation { continuation = $0 }
+  }
+  func open(_ outcome: PrivilegedScriptOutcome) {
+    if let continuation {
+      continuation.resume(returning: outcome)
+      self.continuation = nil
+    } else {
+      early = outcome
+    }
+  }
+}
+
 private actor IdlePower: ClosedLidPowerControlling {
   func setSleepDisabled(_ disabled: Bool) async throws -> ClosedLidReadback {
     ClosedLidReadback(effectiveDisabled: disabled, storedDisabled: disabled)
@@ -67,7 +84,8 @@ private actor IdlePower: ClosedLidPowerControlling {
 @MainActor private func makeWorld(_ state: ClosedLidPermissionState) -> PermissionWorld {
   let world = PermissionWorld()
   switch state {
-  case .notInstalled: world.set(info: .some(nil), content: .some(nil))
+  case .notInstalled: world.set(info: .some(nil), content: .some(nil), probe: false)
+  case .allowedByOtherRule: world.set(info: .some(nil), content: .some(nil), probe: true)
   case .needsRepair:
     world.set(info: .some(PermissionWorld.good), content: .some(Data("junk\n".utf8)))
   case .blocked:
@@ -144,6 +162,7 @@ private func buttonTitles(_ view: some View) throws -> [String] {
     (.blocked, "macOS isn't honoring the permission", ["Repair", "Remove"]),
     (.ready, "Closed-lid permission is set up", ["Remove"]),
     (.notAdmin, "Closed-lid needs an administrator account", []),
+    (.allowedByOtherRule, "Another app's sudo rule allows closed-lid", ["Set Up"]),
   ])
   func eachStateShowsPlainWordsAndTheRightButtons(
     state: ClosedLidPermissionState, title: String, actions: [String]
@@ -161,6 +180,50 @@ private func buttonTitles(_ view: some View) throws -> [String] {
     #expect(!shown.contains("HELPER"))
     let titles = try buttonTitles(view).filter { ["Set Up", "Repair", "Remove"].contains($0) }
     #expect(titles == actions)
+  }
+
+  @Test func anotherAppsRuleIsUsableAndExplainsItself() async throws {
+    let directory = scratch()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let permission = makePermissionModel(makeWorld(.allowedByOtherRule))
+    let model = makeAppModel(permission: permission, local: true, directory: directory)
+    defer { model.shutdown() }
+    await permission.refresh()
+    #expect(permission.state == .allowedByOtherRule)
+    #expect(permission.state?.isUsable == true)
+    #expect(!permission.canRemove)
+    #expect(permission.setUpTitle == "Set Up")
+    #expect(permission.summary == "Closed-lid works through another app's sudo rule.")
+    #expect(
+      try texts(ClosedLidSettings(model: model)).contains {
+        $0.contains("Another app's sudo rule already allows this")
+      })
+    let response = await model.control(.init(action: .lidPermissionStatus))
+    #expect(response.ok && response.lidPermission == "allowedByOtherRule")
+  }
+
+  @Test func statusAnswersWhileTheAdminPromptIsOpen() async throws {
+    let directory = scratch()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let gate = GateRunner()
+    let world = makeWorld(.notInstalled)
+    let permission = ClosedLidPermissionModel(
+      permission: ClosedLidPermission(
+        seams: .init(
+          stat: { _ in world.snapshot().0 }, readFile: { _ in world.snapshot().1 },
+          probe: { world.snapshot().2 }, isAdmin: { world.snapshot().3 }),
+        runner: gate))
+    let model = makeAppModel(permission: permission, local: true, directory: directory)
+    defer { model.shutdown() }
+    let install = Task { @MainActor in await model.control(.init(action: .lidPermissionInstall)) }
+    await settle { permission.busy }
+    let status = await model.control(.init(action: .lidPermissionStatus))
+    #expect(status.ok)
+    let second = await model.control(.init(action: .lidPermissionInstall))
+    #expect(second.code == "unavailable")
+    await gate.open(.cancelled)
+    let finished = await install.value
+    #expect(finished.code == "cancelled")
   }
 
   @Test func notAdminAndBlockedExplainThemselves() async throws {
@@ -187,7 +250,8 @@ private func buttonTitles(_ view: some View) throws -> [String] {
     await permission.refresh()
     let view = ClosedLidSettings(model: model)
     world.set(
-      info: .some(PermissionWorld.good), content: .some(ClosedLidPermission.ruleContent))
+      info: .some(PermissionWorld.good), content: .some(ClosedLidPermission.ruleContent),
+      probe: true)
     try button(view, "Set Up").tap()
     await settle { permission.state == .ready }
     #expect(permission.state == .ready)
@@ -236,7 +300,7 @@ private func buttonTitles(_ view: some View) throws -> [String] {
     defer { model.shutdown() }
     await permission.refresh()
     let view = ClosedLidSettings(model: model)
-    world.set(info: .some(nil), content: .some(nil))
+    world.set(info: .some(nil), content: .some(nil), probe: false)
     try button(view, "Remove").tap()
     await settle { permission.state == .notInstalled }
     #expect(permission.state == .notInstalled)
@@ -331,13 +395,15 @@ private func buttonTitles(_ view: some View) throws -> [String] {
     world.queue(.cancelled)
     response = await model.control(.init(action: .lidPermissionInstall))
     #expect(response.ok && response.code == "cancelled")
-    world.set(info: .some(PermissionWorld.good), content: .some(ClosedLidPermission.ruleContent))
+    world.set(
+      info: .some(PermissionWorld.good), content: .some(ClosedLidPermission.ruleContent),
+      probe: true)
     response = await model.control(.init(action: .lidPermissionInstall))
     #expect(response.ok && response.lidPermission == "ready")
     world.queue(.failed("nope"))
     response = await model.control(.init(action: .lidPermissionRemove))
     #expect(!response.ok && response.message == "nope" && response.code == "permissionFailure")
-    world.set(info: .some(nil), content: .some(nil))
+    world.set(info: .some(nil), content: .some(nil), probe: false)
     response = await model.control(.init(action: .lidPermissionRemove))
     #expect(response.ok && response.lidPermission == "notInstalled")
   }

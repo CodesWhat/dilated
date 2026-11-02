@@ -201,6 +201,13 @@ public struct AppConnectionUnavailable: LocalizedError {
 }
 
 public enum LocalSocketClient {
+  /// Long enough for the admin password dialog; status keeps the short timeout.
+  public static let adminPromptSeconds = 300
+
+  public static func usesAdminPrompt(_ action: ControlAction) -> Bool {
+    [.lidPermissionInstall, .lidPermissionRemove, .helperSetup, .helperRemove].contains(action)
+  }
+
   public static func send(_ request: ControlRequest, to endpoint: SocketEndpoint) throws
     -> ControlResponse
   {
@@ -210,8 +217,12 @@ public enum LocalSocketClient {
     let powerOperation = [.stopAll, .release, .toggle].contains(request.action)
     let helperOperation = [.helperSetup, .helperRemove, .prepareUpdate, .prepareUninstall].contains(
       request.action)
+    let adminPrompt = Self.usesAdminPrompt(request.action)
     configure(
-      fd, receiveSeconds: helperOperation ? 60 : request.closedLid ? 20 : powerOperation ? 10 : 3)
+      fd,
+      receiveSeconds: adminPrompt
+        ? Self.adminPromptSeconds
+        : helperOperation ? 60 : request.closedLid ? 20 : powerOperation ? 10 : 3)
     var addr = try address(for: endpoint)
     let result = withUnsafePointer(to: &addr) { pointer in
       pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
