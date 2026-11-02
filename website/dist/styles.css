@@ -62,7 +62,7 @@
 .availability>.availability-access{font-size:12px!important}
 .availability>.testing-note{font-size:12px!important}
 .pack-facts b{line-height:2}
-.shelf-caption{position:static;display:block;margin-top:14px;max-width:340px}
+.shelf-caption{position:static;display:block;margin-top:44px;max-width:420px}
 .package-stage{flex-direction:column}
 .retail-strip{display:flex;align-items:center;gap:12px;padding-right:12px}
 .retail-strip-window{flex:1;min-width:0;overflow:hidden}
