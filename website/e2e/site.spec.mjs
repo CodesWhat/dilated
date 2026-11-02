@@ -11,7 +11,7 @@ const releaseJson = {
   minimumMacOS: '26.0',
   architecture: 'arm64',
   prerelease: true,
-  unverified: ['closed-lid recovery', 'upgrade from beta.3'],
+  unverified: ['macOS27ClosedLid', 'helperCrashRecovery', 'sparkleUpgrade'],
 };
 
 const releases = {
@@ -281,7 +281,9 @@ test.describe('release metadata', () => {
     await expect(page.locator('#availability [data-release-link]')).toBeVisible();
     await expect(page.locator('#availability [data-release-label]')).toHaveText('Download beta for Mac');
     await expect(page.locator('[data-release-version]')).toHaveText('Version 1.2.3-beta.4 · Build 42');
-    await expect(page.locator('[data-release-caveat]')).toContainText('closed-lid recovery, upgrade from beta.3');
+    const caveat = page.locator('[data-release-caveat]');
+    await expect(caveat).toContainText('closed-lid mode on macOS 27, recovery after a helper crash, and in-app updates');
+    expect((await caveat.textContent()).replaceAll('macOS', '')).not.toMatch(/[a-z][A-Z]/);
     await page.locator('.release-details summary').click();
     await expect(page.locator('[data-release-checksum]')).toHaveText(releaseJson.sha256.toLowerCase());
     await expect(page.locator('[data-testing-only]:visible')).toHaveCount(0);
@@ -302,4 +304,87 @@ test.describe('release metadata', () => {
       await expect(page.locator('[data-release-caveat]')).toBeHidden();
     });
   }
+});
+
+test.describe('readability and usability', () => {
+  for (const width of [1280, 390, 320]) {
+    test(`no visible text computes below 12px at ${width}px`, async ({ page, open }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await open('/?concept=gas-station');
+      await page.evaluate(() => document.fonts.ready);
+      const small = await page.evaluate(() => {
+        const found = [];
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+          const node = walker.currentNode;
+          const el = node.parentElement;
+          if (!node.textContent.trim() || el.closest('script,template,[hidden],[aria-hidden="true"]')) continue;
+          const style = getComputedStyle(el);
+          if (style.display === 'none' || style.visibility === 'hidden' || !el.getBoundingClientRect().width) continue;
+          if (parseFloat(style.fontSize) < 12) found.push(`${el.tagName}.${el.className}: ${style.fontSize} "${node.textContent.trim().slice(0, 30)}"`);
+        }
+        return found;
+      });
+      expect(small).toEqual([]);
+    });
+  }
+
+  test('nav links stay reachable at narrow widths without overflow', async ({ page, open }) => {
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      await open('/');
+      for (const name of ['How it works', 'Command line']) {
+        const link = page.locator('.masthead nav').getByRole('link', { name });
+        await expect(link).toBeVisible();
+        const box = await link.boundingBox();
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(width);
+      }
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+    }
+  });
+
+  test('listed controls are at least 44px at 390px', async ({ page, open }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open('/');
+    const selectors = ['.hero-preview-link', '#copy-command', '.sample-trigger', 'footer a', '.release-details summary', '.ticker-control', '.masthead nav a'];
+    for (const selector of selectors) {
+      const boxes = await page.locator(selector).evaluateAll(els => els.map(el => {
+        const r = el.getBoundingClientRect();
+        return { w: r.width, h: r.height };
+      }).filter(box => box.w > 0));
+      expect(boxes.length, selector).toBeGreaterThan(0);
+      for (const box of boxes) expect(Math.min(box.w, box.h), selector).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  test('the ticker control has its own gutter and never overlaps phrase text', async ({ page, open }) => {
+    for (const width of [1280, 390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      await open('/');
+      const result = await page.evaluate(() => {
+        const control = document.querySelector('.ticker-control').getBoundingClientRect();
+        const win = document.querySelector('.retail-strip-window').getBoundingClientRect();
+        const overlaps = [...document.querySelectorAll('.retail-strip-track span')].filter(span => {
+          const r = span.getBoundingClientRect();
+          const left = Math.max(r.left, win.left), right = Math.min(r.right, win.right);
+          return right > left && left < control.right && right > control.left;
+        }).length;
+        return { overlaps, gap: control.left - win.right, w: control.width, h: control.height };
+      });
+      expect(result.overlaps).toBe(0);
+      expect(result.gap).toBeGreaterThanOrEqual(0);
+      expect(Math.min(result.w, result.h)).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  test('buttons that scroll to availability do not promise a download, and the closing icon alt is short', async ({ page, open }) => {
+    await open('/', { release: releases.missing });
+    const links = page.locator('[data-release-link][href="#availability"]');
+    await expect(links).toHaveCount(2);
+    for (const label of await links.allTextContents()) expect(label).not.toMatch(/^\s*download\b/i);
+    const alt = await page.locator('.availability-icon').getAttribute('alt');
+    expect(alt.trim().split(/\s+/).length).toBeLessThanOrEqual(8);
+  });
 });
