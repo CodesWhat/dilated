@@ -39,9 +39,17 @@ private func marker(_ generation: UUID, pid: Int32 = 1) -> ClosedLidSessionMarke
     pid: pid, processStartMicros: 1, generation: generation, enabledAt: Date())
 }
 
-private let forever: @Sendable (Duration) async throws -> Void = { _ in
-  try await Task.sleep(for: .seconds(3600))
+private let immediateExit: @Sendable (@escaping @Sendable () -> Void) -> @Sendable () -> Void = {
+  handler in
+  handler()
+  return {}
 }
+
+private let neverExits: @Sendable (@escaping @Sendable () -> Void) -> @Sendable () -> Void = { _ in
+  {}
+}
+
+private let noSleep: @Sendable (Duration) async throws -> Void = { _ in }
 
 struct ClosedLidWatchdogTests {
   @Test func appExitRevertsAndClearsTheMarker() async {
@@ -50,8 +58,8 @@ struct ClosedLidWatchdogTests {
     let power = WatchdogPower()
     let watchdog = ClosedLidWatchdog(
       generation: generation,
-      readMarker: { box.read() }, waitForExit: {}, power: power,
-      clearMarker: { box.set(nil) }, sleep: forever)
+      readMarker: { box.read() }, onExit: immediateExit, power: power,
+      clearMarker: { box.set(nil) })
     #expect(await watchdog.run() == .reverted)
     #expect(await power.calls == [false])
     #expect(box.read() == nil)
@@ -61,21 +69,13 @@ struct ClosedLidWatchdogTests {
     let generation = UUID()
     let box = MarkerBox(marker(generation))
     let power = WatchdogPower()
-    let polls = Counter()
+    let reads = Counter()
     let watchdog = ClosedLidWatchdog(
       generation: generation,
-      pollInterval: .seconds(10),
-      readMarker: { box.read() },
-      waitForExit: { try? await Task.sleep(for: .seconds(3600)) }, power: power,
-      clearMarker: {},
-      sleep: { duration in
-        if duration == .seconds(10) {
-          if polls.next() == 2 { box.set(nil) }
-          try await Task.sleep(for: .milliseconds(5))
-        } else {
-          try await Task.sleep(for: .seconds(3600))
-        }
-      })
+      pollInterval: .milliseconds(20),
+      readMarker: { reads.next() >= 3 ? nil : box.read() },
+      onExit: neverExits, power: power,
+      clearMarker: {})
     #expect(await watchdog.run() == .markerGone)
     #expect(await power.calls.isEmpty)
   }
@@ -85,8 +85,8 @@ struct ClosedLidWatchdogTests {
     let power = WatchdogPower()
     let watchdog = ClosedLidWatchdog(
       generation: UUID(),
-      readMarker: { box.read() }, waitForExit: {}, power: power,
-      clearMarker: { box.set(nil) }, sleep: forever)
+      readMarker: { box.read() }, onExit: immediateExit, power: power,
+      clearMarker: { box.set(nil) })
     #expect(await watchdog.run() == .markerGone)
     #expect(await power.calls.isEmpty)
     #expect(box.read() != nil)
@@ -98,8 +98,13 @@ struct ClosedLidWatchdogTests {
     let power = WatchdogPower()
     let watchdog = ClosedLidWatchdog(
       generation: generation,
-      readMarker: { box.read() }, waitForExit: { box.set(nil) }, power: power,
-      clearMarker: {}, sleep: forever)
+      readMarker: { box.read() },
+      onExit: { handler in
+        box.set(nil)
+        handler()
+        return {}
+      }, power: power,
+      clearMarker: {})
     #expect(await watchdog.run() == .markerGone)
     #expect(await power.calls.isEmpty)
   }
@@ -111,10 +116,9 @@ struct ClosedLidWatchdogTests {
     let sleeps = DurationLog()
     let watchdog = ClosedLidWatchdog(
       generation: generation, pollInterval: .seconds(1000),
-      readMarker: { box.read() }, waitForExit: {}, power: power,
+      readMarker: { box.read() }, onExit: immediateExit, power: power,
       clearMarker: { box.set(nil) },
       sleep: { duration in
-        if duration == .seconds(1000) { try await Task.sleep(for: .seconds(3600)) }
         if sleeps.record(duration) >= 3 { throw CancellationError() }
       })
     #expect(await watchdog.run() == .revertFailed)
@@ -135,10 +139,9 @@ struct ClosedLidWatchdogTests {
     let sleeps = DurationLog()
     let watchdog = ClosedLidWatchdog(
       generation: generation, pollInterval: .seconds(1000),
-      readMarker: { box.read() }, waitForExit: {}, power: power,
+      readMarker: { box.read() }, onExit: immediateExit, power: power,
       clearMarker: { box.set(nil) },
       sleep: { duration in
-        if duration == .seconds(1000) { try await Task.sleep(for: .seconds(3600)) }
         _ = sleeps.record(duration)
       })
     #expect(await watchdog.run() == .reverted)
@@ -153,10 +156,9 @@ struct ClosedLidWatchdogTests {
     let power = WatchdogPower(failing: true)
     let watchdog = ClosedLidWatchdog(
       generation: generation, pollInterval: .seconds(1000),
-      readMarker: { box.read() }, waitForExit: {}, power: power,
+      readMarker: { box.read() }, onExit: immediateExit, power: power,
       clearMarker: {},
       sleep: { duration in
-        if duration == .seconds(1000) { try await Task.sleep(for: .seconds(3600)) }
         box.set(marker(UUID()))
       })
     #expect(await watchdog.run() == .markerGone)
@@ -167,19 +169,16 @@ struct ClosedLidWatchdogTests {
     let generation = UUID()
     let box = MarkerBox(marker(generation))
     let power = WatchdogPower()
-    let polls = Counter()
-    // 10,000 polls at 10s each is well past 24 hours of simulated time.
+    let reads = Counter()
+    // Many polls pass with the marker still ours and nothing happens; the watchdog only ends
+    // once the marker goes away.
     let watchdog = ClosedLidWatchdog(
-      generation: generation, pollInterval: .seconds(10),
-      readMarker: { box.read() },
-      waitForExit: { try? await Task.sleep(for: .seconds(3600)) }, power: power,
-      clearMarker: {},
-      sleep: { duration in
-        guard duration == .seconds(10) else { return }
-        if polls.next() == 10_000 { box.set(nil) }
-        await Task.yield()
-      })
+      generation: generation, pollInterval: .milliseconds(5),
+      readMarker: { reads.next() >= 40 ? nil : box.read() },
+      onExit: neverExits, power: power,
+      clearMarker: {})
     #expect(await watchdog.run() == .markerGone)
+    #expect(reads.next() > 40)
     #expect(await power.calls.isEmpty)
   }
 
@@ -194,7 +193,7 @@ struct ClosedLidWatchdogTests {
     let power = WatchdogPower()
     let watchdog = ClosedLidWatchdog(
       generation: old, pollInterval: .seconds(1000),
-      readMarker: { store.read() }, waitForExit: {}, power: power,
+      readMarker: { store.read() }, onExit: immediateExit, power: power,
       clearMarker: { store.clear(generation: old) },
       acquireLock: {
         guard let lock = try? await store.acquireLock() else { return nil }
@@ -217,8 +216,8 @@ struct ClosedLidWatchdogTests {
     let box = MarkerBox(zero)
     let power = WatchdogPower()
     let watchdog = ClosedLidWatchdog(
-      generation: generation, readMarker: { box.read() }, waitForExit: {}, power: power,
-      clearMarker: { box.set(nil) }, sleep: forever)
+      generation: generation, readMarker: { box.read() }, onExit: immediateExit, power: power,
+      clearMarker: { box.set(nil) })
     #expect(await watchdog.run() == .markerGone)
     #expect(await power.calls.isEmpty)
     #expect(box.read() != nil)
@@ -245,7 +244,9 @@ struct ClosedLidWatchdogTests {
     let watchdog = ClosedLidWatchdog(
       generation: generation,
       readMarker: { store.read() },
-      waitForExit: { await ProcessExit.wait(pid: pid, startMicros: start) },
+      onExit: { handler in
+        ProcessExit.register(pid: pid, startMicros: start, handler: handler)
+      },
       power: power, clearMarker: { store.clear(generation: generation) })
     let outcome = Task { await watchdog.run() }
     try await Task.sleep(for: .milliseconds(200))
@@ -266,6 +267,9 @@ struct ClosedLidWatchdogTests {
     for _ in 0..<500 where child.isRunning { try await Task.sleep(for: .milliseconds(10)) }
     await ProcessExit.wait(pid: pid, startMicros: start)
     await ProcessExit.wait(pid: getpid(), startMicros: 1)
+    let fired = Counter()
+    _ = ProcessExit.register(pid: getpid(), startMicros: 1) { _ = fired.next() }
+    #expect(fired.next() == 2)
   }
 }
 
