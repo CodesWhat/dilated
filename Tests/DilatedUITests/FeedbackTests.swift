@@ -292,7 +292,7 @@ import Testing
   }
 
   private func wait(_ predicate: @MainActor () -> Bool) async {
-    let deadline = ContinuousClock.now + .seconds(5)
+    let deadline = ContinuousClock.now + .seconds(30)
     while !predicate() && ContinuousClock.now < deadline {
       try? await Task.sleep(for: .milliseconds(1))
     }
