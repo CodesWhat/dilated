@@ -128,6 +128,7 @@ import UniformTypeIdentifiers
 @MainActor struct TriggerRuleEditor: View {
   #if DEBUG
     var didAppear: ((Self) -> Void)?
+    var criterionDidAppear: ((any View) -> Void)?
   #endif
   @State var rule: TriggerRule
   @State private var criteria: TriggerCriteriaRows
@@ -146,6 +147,14 @@ import UniformTypeIdentifiers
     self.remove = remove
   }
 
+  @ViewBuilder private func criterionEditor(_ criterion: Binding<TriggerCriterion>) -> some View {
+    #if DEBUG
+      TriggerCriterionEditor(didAppear: criterionDidAppear, criterion: criterion)
+    #else
+      TriggerCriterionEditor(criterion: criterion)
+    #endif
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       Text("EDIT TRIGGER").font(DesignFont.heading(28))
@@ -154,7 +163,7 @@ import UniformTypeIdentifiers
         VStack(alignment: .leading, spacing: 16) {
           ForEach($criteria.rows) { $row in
             VStack(alignment: .leading, spacing: 10) {
-              TriggerCriterionEditor(criterion: $row.value)
+              criterionEditor($row.value)
               Button("Remove condition") { criteria.remove(id: row.id) }
                 .accessibilityLabel("Remove condition: \(row.value.summary)")
             }.padding(14).background(DesignPalette.surface, in: RoundedRectangle(cornerRadius: 6))
@@ -273,6 +282,9 @@ private enum TriggerKind: String, CaseIterable {
 }
 
 @MainActor private struct TriggerCriterionEditor: View {
+  #if DEBUG
+    var didAppear: ((any View) -> Void)?
+  #endif
   @Binding var criterion: TriggerCriterion
   @State private var processes: [NativeProcess] = []
   @State private var audioOutputs: [NativeAudioOutput] = []
@@ -511,6 +523,9 @@ private enum TriggerKind: String, CaseIterable {
           .foregroundStyle(.secondary)
       }
     }
+    #if DEBUG
+      .onAppear { didAppear?(self) }
+    #endif
   }
   private func scheduleEditor(_ schedule: WeeklySchedule) -> some View {
     VStack(alignment: .leading, spacing: 10) {
