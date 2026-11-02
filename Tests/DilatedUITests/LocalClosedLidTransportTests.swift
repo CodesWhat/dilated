@@ -86,18 +86,24 @@ import Testing
     #expect(backoff.next() == .seconds(1))
   }
 
-  @Test func theFlagDefaultsOffAndKeepsTheHelperTransport() {
-    let defaults = UserDefaults(suiteName: "local-lid-\(UUID().uuidString)")!
-    #expect(defaults.bool(forKey: LocalClosedLidTransport.defaultsKey) == false)
+  @Test(arguments: [false, true])
+  func theControllerAlwaysUsesTheLocalTransportWhateverTheRetiredFlagSays(stale: Bool) {
+    let key = "DilatedLocalClosedLidTransport"
+    let previous = UserDefaults.standard.object(forKey: key)
+    UserDefaults.standard.set(stale, forKey: key)
+    defer {
+      if let previous {
+        UserDefaults.standard.set(previous, forKey: key)
+      } else {
+        UserDefaults.standard.removeObject(forKey: key)
+      }
+    }
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
       "local-lid-\(UUID().uuidString)")
-    let off = ClosedLidController.configured(defaults: defaults, stateDirectory: directory)
-    #expect(!off.hasLease)
-    #expect(!off.usesLocalTransport)
-    defaults.set(true, forKey: LocalClosedLidTransport.defaultsKey)
-    let on = ClosedLidController.configured(defaults: defaults, stateDirectory: directory)
-    defer { on.invalidate() }
-    #expect(on.usesLocalTransport)
+    let controller = ClosedLidController.configured(stateDirectory: directory)
+    defer { controller.invalidate() }
+    #expect(controller.localTransport != nil)
+    #expect(!controller.hasLease)
   }
 }
 

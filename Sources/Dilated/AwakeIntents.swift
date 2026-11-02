@@ -46,7 +46,8 @@ struct StopAwakeIntent: AppIntent {
 struct AwakeStatusIntent: AppIntent {
   static let title: LocalizedStringResource = "Get awake status"
   static let description = IntentDescription(
-    "Get active holds, deadlines, automation pause and the last observed helper state.")
+    "Get active holds, deadlines, automation pause and the last observed closed-lid permission state."
+  )
   static var supportedModes: IntentModes { .background }
   @AppDependency var service: AutomationService
   @MainActor func perform() async throws -> some IntentResult & ReturnsValue<String> {
@@ -57,7 +58,7 @@ struct AwakeStatusIntent: AppIntent {
 struct SetClosedLidIntent: AppIntent {
   static let title: LocalizedStringResource = "Set closed-lid mode"
   static let description = IntentDescription(
-    "Change closed-lid for a specific active hold. Requires previous helper approval and battery warning review. Never changes future defaults."
+    "Change closed-lid for a specific active hold. Requires closed-lid permission and battery warning review. Never changes future defaults."
   )
   static var supportedModes: IntentModes { .background }
   @AppDependency var service: AutomationService

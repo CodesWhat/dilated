@@ -190,7 +190,8 @@ import Testing
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let model = AppModel(
-      endpoint: SocketEndpoint(stateDirectory: directory), power: { PowerState() })
+      endpoint: SocketEndpoint(stateDirectory: directory), power: { PowerState() },
+      closedLid: inertClosedLid(), helperMigration: inertMigration(directory))
     defer { model.shutdown() }
     model.begin()
     model.settings.onboardingComplete = true

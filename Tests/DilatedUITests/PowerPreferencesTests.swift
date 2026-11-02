@@ -93,9 +93,7 @@ import Testing
     var power = PowerState(onBattery: false, batteryPercent: 50)
     let model = AppModel(
       endpoint: .init(stateDirectory: directory), power: { power }, assertions: PowerAssertions(),
-      helperInstallation: HelperInstallation(
-        service: PowerHelperFixture(),
-        readPower: { .init(effectiveDisabled: false, storedDisabled: false) }))
+      closedLid: inertClosedLid())
     defer { model.shutdown() }
     model.settings.batteryFloor = 30
     model.settings.batteryFloorIgnoresAC = false
@@ -118,11 +116,4 @@ import Testing
   var activeTypes: Set<String> { [] }
   func synchronize(holds: [Hold], now: Date) throws {}
   func releaseAll() {}
-}
-
-@MainActor private final class PowerHelperFixture: HelperInstalling {
-  var status: SMAppService.Status { .notRegistered }
-  func register() throws {}
-  func unregister() async throws {}
-  func openApproval() {}
 }

@@ -24,6 +24,36 @@ struct ControlTests {
       #expect(throws: (any Error).self) { try CLIInput.parse(arguments) }
     }
   }
+  @Test func prepareUninstallRemovesTheSudoRuleOnlyWhenAsked() throws {
+    let plain = try CLIInput.parse(["prepare-uninstall"])
+    #expect(plain.request?.removeLidPermission == false)
+    #expect(!LocalSocketClient.usesAdminPrompt(try #require(plain.request)))
+    let asked = try CLIInput.parse(["prepare-uninstall", "--remove-lid-permission", "--json"])
+    #expect(asked.request?.removeLidPermission == true && asked.json)
+    #expect(LocalSocketClient.usesAdminPrompt(try #require(asked.request)))
+    #expect(!LocalSocketClient.usesAdminPrompt(.init(action: .prepareUpdate)))
+    for arguments in [
+      ["prepare-update", "--remove-lid-permission"],
+      ["prepare-uninstall", "--remove-lid-permission", "--remove-lid-permission"],
+      ["prepare-uninstall", "--force"],
+    ] {
+      #expect(throws: (any Error).self) { try CLIInput.parse(arguments) }
+    }
+    let old = try WireJSON.decode(
+      ControlRequest.self, from: Data(#"{"action":"prepareUninstall"}"#.utf8))
+    #expect(!old.removeLidPermission)
+  }
+
+  @Test func helperUsageErrorsPointAtLidPermission() {
+    do {
+      _ = try CLIInput.parse(["helper", "reset"])
+      Issue.record("helper reset parsed")
+    } catch {
+      #expect(error.localizedDescription.contains("deprecated"))
+      #expect(error.localizedDescription.contains("lid-permission"))
+    }
+  }
+
   @Test func helperCommandsAreExplicitAppOperations() throws {
     for (command, action) in [
       ("status", ControlAction.helperStatus), ("setup", .helperSetup), ("remove", .helperRemove),

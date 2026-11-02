@@ -89,7 +89,7 @@ import Testing
     let original = model.engine.holds
     let status = try await service.status()
     #expect(status.contains(id.uuidString))
-    #expect(status.contains("Helper state: unknown"))
+    #expect(status.contains("Closed-lid permission state: unknown"))
     #expect(model.engine.holds == original)
   }
 

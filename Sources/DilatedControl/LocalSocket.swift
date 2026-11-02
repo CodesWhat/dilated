@@ -208,6 +208,12 @@ public enum LocalSocketClient {
     [.lidPermissionInstall, .lidPermissionRemove, .helperSetup, .helperRemove].contains(action)
   }
 
+  /// `prepare-uninstall --remove-lid-permission` shows the same password dialog.
+  public static func usesAdminPrompt(_ request: ControlRequest) -> Bool {
+    usesAdminPrompt(request.action)
+      || (request.action == .prepareUninstall && request.removeLidPermission)
+  }
+
   public static func send(_ request: ControlRequest, to endpoint: SocketEndpoint) throws
     -> ControlResponse
   {
@@ -217,7 +223,7 @@ public enum LocalSocketClient {
     let powerOperation = [.stopAll, .release, .toggle].contains(request.action)
     let helperOperation = [.helperSetup, .helperRemove, .prepareUpdate, .prepareUninstall].contains(
       request.action)
-    let adminPrompt = Self.usesAdminPrompt(request.action)
+    let adminPrompt = Self.usesAdminPrompt(request)
     configure(
       fd,
       receiveSeconds: adminPrompt

@@ -105,7 +105,7 @@ import DilatedCore
           }
         }
       }
-      lid.isEnabled = !model.closedLid.busy && !model.helperInstallation.busy
+      lid.isEnabled = !model.closedLid.busy && !model.closedLidPermission.busy
       menu.addItem(lid)
     }
     if model.closedLid.active || model.closedLid.state?.readback.effectiveDisabled == true {

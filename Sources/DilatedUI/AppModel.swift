@@ -199,7 +199,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored public var onBatteryOverrideNeeded: ((TimeInterval?) -> Void)?
   @ObservationIgnored public var onClosedLidBatteryWarning: (() -> Bool)?
   public let closedLid: ClosedLidController
-  public let helperInstallation: HelperInstallation
+  public let helperMigration: HelperMigration
   public let closedLidPermission: ClosedLidPermissionModel
   public let updater: AppUpdater
   @ObservationIgnored public let endpoint: SocketEndpoint
@@ -274,7 +274,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     endpoint: SocketEndpoint = .current, power: @escaping () -> PowerState = SystemPower.read,
     assertions: any AssertionControlling = NativeAssertions(),
     closedLid: ClosedLidController? = nil,
-    helperInstallation: HelperInstallation? = nil,
+    helperMigration: HelperMigration? = nil,
     closedLidPermission: ClosedLidPermissionModel? = nil,
     updater: AppUpdater? = nil
   ) {
@@ -288,7 +288,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
       sounds: NativeFeedbackSounds(directory: endpoint.stateDirectory))
     self.closedLid =
       closedLid ?? ClosedLidController.configured(stateDirectory: endpoint.stateDirectory)
-    self.helperInstallation = helperInstallation ?? HelperInstallation()
+    self.helperMigration =
+      helperMigration ?? HelperMigration(stateDirectory: endpoint.stateDirectory)
     let lid = self.closedLid
     self.closedLidPermission =
       closedLidPermission
@@ -363,30 +364,27 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
   public func begin() {
     hasBegun = true
+    closedLid.startService()
     let handoff = PackageHandoffStore(directory: endpoint.stateDirectory)
-    let prepared = try? handoff.requirePrepared(app: Bundle.main.bundleURL)
-    let restoreHelper = prepared?.intent == .update && prepared?.helperWasApproved == true
     do { try handoff.clear() } catch {
       message = "Couldn't clear package preparation: \(error.localizedDescription)"
     }
     commit()
     if settings.startAtLaunch { automaticStart(label: "At launch") }
-    if helperInstallation.status == .enabled || restoreHelper {
-      Task { [weak self] in
-        guard let self else { return }
-        if restoreHelper, self.helperInstallation.status == .notRegistered {
-          await self.helperInstallation.nextStep(controller: self.closedLid)
-        } else {
-          await self.helperInstallation.reconcileAfterLaunch(controller: self.closedLid)
-        }
-        if let error = self.helperInstallation.lastError { self.message = error }
+    Task { [weak self] in
+      guard let self else { return }
+      await self.helperMigration.run()
+      if let record = self.helperMigration.record, record.needsAttention {
+        self.message = record.message
       }
+      await self.closedLidPermission.refresh()
+      self.onChange?()
     }
     updater.start()
     refreshTriggers()
   }
   var updateActivity: UpdateActivity {
-    if helperInstallation.busy { return .helperChange }
+    if closedLidPermission.busy || helperMigration.running { return .helperChange }
     if engine.desiredState.closedLid || closedLid.hasLease || closedLid.pendingEnable
       || closedLid.busy
     {
@@ -507,8 +505,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public func setClosedLid(
     id: UUID, enabled: Bool, allowPrompt: Bool = true, requireAutomation: Bool = false
   ) async throws {
-    guard !stopped, !preparingToQuit, !updater.blocksNewWork, !helperInstallation.busy else {
-      throw HelperClientError.rejected("Dilated is finishing a helper operation.")
+    guard !stopped, !preparingToQuit, !updater.blocksNewWork, !closedLidPermission.busy,
+      !helperMigration.running
+    else {
+      throw HelperClientError.rejected("Dilated is finishing a closed-lid permission change.")
     }
     guard engine.holds.contains(where: { $0.id == id }) else { throw WakeError.holdNotFound }
     if enabled && requireAutomation && engine.automationPaused { throw WakeError.automationPaused }
@@ -621,41 +621,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
     } catch { message = error.localizedDescription }
     onChange?()
   }
-  public func refreshHelperStatus() {
-    helperInstallation.refreshStatus()
-    if helperInstallation.status == .enabled && !closedLid.busy && !helperInstallation.busy {
-      Task { [weak self] in try? await self?.closedLid.refresh() }
-    }
-    onChange?()
-  }
-  public func setupHelper() async {
-    guard allowNewWork() else { return }
-    resetTriggerLidArming()
-    engine.clearClosedLidRequests()
-    commit()
-    do { try await synchronizeClosedLid() } catch {
-      message = error.localizedDescription
-      return
-    }
-    await helperInstallation.nextStep(controller: closedLid)
-    message = helperInstallation.lastError
-    onChange?()
-  }
-  @discardableResult public func removeHelper() async -> Bool {
-    guard allowNewWork(allowSettingsRecovery: true) else { return false }
-    resetTriggerLidArming()
-    engine.clearClosedLidRequests()
-    commit()
-    do {
-      try await synchronizeClosedLid()
-      try await helperInstallation.remove(controller: closedLid)
-      message = nil
-      onChange?()
-      return true
-    } catch {
-      message = error.localizedDescription
-      onChange?()
-      return false
+  public func refreshClosedLidPermission() {
+    guard !closedLidPermission.busy else { return }
+    Task { [weak self] in
+      guard let self else { return }
+      await self.closedLidPermission.refresh()
+      self.onChange?()
     }
   }
   public func prepareToQuit() async -> Bool {
@@ -668,11 +639,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     commit()
     do {
       try await synchronizeClosedLid()
-      if helperInstallation.status == .enabled
-        || closedLid.state.map({ !$0.readback.confirmedDisabled }) == true
-      {
-        try await closedLid.disable()
-      }
+      try await ensureClosedLidOff()
       shutdown()
       return true
     } catch {
@@ -685,7 +652,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public func prepareToUpdate() async -> Bool {
     guard !stopped else { return true }
     guard !preparingToQuit, updateActivity == .idle else {
-      message = "Turn off closed-lid and finish helper changes before updating."
+      message = "Turn off closed-lid and finish permission changes before updating."
       onChange?()
       return false
     }
@@ -694,7 +661,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     defer { preparingToQuit = false }
     do {
       try await synchronizeClosedLid()
-      if helperInstallation.status == .enabled { try await closedLid.disable() }
+      try await ensureClosedLidOff()
       let restored = WakeEngine(
         snapshot: engine.snapshot, power: readPower(), batteryFloor: engine.batteryFloor,
         batteryFloorIgnoresAC: engine.batteryFloorIgnoresAC)
@@ -710,13 +677,23 @@ public struct AppSettings: Codable, Equatable, Sendable {
       return false
     }
   }
+  /// Sleep must not be left disabled across a quit, update or removal. Reverts through the sudo
+  /// path whenever a session is active or the last reading wasn't normal sleep.
+  private func ensureClosedLidOff() async throws {
+    if closedLid.hasLease || closedLid.pendingEnable
+      || closedLid.state.map({ !$0.readback.confirmedDisabled }) == true
+    {
+      try await closedLid.disable()
+    }
+  }
   public func prepareForPackage(
     _ intent: PackageIntent, app: URL = Bundle.main.bundleURL,
+    removeLidPermission: Bool = false,
     removeLoginItem: (() throws -> Void)? = nil,
     removeCommandLine: (() throws -> Void)? = nil
   ) async -> Bool {
     guard !stopped, !preparingToQuit, !updater.blocksNewWork, updateActivity == .idle else {
-      message = "Turn off closed-lid and finish helper changes before preparing the package."
+      message = "Turn off closed-lid and finish permission changes before preparing the package."
       onChange?()
       return false
     }
@@ -727,10 +704,20 @@ public struct AppSettings: Codable, Equatable, Sendable {
     do {
       try handoff.clear()
       try await synchronizeClosedLid()
-      helperInstallation.refreshStatus()
-      let helperWasApproved = helperInstallation.status == .enabled
-      try await helperInstallation.remove(controller: closedLid)
+      try await ensureClosedLidOff()
       if intent == .uninstall {
+        if removeLidPermission {
+          switch await closedLidPermission.remove() {
+          case .done: break
+          case .cancelled:
+            throw InputError(
+              "Removing the closed-lid permission was cancelled. Run prepare-uninstall again, or leave out --remove-lid-permission."
+            )
+          case .failed:
+            throw InputError(
+              closedLidPermission.lastError ?? "Couldn't remove the closed-lid permission.")
+          }
+        }
         if let removeLoginItem {
           try removeLoginItem()
         } else {
@@ -754,15 +741,16 @@ public struct AppSettings: Codable, Equatable, Sendable {
       try store.save(prepared.snapshot)
       try handoff.save(
         .init(
-          intent: intent, appPath: app.resolvingSymlinksInPath().path, preparedAt: Date(),
-          helperWasApproved: intent == .update && helperWasApproved))
+          intent: intent, appPath: app.resolvingSymlinksInPath().path, preparedAt: Date()))
       savedForUpdate = true
       historyShutdownReason = intent == .update ? .update : .packageRemoval
       shutdown()
       message =
         intent == .update
         ? "Prepared for update. Unexpired timers will keep their original deadlines."
-        : "Prepared for removal. Helper, login item and owned command line link are removed."
+        : removeLidPermission
+          ? "Prepared for removal. Closed-lid permission, login item and owned command line link are removed."
+          : "Prepared for removal. Login item and owned command line link are removed. The closed-lid permission stays until you run prepare-uninstall --remove-lid-permission."
       return true
     } catch {
       try? handoff.clear()
@@ -813,10 +801,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
         ok: false, snapshot: engine.snapshot, message: attention, code: "settingsRecovery")
     }
     if request.action == .prepareUpdate || request.action == .prepareUninstall {
-      let ready = await prepareForPackage(request.action == .prepareUpdate ? .update : .uninstall)
+      let ready = await prepareForPackage(
+        request.action == .prepareUpdate ? .update : .uninstall,
+        removeLidPermission: request.action == .prepareUninstall && request.removeLidPermission)
       return ControlResponse(
         ok: ready, message: message, code: ready ? nil : "packageFailure",
-        helperInstallation: helperInstallation.statusCode,
         appPID: ready ? ProcessInfo.processInfo.processIdentifier : nil)
     }
     if [.helperStatus, .helperSetup, .helperRemove].contains(request.action) {
@@ -874,11 +863,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
         ok: ok, snapshot: engine.snapshot,
         message: [message, deprecationNote].compactMap { $0 }.joined(separator: " "), code: code,
         helper: closedLid.state, lidPermission: closedLidPermission.state?.word)
-    }
-    guard closedLid.usesLocalTransport else {
-      return reply(
-        ok: false, message: "Closed-lid permission isn't turned on. This build uses the helper.",
-        code: "unavailable")
     }
     guard !closedLidPermission.busy || action == .lidPermissionStatus else {
       return reply(
@@ -939,53 +923,20 @@ public struct AppSettings: Codable, Equatable, Sendable {
     return result
   }
   public func restoreNormalSleep() async {
-    await closedLidPermission.restoreNormalSleep()
+    if await closedLidPermission.restoreNormalSleep() == .done { helperMigration.sleepRestored() }
     message = closedLidPermission.lastError
     onChange?()
   }
+  /// `dilated helper ...` is kept one release as an alias of `lid-permission`.
   private func controlHelper(_ action: ControlAction) async -> ControlResponse {
-    if closedLid.usesLocalTransport {
-      let note = "Helper commands are deprecated. Use dilated lid-permission."
-      let mapped: ControlAction =
-        switch action {
-        case .helperSetup: .lidPermissionInstall
-        case .helperRemove: .lidPermissionRemove
-        default: .lidPermissionStatus
-        }
-      return await controlLidPermission(mapped, deprecationNote: note)
-    }
-    helperInstallation.refreshStatus()
-    guard !helperInstallation.busy || action == .helperStatus else {
-      return ControlResponse(
-        ok: false, message: "The helper setup is still running.", code: "unavailable")
-    }
-    var removalSucceeded = false
-    if action == .helperSetup {
-      await setupHelper()
-    } else if action == .helperRemove {
-      removalSucceeded = await removeHelper()
-    } else if helperInstallation.status == .enabled {
-      do { try await closedLid.refresh() } catch { message = error.localizedDescription }
-    }
-    let ok: Bool
-    switch action {
-    case .helperSetup:
-      ok =
-        helperInstallation.status == .enabled && helperInstallation.lastError == nil
-        && closedLid.state?.ready == true
-    case .helperRemove: ok = removalSucceeded
-    default: ok = true
-    }
-    return ControlResponse(
-      ok: ok, snapshot: engine.snapshot,
-      message: action == .helperRemove && ok
-        ? "Closed-lid is off and the helper has been removed."
-        : action == .helperStatus
-          ? helperInstallation.statusText : message ?? helperInstallation.statusText,
-      code: ok
-        ? nil
-        : helperInstallation.status == .requiresApproval ? "approvalRequired" : "helperFailure",
-      helper: closedLid.state, helperInstallation: helperInstallation.statusCode)
+    let mapped: ControlAction =
+      switch action {
+      case .helperSetup: .lidPermissionInstall
+      case .helperRemove: .lidPermissionRemove
+      default: .lidPermissionStatus
+      }
+    return await controlLidPermission(
+      mapped, deprecationNote: "dilated helper is deprecated. Use dilated lid-permission.")
   }
   public func openURL(_ url: URL) async {
     guard settings.urlAutomation else {
@@ -1239,16 +1190,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     )
   }
   private func requireClosedLidSetup() async throws {
-    if closedLid.usesLocalTransport {
-      await closedLidPermission.refresh()
-      guard closedLidPermission.state?.isUsable == true else {
-        throw InputError("Set up closed-lid permission in Dilated first.")
-      }
-      return
-    }
-    helperInstallation.refreshStatus()
-    guard helperInstallation.status == .enabled else {
-      throw InputError("Set up and approve the closed-lid helper in Dilated first.")
+    await closedLidPermission.refresh()
+    guard closedLidPermission.state?.isUsable == true else {
+      throw InputError("Set up closed-lid permission in Dilated first.")
     }
   }
   func setAutomationClosedLid(id: UUID, enabled: Bool) async throws {
@@ -1450,10 +1394,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
   }
   public func armClosedLidTrigger(id: UUID) async throws {
-    guard allowNewWork(), armingClosedLidTrigger == nil, !helperInstallation.busy,
+    guard allowNewWork(), armingClosedLidTrigger == nil, !closedLidPermission.busy,
       !closedLid.busy, pendingLidRequest == nil
     else {
-      throw InputError("Finish the current helper operation before arming a trigger.")
+      throw InputError("Finish the current closed-lid permission change before arming a trigger.")
     }
     guard !engine.automationPaused else { throw WakeError.automationPaused }
     guard settings.triggersEnabled,
@@ -1477,9 +1421,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     else { throw CancellationError() }
     guard closedLid.state?.ready == true else {
       throw InputError(
-        closedLid.usesLocalTransport
-          ? "Closed-lid isn't ready. Check Closed Lid settings before arming a trigger."
-          : "The helper isn't ready. Check Closed Lid settings before arming a trigger.")
+        "Closed-lid isn't ready. Check Closed Lid settings before arming a trigger.")
     }
     guard commit() else { throw InputError(message ?? "Couldn't save awake state.") }
     armedClosedLidTriggers.insert(id)
@@ -1530,7 +1472,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       }
   }
   private func queueTriggerClosedLid() {
-    guard triggerLidTask == nil, lidChange == nil, !closedLid.busy, !helperInstallation.busy,
+    guard triggerLidTask == nil, lidChange == nil, !closedLid.busy, !closedLidPermission.busy,
       pendingLidRequest == nil, !triggerLidCandidates.isEmpty
     else { return }
     let candidates = triggerLidCandidates
@@ -1544,7 +1486,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       }
       for id in candidates {
         guard !Task.isCancelled, self.lidChange == nil, !self.closedLid.busy,
-          !self.helperInstallation.busy, self.pendingLidRequest == nil
+          !self.closedLidPermission.busy, self.pendingLidRequest == nil
         else { return }
         guard self.triggerLidCandidates.contains(id) else { continue }
         do {

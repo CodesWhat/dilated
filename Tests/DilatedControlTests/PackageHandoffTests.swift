@@ -26,4 +26,17 @@ struct PackageHandoffTests {
     try store.clear()
     #expect(throws: (any Error).self) { try store.requirePrepared(app: app, now: now) }
   }
+
+  @Test func anOldHandoffThatRecordedAnApprovedHelperStillDecodes() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let app = URL(fileURLWithPath: "/Applications/Dilated.app")
+    let old = PackageHandoff(
+      intent: .update, appPath: app.path, preparedAt: Date(), helperWasApproved: true)
+    try JSONEncoder().encode(old).write(
+      to: directory.appendingPathComponent("package-handoff.json"))
+    let read = try PackageHandoffStore(directory: directory).requirePrepared(app: app)
+    #expect(read.intent == .update)
+  }
 }

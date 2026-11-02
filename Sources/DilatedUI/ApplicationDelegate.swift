@@ -91,7 +91,7 @@ import IOKit.ps
     observe(.NSSystemClockDidChange, center: .default) { model.tick() }
     observe(.NSSystemTimeZoneDidChange, center: .default) { model.tick() }
     observe(NSApplication.didBecomeActiveNotification, center: .default) {
-      model.refreshHelperStatus()
+      model.refreshClosedLidPermission()
     }
     observe(NSWorkspace.willSleepNotification, center: NSWorkspace.shared.notificationCenter) {
       model.handleSystemTransition(.sleep)

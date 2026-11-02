@@ -251,7 +251,8 @@ import Testing
     try original.write(to: file)
     let model = AppModel(
       endpoint: .init(stateDirectory: directory), power: { .init() },
-      assertions: RecoveryAssertions())
+      assertions: RecoveryAssertions(), closedLid: inertClosedLid(),
+      helperMigration: inertMigration(directory))
     defer { model.shutdown() }
     model.begin()
     model.start(duration: 60, batteryOverride: true)

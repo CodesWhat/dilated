@@ -54,9 +54,11 @@ enum UpdateLaunchPolicy {
   public var statusText: String {
     guard isAvailable else { return "Updates aren't enabled in this test build." }
     if blocksNewWork { return "Installing the update. Dilated will reopen when it's ready." }
-    if pendingInstall != nil { return "Waiting for closed-lid mode and helper changes to finish." }
+    if pendingInstall != nil {
+      return "Waiting for closed-lid mode and permission changes to finish."
+    }
     if currentActivity != .idle {
-      return "Turn off closed-lid and finish helper changes before updating."
+      return "Turn off closed-lid and finish permission changes before updating."
     }
     if let errorMessage { return errorMessage }
     if hasUpdate { return "An update is available. Review it when you're ready." }
@@ -141,7 +143,7 @@ enum UpdateLaunchPolicy {
         domain: "DilatedUpdates", code: 1,
         userInfo: [
           NSLocalizedDescriptionKey:
-            "Turn off closed-lid and finish helper changes before updating."
+            "Turn off closed-lid and finish permission changes before updating."
         ])
     }
   }

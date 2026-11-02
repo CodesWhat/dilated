@@ -401,7 +401,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
       Text(
         model.closedLid.active
           ? "Closed-lid is armed. Your Mac will keep working with its lid shut."
-          : "Set up the helper in Closed Lid, then enable it for an awake reason."
+          : "Set up closed-lid permission in Closed Lid, then enable it for an awake reason."
       )
       .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
