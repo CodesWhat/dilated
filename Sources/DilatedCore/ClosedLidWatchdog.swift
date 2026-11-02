@@ -66,27 +66,38 @@ public struct ClosedLidWatchdog: Sendable {
   /// session can run indefinitely, and the poll ends the watchdog once the marker goes away.
   public func run() async -> Outcome {
     guard markerIsOurs else { return .markerGone }
-    let event = await withTaskGroup(of: Event?.self) { group in
-      group.addTask {
-        await waitForExit()
-        return Task.isCancelled ? nil : .exited
-      }
-      group.addTask {
-        while (try? await sleep(pollInterval)) != nil {
-          if !markerIsOurs { return .markerGone }
+    // Two plain tasks and a stream, not a task group: the group's child-task allocations abort
+    // the older Swift runtime on CI ("freed pointer was not the last allocation").
+    let (stream, events) = AsyncStream.makeStream(of: Event.self)
+    let exit = Task {
+      await waitForExit()
+      if !Task.isCancelled { events.yield(.exited) }
+    }
+    let poll = Task {
+      while (try? await sleep(pollInterval)) != nil {
+        if !markerIsOurs {
+          events.yield(.markerGone)
+          return
         }
-        return nil
       }
+    }
+    let event: Event? = await withTaskCancellationHandler {
       var first: Event?
-      for await event in group {
-        if let event {
-          first = event
-          group.cancelAll()
-          break
-        }
+      for await next in stream {
+        first = next
+        break
       }
       return first
+    } onCancel: {
+      exit.cancel()
+      poll.cancel()
+      events.finish()
     }
+    exit.cancel()
+    poll.cancel()
+    events.finish()
+    await exit.value
+    await poll.value
     switch event {
     case .markerGone, nil: return .markerGone
     case .exited: return await revert()

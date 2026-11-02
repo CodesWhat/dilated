@@ -227,7 +227,9 @@ struct ClosedLidWatchdogTests {
   @Test func killingARealAppProcessRestoresSleep() async throws {
     let child = Process()
     child.executableURL = URL(fileURLWithPath: "/bin/sleep")
-    child.arguments = ["300"]
+    child.arguments = ["20"]
+    child.standardOutput = FileHandle.nullDevice
+    child.standardError = FileHandle.nullDevice
     try child.run()
     defer { if child.isRunning { child.terminate() } }
     let pid = child.processIdentifier
@@ -252,7 +254,7 @@ struct ClosedLidWatchdogTests {
     #expect(await outcome.value == .reverted)
     #expect(await power.calls == [false])
     #expect(store.read() == nil)
-    child.waitUntilExit()
+    for _ in 0..<500 where child.isRunning { try await Task.sleep(for: .milliseconds(10)) }
   }
 
   @Test func waitingOnAnExitedProcessReturnsAtOnce() async throws {
@@ -261,7 +263,7 @@ struct ClosedLidWatchdogTests {
     try child.run()
     let pid = child.processIdentifier
     let start = ProcessStartTime.micros(pid: pid) ?? 0
-    child.waitUntilExit()
+    for _ in 0..<500 where child.isRunning { try await Task.sleep(for: .milliseconds(10)) }
     await ProcessExit.wait(pid: pid, startMicros: start)
     await ProcessExit.wait(pid: getpid(), startMicros: 1)
   }

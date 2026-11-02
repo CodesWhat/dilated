@@ -170,7 +170,8 @@ struct ClosedLidPermissionTests {
       await OsascriptAdminRunner.execute(
         executable: URL(fileURLWithPath: "/nonexistent/osascript"), arguments: [], timeout: 5)
         == .failed("The administrator command couldn't start."))
-    #expect(await run("sleep 30", timeout: 0.3) == .failed("The administrator prompt timed out."))
+    #expect(
+      await run("exec sleep 5", timeout: 0.3) == .failed("The administrator prompt timed out."))
   }
 
   @Test func theAdminPromptBoundIsFiveMinutes() {

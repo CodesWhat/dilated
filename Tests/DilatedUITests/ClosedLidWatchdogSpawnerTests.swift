@@ -21,7 +21,10 @@ struct ClosedLidWatchdogSpawnerTests {
     init() throws {
       app = Process()
       app.executableURL = URL(fileURLWithPath: "/bin/sleep")
-      app.arguments = ["300"]
+      app.arguments = ["20"]
+      // Never inherit the test runner's output pipe, or an orphan holds CI's log open.
+      app.standardOutput = FileHandle.nullDevice
+      app.standardError = FileHandle.nullDevice
       try app.run()
       let start = try #require(ProcessStartTime.micros(pid: app.processIdentifier))
       let store = ClosedLidMarkerStore(
@@ -39,7 +42,6 @@ struct ClosedLidWatchdogSpawnerTests {
     func cleanUp(watchdog: pid_t?) {
       if let watchdog { kill(watchdog, SIGKILL) }
       app.terminate()
-      app.waitUntilExit()
       try? FileManager.default.removeItem(at: launch.marker.deletingLastPathComponent())
     }
   }
@@ -68,10 +70,11 @@ struct ClosedLidWatchdogSpawnerTests {
     intermediate.arguments =
       [
         "-MPOSIX", "-e",
-        "my $p = fork; if (!$p) { POSIX::setsid(); exec @ARGV } print \"$p\\n\"; $| = 1; sleep 300",
+        "my $p = fork; if (!$p) { POSIX::setsid(); exec @ARGV } print \"$p\\n\"; $| = 1; sleep 20",
         executable.path,
       ] + ClosedLidWatchdogCommand.arguments(for: fixture.launch)
     intermediate.standardOutput = output
+    intermediate.standardError = FileHandle.nullDevice
     try intermediate.run()
     defer { if intermediate.isRunning { kill(intermediate.processIdentifier, SIGKILL) } }
     let line = String(
@@ -79,7 +82,7 @@ struct ClosedLidWatchdogSpawnerTests {
     let child = try #require(pid_t(line.trimmingCharacters(in: .whitespacesAndNewlines)))
     watchdog = child
     kill(intermediate.processIdentifier, SIGKILL)
-    intermediate.waitUntilExit()
+    for _ in 0..<500 where intermediate.isRunning { try await Task.sleep(for: .milliseconds(10)) }
     try await Task.sleep(for: .milliseconds(600))
     #expect(kill(child, 0) == 0)
     #expect(ProcessStartTime.micros(pid: child) != nil)
