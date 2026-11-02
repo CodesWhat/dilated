@@ -37,6 +37,6 @@ SIL Open Font License. Their notices are bundled alongside the font files in
 KeepingYouAwake and its Amphetamine-style fork are behavior references. No KYA
 source has been copied into this M1 implementation.
 
-Sparkle 2.10.0 (https://sparkle-project.org/) provides app updates under its MIT
+Sparkle 2.10.1 (https://sparkle-project.org/) provides app updates under its MIT
 license, with additional bundled component notices. The complete distribution
 notice is copied to `Contents/Resources/Sparkle-LICENSE` in the app bundle.
