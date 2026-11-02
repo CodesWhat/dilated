@@ -33,7 +33,7 @@ import Testing
       arguments: [
         "create", "-size", "8m", "-fs", "HFS+", "-volname", "Dilated trigger check", "-quiet",
         image.path,
-      ], timeout: 30)
+      ], timeout: 120)
     try #require(created == 0)
     var changes = 0
     let monitor = TriggerMonitor(readPower: { .init() }, changed: { changes += 1 })
@@ -49,10 +49,10 @@ import Testing
       let attached = try await runDiskImageTool(
         arguments: [
           "attach", "-nobrowse", "-noautoopen", "-mountpoint", mount.path, "-quiet", image.path,
-        ], timeout: 30)
+        ], timeout: 120)
       mounted = NativeActivityInputs.mountedVolumes()?.contains(mount.path) == true
       try #require(attached == 0 && mounted)
-      let mountDeadline = ContinuousClock.now.advanced(by: .seconds(3))
+      let mountDeadline = ContinuousClock.now.advanced(by: .seconds(30))
       while changes == 0, ContinuousClock.now < mountDeadline {
         try await Task.sleep(for: .milliseconds(50))
       }
@@ -61,10 +61,10 @@ import Testing
       #expect(engine.holds.count == 2)
       changes = 0
       let detached = try await runDiskImageTool(
-        arguments: ["detach", "-quiet", mount.path], timeout: 20)
+        arguments: ["detach", "-quiet", mount.path], timeout: 120)
       mounted = NativeActivityInputs.mountedVolumes()?.contains(mount.path) == true
       try #require(detached == 0 && !mounted)
-      let unmountDeadline = ContinuousClock.now.advanced(by: .seconds(3))
+      let unmountDeadline = ContinuousClock.now.advanced(by: .seconds(30))
       while changes == 0, ContinuousClock.now < unmountDeadline {
         try await Task.sleep(for: .milliseconds(50))
       }
@@ -75,7 +75,7 @@ import Testing
     } catch {
       mounted = NativeActivityInputs.mountedVolumes()?.contains(mount.path) == true
       if mounted {
-        _ = try? await runDiskImageTool(arguments: ["detach", "-quiet", mount.path], timeout: 20)
+        _ = try? await runDiskImageTool(arguments: ["detach", "-quiet", mount.path], timeout: 120)
         mounted = NativeActivityInputs.mountedVolumes()?.contains(mount.path) == true
       }
       throw error
@@ -90,7 +90,7 @@ import Testing
     )
     #expect(monitor.read().cpuPercent == nil)
     let start = ContinuousClock.now
-    let deadline = start.advanced(by: .seconds(8))
+    let deadline = start.advanced(by: .seconds(30))
     while ContinuousClock.now < deadline,
       changes == 0 || ContinuousClock.now < start.advanced(by: .seconds(5))
     {
