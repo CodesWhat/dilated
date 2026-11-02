@@ -1,5 +1,7 @@
 # Dilated
 
+[![Coverage](https://codecov.io/gh/CodesWhat/dilated/branch/main/graph/badge.svg)](https://codecov.io/gh/CodesWhat/dilated/branch/main)
+
 Keeps your Mac awake. A native macOS 26 menu bar app for Apple Silicon.
 
 From [CodesWhat](https://codeswhat.com): small, sharp tools from one developer and a lot of agents.
@@ -18,7 +20,7 @@ Bluetooth devices, selected audio output,
 CPU load and idle time.
 Automatic agent setup remains later work.
 
-1.0.0-beta.7 is a public beta for macOS 26+ on Apple Silicon. Install it from the
+1.0.0-beta.8 is a public beta for macOS 26+ on Apple Silicon. Install it from the
 website download or with `brew install --cask codeswhat/tap/dilated`. Closed-lid
 mode is experimental, and crash, reboot and update recovery haven't been verified
 on hardware yet. Report issues on GitHub.
@@ -36,6 +38,8 @@ logs for five minutes after launch.
 Real Shortcuts execution requires a developer-signed build on the tested Mac;
 an ad-hoc build can appear in the action catalog but fail to run.
 
+Set up the commit hooks once per clone with `brew install lefthook gitleaks && lefthook install`.
+
 Run the checks with `bash scripts/verify.sh` using Xcode, XcodeGen, Python 3, Ruby
 and Node.js 24. This entry point runs Swift tests, release packaging checks
 (including an isolated app build/launch), website tests, and formatting/syntax
@@ -47,6 +51,9 @@ against the actual app.
 The package app product and internal executable are named `DilatedApp` to avoid
 a case-only collision with the `dilated` CLI on macOS filesystems. The app shown
 to users is Dilated.
+
+[Star History](https://www.star-history.com/?repos=CodesWhat%2Fdilated&type=date&legend=top-left)
+tracks the repository's stars.
 
 See [installation and removal](docs/INSTALLATION.md),
 [automation](docs/AUTOMATION.md), [architecture](docs/ARCHITECTURE.md), and

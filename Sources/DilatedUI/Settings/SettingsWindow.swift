@@ -8,6 +8,7 @@ import SwiftUI
 @MainActor final class SettingsWindow: NSWindowController, NSWindowDelegate {
   private let model: AppModel
   private let hosting: NSHostingView<SettingsContent>
+  private let navigation = SettingsNavigation()
   private var glass: NSGlassEffectView?
   private var solid: Bool?
   private var accessibilityObserver: NSObjectProtocol?
@@ -15,7 +16,8 @@ import SwiftUI
 
   init(model: AppModel) {
     self.model = model
-    hosting = NSHostingView(rootView: SettingsContent(model: model, solid: false) {})
+    hosting = NSHostingView(
+      rootView: SettingsContent(model: model, solid: false, navigation: navigation) {})
     hosting.sizingOptions = []
     let window = SettingsNSWindow(
       contentRect: NSRect(origin: .zero, size: SettingsTheme.windowSize),
@@ -46,7 +48,9 @@ import SwiftUI
   func applyContent(solid: Bool) {
     guard let window, solid != self.solid else { return }
     self.solid = solid
-    hosting.rootView = SettingsContent(model: model, solid: solid) { [weak self] in self?.close() }
+    hosting.rootView = SettingsContent(model: model, solid: solid, navigation: navigation) {
+      [weak self] in self?.close()
+    }
     if solid {
       glass?.contentView = nil
       window.backgroundColor = .windowBackgroundColor
@@ -70,6 +74,10 @@ import SwiftUI
     showWindow(nil)
     NSApp.activate()
     window?.makeKeyAndOrderFront(nil)
+  }
+  func present(page: SettingsPage) {
+    navigation.show(page)
+    present()
   }
   func windowWillClose(_ notification: Notification) {
     if !model.settings.onboardingComplete { model.settings.onboardingComplete = true }
@@ -96,7 +104,7 @@ final class SettingsNSWindow: NSWindow {
   }
 }
 
-private enum SettingsPage: String, CaseIterable, Identifiable {
+enum SettingsPage: String, CaseIterable, Identifiable {
   case overview = "Overview"
   case general = "General"
   case menuBar = "Menu Bar"
@@ -110,6 +118,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
   case statistics = "Statistics"
   case automation = "Automation"
   case advanced = "Advanced"
+  case about = "About"
   var id: String { rawValue }
   var symbol: String {
     switch self {
@@ -126,6 +135,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case .statistics: "chart.bar"
     case .automation: "terminal"
     case .advanced: "wrench.and.screwdriver"
+    case .about: "info.circle"
     }
   }
   var detail: String {
@@ -143,8 +153,15 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case .statistics: "Recent awake reasons, end causes and local totals."
     case .automation: "Keep work alive from scripts and agents."
     case .advanced: "Inspect the current state and export diagnostics."
+    case .about: "Version, license and links."
     }
   }
+}
+
+/// Carries a requested Settings page to the view, so callers can open a page while the window is already showing.
+@MainActor @Observable final class SettingsNavigation {
+  var requested: SettingsPage?
+  func show(_ page: SettingsPage) { requested = page }
 }
 
 @MainActor struct SettingsContent: View {
@@ -153,6 +170,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
   #endif
   @Bindable var model: AppModel
   var solid = false
+  var navigation = SettingsNavigation()
   var close: () -> Void = {}
   @State private var page: SettingsPage? = .overview
   @FocusState private var focusedPage: SettingsPage?
@@ -251,7 +269,9 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     }
     .font(DesignFont.sans(13)).foregroundStyle(DesignPalette.ink).tint(SettingsTheme.control)
     .frame(minWidth: 860, minHeight: 600)
+    .onChange(of: navigation.requested) { _, _ in applyRequestedPage() }
     .onAppear {
+      applyRequestedPage()
       if !presetsLoaded {
         presets = AppModel.presetsText(model.settings.presets)
         presetsLoaded = true
@@ -271,6 +291,12 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         model.clearPresetsError()
       }
     }
+  }
+  private func applyRequestedPage() {
+    guard let requested = navigation.requested else { return }
+    page = requested
+    focusedPage = requested
+    navigation.requested = nil
   }
   private var settingsRecovery: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -336,6 +362,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     case .statistics: HistorySettings(model: model)
     case .automation: automation
     case .advanced: advanced
+    case .about: AboutSettings(model: model)
     }
   }
   private var overview: some View {

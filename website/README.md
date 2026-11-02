@@ -19,7 +19,7 @@ review, serve `dist/` from any static server, for example on
 ## Release availability
 
 The checked-in page has no app download. The published site gets one from the
-release metadata for 1.0.0-beta.7, labeled as a beta with its unverified checks
+release metadata for 1.0.0-beta.8, labeled as a beta with its unverified checks
 listed. It doesn't claim that closed-lid hardware acceptance, installation, or
 upgrade checks are complete.
 The interactive timer is an illustration and doesn't change Mac power settings.
@@ -77,6 +77,13 @@ planning files.
 Run all behavior checks with `node --test website/tests/*.test.mjs` from the repo
 root. Syntax checks are `node --check website/dist/app.mjs`,
 `node --check website/dist/state.mjs`, and `node --check website/dist/release.mjs`.
+
+Browser checks run the page in Chromium, Firefox and WebKit with Playwright. Run
+`bash scripts/verify-website-browsers.sh` from the repo root. It installs the pinned
+dependencies and browsers, serves `dist/` with the CSP from `vercel.json`, and fails on
+console errors, CSP violations, layout overflow or menu regressions. It runs in the
+required `verify` CI job, and the tooling lives in `website/` outside `dist/`, so it
+isn't published.
 
 The earlier page passed CUA Chrome checks on desktop and at 390px. All nine
 layout/typeface combinations fit at 390px without horizontal overflow. Timer

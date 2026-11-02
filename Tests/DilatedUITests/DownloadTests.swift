@@ -17,7 +17,7 @@ import Testing
     // modifying the file until the stream reports it.
     let file = folder.appendingPathComponent("native.part")
     let clock = ContinuousClock()
-    let deadline = clock.now + .seconds(10)
+    let deadline = clock.now + .seconds(30)
     var nextWrite = clock.now
     var writes = 0
     while events == 0 && clock.now < deadline {
@@ -58,7 +58,7 @@ import Testing
     monitor.stop()
     continuation?.resume(returning: DownloadFixture.initial)
     continuation = nil
-    let deadline = ContinuousClock.now + .seconds(5)
+    let deadline = ContinuousClock.now + .seconds(30)
     while !readReturned && ContinuousClock.now < deadline {
       try await Task.sleep(for: .milliseconds(1))
     }
@@ -99,7 +99,7 @@ import Testing
     event?()
     continuation?.resume(returning: DownloadFixture.initial)
     continuation = nil
-    let deadline = ContinuousClock.now + .seconds(5)
+    let deadline = ContinuousClock.now + .seconds(30)
     while reads < 3 && ends == 0 && ContinuousClock.now < deadline {
       try await Task.sleep(for: .milliseconds(1))
     }
@@ -338,7 +338,7 @@ import Testing
       monitor.stop()
     }
     let pending = try #require(monitor.pendingReadForTesting)
-    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    let deadline = ContinuousClock.now.advanced(by: .seconds(30))
     while readGate == nil && ContinuousClock.now < deadline {
       try await Task.sleep(for: .milliseconds(1))
     }

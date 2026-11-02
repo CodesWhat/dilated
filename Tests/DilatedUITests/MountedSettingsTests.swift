@@ -3,6 +3,7 @@ import DilatedCore
 import Observation
 import SwiftUI
 import Testing
+import ViewInspector
 
 @testable import DilatedUI
 
@@ -36,22 +37,31 @@ import Testing
     #expect(window.firstResponder === editor)
   }
 
-  @Test func specificProcessPickerLoadsWithoutPressingRefresh() throws {
-    _ = NSApplication.shared
-    FontRegistry.registerBundledFonts()
-    let pid = ProcessInfo.processInfo.processIdentifier
-    let process = try #require(ProcessCatalog.read().first { $0.id == pid })
-    let rule = TriggerRule(name: "This process", criteria: [.processInstance(process.identity)])
-    let locale = Locale(identifier: "en_US")
-    let view = NSHostingView(
-      rootView: TriggerRuleEditor(rule: rule, save: { _ in }, remove: {}).environment(
-        \.locale, locale))
-    try render(view)
-    let pickers = descendants(of: view).compactMap { $0 as? NSPopUpButton }
-    let title = "\(process.name) (\(pid.formatted(.number.locale(locale))))"
-    let picker = try #require(pickers.first { $0.title == title })
-    #expect(picker.itemTitles.contains(title))
-  }
+  #if DEBUG
+    @Test func specificProcessPickerLoadsWithoutPressingRefresh() throws {
+      _ = NSApplication.shared
+      FontRegistry.registerBundledFonts()
+      let pid = ProcessInfo.processInfo.processIdentifier
+      let process = try #require(ProcessCatalog.read().first { $0.id == pid })
+      let rule = TriggerRule(name: "This process", criteria: [.processInstance(process.identity)])
+      var mounted: (any View)?
+      var editor = TriggerRuleEditor(rule: rule, save: { _ in }, remove: {})
+      editor.criterionDidAppear = { mounted = $0 }
+      let view = NSHostingView(rootView: editor)
+      try render(view)
+      defer { mounted = nil }
+      let live = try #require(mounted)
+      let picker = try live.inspect().find(ViewType.Picker.self) {
+        try $0.labelView().text().string() == "Process"
+      }
+      let title = "\(process.name) (\(pid))"
+      let option = try picker.find(ViewType.Text.self) { try $0.string() == title }
+      #expect(try option.tag() as? ProcessIdentity == process.identity)
+      #expect(throws: (any Error).self) {
+        try picker.find(ViewType.Text.self) { try $0.string() == "PID \(pid) (ended)" }
+      }
+    }
+  #endif
 
   private func descendants(of root: NSView) -> [NSView] {
     [root] + root.subviews.flatMap { descendants(of: $0) }

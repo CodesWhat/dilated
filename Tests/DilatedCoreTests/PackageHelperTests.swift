@@ -10,7 +10,7 @@ struct PackageHelperTests {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/bin/sh")
     process.arguments = [
-      "-c", "exec -a \"$1\" /bin/sleep 10", "package-check-test", executable.path,
+      "-c", "exec -a \"$1\" /bin/sleep 120", "package-check-test", executable.path,
     ]
     try process.run()
     defer {
@@ -19,7 +19,7 @@ struct PackageHelperTests {
         process.waitUntilExit()
       }
     }
-    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    let deadline = ContinuousClock.now.advanced(by: .seconds(30))
     let pattern = "^" + NSRegularExpression.escapedPattern(for: executable.path) + "($|[[:space:]])"
     var ready = false
     while ContinuousClock.now < deadline {

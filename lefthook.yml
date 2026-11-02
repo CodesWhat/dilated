@@ -1,0 +1,35 @@
+---
+# Fast commit-time checks only. Builds and the test suite stay in
+# scripts/verify.sh, which CI runs. Each command fails with an install hint
+# when its tool is missing instead of skipping.
+#
+# Setup: brew install lefthook gitleaks && lefthook install
+
+pre-commit:
+  parallel: true
+  commands:
+    gitleaks:
+      run: |
+        command -v gitleaks >/dev/null 2>&1 || { echo "gitleaks is required: brew install gitleaks" >&2; exit 1; }
+        gitleaks protect --staged --redact --no-banner
+      fail_text: "gitleaks found a possible secret in the staged changes"
+    swift-format:
+      glob: "*.swift"
+      run: |
+        xcrun --find swift-format >/dev/null 2>&1 || { echo "swift-format is required: install Xcode, then xcode-select --install" >&2; exit 1; }
+        xcrun swift-format lint --strict {staged_files}
+    plist:
+      glob: "*.{plist,entitlements}"
+      run: |
+        command -v plutil >/dev/null 2>&1 || { echo "plutil is required: it ships with macOS" >&2; exit 1; }
+        plutil -lint {staged_files}
+    shell-syntax:
+      glob: "*.sh"
+      run: |
+        command -v bash >/dev/null 2>&1 || { echo "bash is required: brew install bash" >&2; exit 1; }
+        for script in {staged_files}; do bash -n "$script"; done
+
+commit-msg:
+  commands:
+    conventional:
+      run: bash scripts/check-commit-msg.sh {1}
