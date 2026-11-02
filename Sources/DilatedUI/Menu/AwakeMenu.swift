@@ -21,7 +21,9 @@ import DilatedCore
     return item
   }
 
-  static func make(model: AppModel, openSettings: @escaping () -> Void) -> NSMenu {
+  static func make(
+    model: AppModel, openSettings: @escaping () -> Void, openAbout: @escaping () -> Void = {}
+  ) -> NSMenu {
     let menu = NSMenu()
     menu.autoenablesItems = false
     menu.addItem(.sectionHeader(title: model.statusText))
@@ -116,11 +118,7 @@ import DilatedCore
       updates.isEnabled = model.updater.canCheckForUpdates
       menu.addItem(updates)
     }
-    menu.addItem(
-      action("About Dilated") {
-        NSApp.activate()
-        NSApp.orderFrontStandardAboutPanel(nil)
-      })
+    menu.addItem(action("About Dilated", body: openAbout))
     menu.addItem(action("Quit Dilated", key: "q") { NSApp.terminate(nil) })
     return menu
   }

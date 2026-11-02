@@ -8,6 +8,7 @@ import AppKit
   let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
   private let model: AppModel
   private let openSettings: () -> Void
+  private let openAbout: () -> Void
   private let presentMenu: @MainActor (NSStatusItem) -> Void
   private var wasAwake = false
   private var began = ProcessInfo.processInfo.systemUptime
@@ -22,7 +23,7 @@ import AppKit
   private weak var openMenu: NSMenu?
 
   init(
-    model: AppModel, openSettings: @escaping () -> Void,
+    model: AppModel, openSettings: @escaping () -> Void, openAbout: @escaping () -> Void = {},
     presentMenu: @escaping @MainActor (NSStatusItem) -> Void = { $0.button?.performClick(nil) },
     makeTimer: @escaping TimerFactory = { interval, repeats, fire in
       let timer = Timer(timeInterval: interval, repeats: repeats) { timer in
@@ -36,6 +37,7 @@ import AppKit
   ) {
     self.model = model
     self.openSettings = openSettings
+    self.openAbout = openAbout
     self.presentMenu = presentMenu
     self.makeTimer = makeTimer
     super.init()
@@ -56,7 +58,7 @@ import AppKit
   }
   func showMenu() {
     guard statusItem.button != nil else { return }
-    let menu = AwakeMenu.make(model: model, openSettings: openSettings)
+    let menu = AwakeMenu.make(model: model, openSettings: openSettings, openAbout: openAbout)
     menu.delegate = self
     statusItem.menu = menu
     presentMenu(statusItem)
