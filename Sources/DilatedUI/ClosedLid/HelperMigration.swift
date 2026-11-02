@@ -99,13 +99,29 @@ public struct HelperMigrationRecord: Codable, Equatable, Sendable {
     save(.init(outcome: .restoredSleep, message: "Normal sleep is back on.", date: now()))
   }
 
+  /// Whether the user had approved the old helper in Login Items before the migration removes it.
+  public var helperWasApproved: Bool { service.status == .enabled }
+
+  /// True unless launchd confirms the old helper's job is gone. Package preparation uses this
+  /// because `package-check` refuses anything but a confirmed-absent job.
+  public func helperJobStillPresent() async -> Bool { await jobState() != .absent }
+
   public func run() async {
     guard !running else { return }
     running = true
     defer { running = false }
     let status = service.status
     let before = await jobState()
-    guard status == .enabled || status == .requiresApproval || before == .loaded else { return }
+    guard status == .enabled || status == .requiresApproval || before == .loaded else {
+      // Nothing is registered and launchd has no job, so a leftover failure notice is stale.
+      // A pending restore stays until sleep reads back as normal.
+      if before == .absent, let record, record.needsAttention,
+        record.outcome == .failed || !Self.sleepIsDisabled(readPower())
+      {
+        dismiss()
+      }
+      return
+    }
     let sleepWasDisabled = Self.sleepIsDisabled(readPower())
     var failure: String?
     do { try await service.unregister() } catch { failure = error.localizedDescription }

@@ -86,6 +86,21 @@ import Testing
     #expect(model.message?.contains("--remove-lid-permission") == true)
   }
 
+  @Test func packageRemovalNamesEveryWayToRemoveTheRuleWhileItIsInstalled() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let world = RuleWorld(outcome: .succeeded)
+    let permission = world.model()
+    await permission.refresh()
+    let model = makeModel(directory, permission: permission)
+    defer { model.shutdown() }
+    #expect(
+      await model.prepareForPackage(
+        .uninstall, app: app, removeLoginItem: {}, removeCommandLine: {}))
+    #expect(model.message?.contains("dilated lid-permission remove") == true)
+    #expect(model.message?.contains("Settings") == true)
+  }
+
   @Test func packageRemovalWithTheFlagRemovesTheRuleThroughTheAdminPrompt() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }

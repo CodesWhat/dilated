@@ -366,9 +366,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
     hasBegun = true
     closedLid.startService()
     let handoff = PackageHandoffStore(directory: endpoint.stateDirectory)
+    let helperWasApproved = handoff.peek()?.helperWasApproved == true
     do { try handoff.clear() } catch {
       message = "Couldn't clear package preparation: \(error.localizedDescription)"
     }
+    // A saved failure or pending restore shows on every launch until it's resolved.
+    if let record = helperMigration.record, record.needsAttention { message = record.message }
     commit()
     if settings.startAtLaunch { automaticStart(label: "At launch") }
     Task { [weak self] in
@@ -378,6 +381,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.message = record.message
       }
       await self.closedLidPermission.refresh()
+      if helperWasApproved { self.noteHelperApprovalNoLongerApplies() }
       self.onChange?()
     }
     updater.start()
@@ -686,6 +690,26 @@ public struct AppSettings: Codable, Equatable, Sendable {
       try await closedLid.disable()
     }
   }
+  static let helperApprovalNotice =
+    "Closed-lid mode now uses a one-time administrator approval instead of a helper. Set it up in Settings → Closed Lid."
+
+  /// Shown once, after an upgrade from a build whose helper the user had approved, when the sudo
+  /// rule that replaces it isn't usable yet. The marker file keeps it from repeating.
+  private func noteHelperApprovalNoLongerApplies() {
+    switch closedLidPermission.state {
+    case .ready, .allowedByOtherRule: return
+    default: break
+    }
+    let marker = endpoint.stateDirectory.appendingPathComponent("helper-approval-notice-shown")
+    guard !FileManager.default.fileExists(atPath: marker.path) else { return }
+    message = [message, Self.helperApprovalNotice].compactMap { $0 }.joined(separator: " ")
+    try? FileManager.default.createDirectory(
+      at: endpoint.stateDirectory, withIntermediateDirectories: true,
+      attributes: [.posixPermissions: 0o700])
+    _ = FileManager.default.createFile(atPath: marker.path, contents: nil)
+    onChange?()
+  }
+
   public func prepareForPackage(
     _ intent: PackageIntent, app: URL = Bundle.main.bundleURL,
     removeLidPermission: Bool = false,
@@ -703,6 +727,16 @@ public struct AppSettings: Codable, Equatable, Sendable {
     let handoff = PackageHandoffStore(directory: endpoint.stateDirectory)
     do {
       try handoff.clear()
+      let helperWasApproved = helperMigration.helperWasApproved
+      // package-check needs the old helper's job gone, so finish (or retry) the migration here
+      // and say why if it can't be.
+      await helperMigration.run()
+      if await helperMigration.helperJobStillPresent() {
+        throw InputError(
+          helperMigration.record?.message
+            ?? "Dilated couldn't confirm its old background helper is gone. Turn off Dilated under Login Items & Extensions in System Settings, then try again."
+        )
+      }
       try await synchronizeClosedLid()
       try await ensureClosedLidOff()
       if intent == .uninstall {
@@ -741,7 +775,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
       try store.save(prepared.snapshot)
       try handoff.save(
         .init(
-          intent: intent, appPath: app.resolvingSymlinksInPath().path, preparedAt: Date()))
+          intent: intent, appPath: app.resolvingSymlinksInPath().path, preparedAt: Date(),
+          helperWasApproved: intent == .update && helperWasApproved))
       savedForUpdate = true
       historyShutdownReason = intent == .update ? .update : .packageRemoval
       shutdown()
@@ -750,7 +785,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         ? "Prepared for update. Unexpired timers will keep their original deadlines."
         : removeLidPermission
           ? "Prepared for removal. Closed-lid permission, login item and owned command line link are removed."
-          : "Prepared for removal. Login item and owned command line link are removed. The closed-lid permission stays until you run prepare-uninstall --remove-lid-permission."
+          : closedLidPermission.canRemove
+            ? "Prepared for removal. Login item and owned command line link are removed. The closed-lid permission stays until you run prepare-uninstall --remove-lid-permission, dilated lid-permission remove, or the Remove button in Settings."
+            : "Prepared for removal. Login item and owned command line link are removed. The closed-lid permission stays until you run prepare-uninstall --remove-lid-permission."
       return true
     } catch {
       try? handoff.clear()
