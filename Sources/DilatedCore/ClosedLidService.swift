@@ -13,6 +13,7 @@ public actor ClosedLidService {
   private var startup: Task<Void, Never>?
   private var resetConfirmed = false
   private var pendingSleep = false
+  private var permissionFailure = false
   private var operation = UUID()
 
   public init(
@@ -107,6 +108,10 @@ public actor ClosedLidService {
     }
   }
 
+  /// True while the service is stuck in `.failed` because sudo refused the power command, so a
+  /// caller can slow its retries without giving up.
+  public var isRetryingForPermission: Bool { phase == .failed && permissionFailure }
+
   public func tick() async {
     guard started else { return }
     if let stopped = governor.reconcile(environment: environment(), now: clock()) {
@@ -189,12 +194,18 @@ public actor ClosedLidService {
       }
       phase = .off
       message = nil
+      permissionFailure = false
     } catch {
       guard operation == current else { return }
       readback = await power.readback()
       guard operation == current else { return }
       phase = .failed
       message = error.localizedDescription
+      if case ClosedLidPowerError.permissionUnavailable = error {
+        permissionFailure = true
+      } else {
+        permissionFailure = false
+      }
     }
   }
 
