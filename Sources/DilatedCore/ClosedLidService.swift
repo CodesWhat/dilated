@@ -5,6 +5,7 @@ public actor ClosedLidService {
   private let environment: @Sendable () -> ClosedLidEnvironment
   private let clock: @Sendable () -> TimeInterval
   private let buildIdentity: String
+  private let heartbeat: (@Sendable () async -> Void)?
   private var governor = ClosedLidGovernor()
   private var phase: HelperPhase = .starting
   private var readback = ClosedLidReadback()
@@ -19,8 +20,10 @@ public actor ClosedLidService {
   public init(
     power: any ClosedLidPowerControlling,
     environment: @escaping @Sendable () -> ClosedLidEnvironment,
-    clock: @escaping @Sendable () -> TimeInterval, buildIdentity: String
+    clock: @escaping @Sendable () -> TimeInterval, buildIdentity: String,
+    heartbeat: (@Sendable () async -> Void)? = nil
   ) {
+    self.heartbeat = heartbeat
     self.power = power
     self.environment = environment
     self.clock = clock
@@ -105,6 +108,7 @@ public actor ClosedLidService {
       await stop(stopped)
       return
     }
+    if phase == .on, governor.lease != nil { await heartbeat?() }
     guard phase != .enabling, phase != .disabling, phase != .sleeping else { return }
     if phase == .failed {
       await reset()
@@ -150,7 +154,9 @@ public actor ClosedLidService {
     } catch {
       guard operation == current else { return reply(false, code: "superseded") }
       let failureText = error.localizedDescription
-      let stopped = governor.stop(reason: .disabled, environment: environment())
+      let revertedByWatchdog = error as? ClosedLidSessionError == .revertedWhileUnresponsive
+      let stopped = governor.stop(
+        reason: revertedByWatchdog ? .leaseExpired : .disabled, environment: environment())
       pendingSleep = pendingSleep || stopped?.requestSleep == true
       await reset()
       return reply(false, code: "powerFailure", text: failureText)

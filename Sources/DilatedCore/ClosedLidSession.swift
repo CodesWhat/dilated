@@ -20,6 +20,7 @@ public struct ClosedLidSessionMarker: Codable, Equatable, Sendable {
 public struct ClosedLidMarkerStore: Sendable {
   public static let fileName = "closed-lid-session.json"
   public static let lockFileName = "closed-lid-session.lock"
+  public static let heartbeatFileName = "closed-lid-heartbeat"
   public let file: URL
 
   public init(directory: URL) { file = directory.appendingPathComponent(Self.fileName) }
@@ -42,6 +43,26 @@ public struct ClosedLidMarkerStore: Sendable {
     guard let data = try? Data(contentsOf: file) else { return nil }
     return try? Self.decoder.decode(ClosedLidSessionMarker.self, from: data)
   }
+
+  /// The liveness file the app rewrites while a session is active. The watchdog reads it with no
+  /// help from the app and only cares whether its content keeps changing.
+  public var heartbeatFile: URL {
+    file.deletingLastPathComponent().appendingPathComponent(Self.heartbeatFileName)
+  }
+
+  /// One line: `<generation> <beat count> <wall-clock seconds>`. The count makes every beat
+  /// differ even if the wall clock stalls or jumps back.
+  public func writeHeartbeat(generation: UUID, count: UInt64, at date: Date) {
+    let line = "\(generation.uuidString) \(count) \(Int64(date.timeIntervalSince1970))\n"
+    try? Data(line.utf8).write(to: heartbeatFile, options: .atomic)
+  }
+
+  public func readHeartbeat() -> String? {
+    guard let data = try? Data(contentsOf: heartbeatFile) else { return nil }
+    return String(decoding: data, as: UTF8.self)
+  }
+
+  public func clearHeartbeat() { try? FileManager.default.removeItem(at: heartbeatFile) }
 
   /// Atomic: readers see the old marker or the new one, never a partial file.
   public func write(_ marker: ClosedLidSessionMarker) throws {
@@ -70,11 +91,15 @@ public struct ClosedLidMarkerStore: Sendable {
   }
 }
 
-public enum ClosedLidSessionError: Error, Sendable, LocalizedError {
+public enum ClosedLidSessionError: Error, Equatable, Sendable, LocalizedError {
   case lockTimeout, startTimeUnreadable
+  /// The watchdog reverted this session while the app was hung. Not re-enabled silently.
+  case revertedWhileUnresponsive
 
   public var errorDescription: String? {
     switch self {
+    case .revertedWhileUnresponsive:
+      "Closed-lid stopped because Dilated stopped responding. Enable it again to continue."
     case .lockTimeout: "Closed-lid state is busy. Try again."
     case .startTimeUnreadable:
       "Dilated couldn't read its own start time, so it won't disable sleep."
@@ -171,6 +196,9 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
     case failed(String)
   }
 
+  /// How often the active session rewrites the heartbeat file the watchdog watches.
+  public static let defaultHeartbeatInterval: TimeInterval = 10
+
   private let power: any ClosedLidPowerControlling
   private let store: ClosedLidMarkerStore
   private let startMicros: @Sendable (Int32) -> Int64?
@@ -179,6 +207,9 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
   private let launchWatchdog: @Sendable (ClosedLidWatchdogLaunch) throws -> Void
   private var session: ClosedLidSessionMarker?
   private var settled = false
+  private let heartbeatInterval: TimeInterval
+  private var beatCount: UInt64 = 0
+  private var lastBeat: Date?
   private var recoveryError: (any Error)?
   public private(set) var recovery = Recovery.notChecked
 
@@ -187,14 +218,34 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
     pid: Int32 = getpid(),
     startMicros: @escaping @Sendable (Int32) -> Int64? = { ProcessStartTime.micros(pid: $0) },
     now: @escaping @Sendable () -> Date = { Date() },
-    launchWatchdog: @escaping @Sendable (ClosedLidWatchdogLaunch) throws -> Void = { _ in }
+    launchWatchdog: @escaping @Sendable (ClosedLidWatchdogLaunch) throws -> Void = { _ in },
+    heartbeatInterval: TimeInterval = ClosedLidSessionGuard.defaultHeartbeatInterval
   ) {
+    self.heartbeatInterval = heartbeatInterval
     self.power = power
     self.store = store
     self.pid = pid
     self.startMicros = startMicros
     self.now = now
     self.launchWatchdog = launchWatchdog
+  }
+
+  /// Rewrites the heartbeat while a session is active, at most once per interval. Called from the
+  /// service's own tick, so it runs off the main actor. A no-op with no session.
+  public func beat() {
+    guard let session else { return }
+    let current = now()
+    // A clock that went backwards still beats: only a recent write suppresses one.
+    if let lastBeat, current >= lastBeat, current.timeIntervalSince(lastBeat) < heartbeatInterval {
+      return
+    }
+    writeBeat(session, at: current)
+  }
+
+  private func writeBeat(_ session: ClosedLidSessionMarker, at date: Date) {
+    beatCount += 1
+    lastBeat = date
+    store.writeHeartbeat(generation: session.generation, count: beatCount, at: date)
   }
 
   public func readback() async -> ClosedLidReadback { await power.readback() }
@@ -210,6 +261,13 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
     let lock = try await store.acquireLock()
     defer { lock.release() }
     var created: ClosedLidSessionMarker?
+    if let session, store.read()?.generation != session.generation {
+      // The watchdog reverted this session while the app was hung. Don't bring it back silently.
+      self.session = nil
+      lastBeat = nil
+      store.clearHeartbeat()
+      throw ClosedLidSessionError.revertedWhileUnresponsive
+    }
     if session == nil {
       // A zero start time would make the watchdog think the live app is already gone.
       guard let start = startMicros(pid), start > 0 else {
@@ -220,11 +278,14 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
       try store.write(marker)
       session = marker
       created = marker
+      beatCount = 0
+      writeBeat(marker, at: now())
       do {
         try launchWatchdog(
           ClosedLidWatchdogLaunch(pid: pid, marker: store.file, generation: marker.generation))
       } catch {
         store.clear(generation: marker.generation)
+        store.clearHeartbeat()
         session = nil
         throw error
       }
@@ -235,6 +296,7 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
       // No confirmed enable: drop the session. Deleting the marker makes the watchdog exit.
       if let created {
         store.clear(generation: created.generation)
+        store.clearHeartbeat()
         session = nil
       }
       throw error
@@ -258,6 +320,7 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
     let observed = try await power.setSleepDisabled(false)
     if observed.confirmedDisabled, let session {
       store.clear(generation: session.generation)
+      store.clearHeartbeat()
       self.session = nil
     }
     return observed
@@ -272,6 +335,7 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
       lock.release()
     }
     session = nil
+    store.clearHeartbeat()
     recoveryError = nil
     recovery = .reverted
     settled = true
@@ -298,6 +362,7 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
       let observed = try await power.setSleepDisabled(false)
       guard observed.confirmedDisabled else { throw ClosedLidPowerError.readbackMismatch }
       store.clear(generation: marker.generation)
+      store.clearHeartbeat()
       recovery = .reverted
       settled = true
     } catch {
