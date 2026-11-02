@@ -1,2 +1,2 @@
-Settings pages open at the top when you switch between panes.
+Settings has an About page with the version, license and project links.
 Closed-lid mode remains experimental. Crash, reboot and update recovery remain unverified on hardware.
