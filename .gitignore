@@ -12,3 +12,8 @@ xcuserdata/
 # Local planning, evidence, and agent state
 /.planning/
 /.claude/
+
+# Website browser checks
+/website/node_modules/
+/website/test-results/
+/website/playwright-report/
