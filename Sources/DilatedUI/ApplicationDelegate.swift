@@ -39,7 +39,9 @@ import IOKit.ps
     }
     started = true
     settings = SettingsWindow(model: model)
-    menu = MenuBarController(model: model) { [weak self] in self?.showSettings() }
+    menu = MenuBarController(
+      model: model, openSettings: { [weak self] in self?.showSettings() },
+      openAbout: { [weak self] in self?.showAbout() })
     dock = DockPresence(mode: {
       DockIconMode(rawValue: model.settings.dockMode) ?? .whileWindowOpen
     })
@@ -123,7 +125,7 @@ import IOKit.ps
     let main = NSMenu()
     let appItem = NSMenuItem()
     let appMenu = NSMenu(title: "Dilated")
-    appMenu.addItem(AwakeMenu.action("About Dilated") { NSApp.orderFrontStandardAboutPanel(nil) })
+    appMenu.addItem(AwakeMenu.action("About Dilated") { [weak self] in self?.showAbout() })
     appMenu.addItem(AwakeMenu.action("Settings…", key: ",") { [weak self] in self?.showSettings() })
     appMenu.addItem(
       AwakeMenu.action("Check for Updates…") { [weak self] in
@@ -184,6 +186,10 @@ import IOKit.ps
   }
   @objc private func showSettings() {
     settings?.present()
+    dock?.refresh()
+  }
+  private func showAbout() {
+    settings?.present(page: .about)
     dock?.refresh()
   }
   public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool)
