@@ -38,6 +38,8 @@ logs for five minutes after launch.
 Real Shortcuts execution requires a developer-signed build on the tested Mac;
 an ad-hoc build can appear in the action catalog but fail to run.
 
+Set up the commit hooks once per clone with `brew install lefthook gitleaks && lefthook install`.
+
 Run the checks with `bash scripts/verify.sh` using Xcode, XcodeGen, Python 3, Ruby
 and Node.js 24. This entry point runs Swift tests, release packaging checks
 (including an isolated app build/launch), website tests, and formatting/syntax
