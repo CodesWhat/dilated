@@ -52,6 +52,11 @@ import Foundation
     await sessionGuard?.recovery ?? .notChecked
   }
 
+  /// Tells the session guard that sleep was restored by hand. False when macOS doesn't confirm it.
+  public func acknowledgeRestore() async -> Bool {
+    await sessionGuard?.acknowledgeManualRestore() ?? false
+  }
+
   public func invalidate() {
     let service = service
     let owner = owner

@@ -200,6 +200,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored public var onClosedLidBatteryWarning: (() -> Bool)?
   public let closedLid: ClosedLidController
   public let helperInstallation: HelperInstallation
+  public let closedLidPermission: ClosedLidPermissionModel
   public let updater: AppUpdater
   @ObservationIgnored public let endpoint: SocketEndpoint
   @ObservationIgnored private let store: StateStore
@@ -274,6 +275,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     assertions: any AssertionControlling = NativeAssertions(),
     closedLid: ClosedLidController? = nil,
     helperInstallation: HelperInstallation? = nil,
+    closedLidPermission: ClosedLidPermissionModel? = nil,
     updater: AppUpdater? = nil
   ) {
     self.endpoint = endpoint
@@ -287,6 +289,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
     self.closedLid =
       closedLid ?? ClosedLidController.configured(stateDirectory: endpoint.stateDirectory)
     self.helperInstallation = helperInstallation ?? HelperInstallation()
+    let lid = self.closedLid
+    self.closedLidPermission =
+      closedLidPermission
+      ?? ClosedLidPermissionModel(
+        recovery: { await lid.localTransport?.recovery() ?? .notChecked },
+        acknowledgeRestore: { await lid.localTransport?.acknowledgeRestore() ?? false })
     self.updater = updater ?? AppUpdater()
     var loadMessage: String?
     var recoveryIssue: String?
@@ -797,7 +805,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     if settingsRecoveryIssue != nil,
       ![
         .status, .stopAll, .release, .helperStatus, .helperRemove, .prepareUpdate,
-        .prepareUninstall,
+        .prepareUninstall, .lidPermissionStatus, .lidPermissionRemove,
       ]
       .contains(request.action)
     {
@@ -813,6 +821,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     if [.helperStatus, .helperSetup, .helperRemove].contains(request.action) {
       return await controlHelper(request.action)
+    }
+    if [.lidPermissionStatus, .lidPermissionInstall, .lidPermissionRemove].contains(request.action)
+    {
+      return await controlLidPermission(request.action)
     }
     guard !request.closedLid || [.start, .lease, .runner, .toggle].contains(request.action) else {
       return ControlResponse(
@@ -854,7 +866,94 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     return response
   }
+  private func controlLidPermission(_ action: ControlAction, deprecationNote: String? = nil) async
+    -> ControlResponse
+  {
+    func reply(ok: Bool, message: String, code: String? = nil) -> ControlResponse {
+      ControlResponse(
+        ok: ok, snapshot: engine.snapshot,
+        message: [message, deprecationNote].compactMap { $0 }.joined(separator: " "), code: code,
+        helper: closedLid.state, lidPermission: closedLidPermission.state?.word)
+    }
+    guard closedLid.usesLocalTransport else {
+      return reply(
+        ok: false, message: "Closed-lid permission isn't turned on. This build uses the helper.",
+        code: "unavailable")
+    }
+    guard !closedLidPermission.busy || action == .lidPermissionStatus else {
+      return reply(
+        ok: false, message: "Closed-lid permission setup is still running.", code: "unavailable")
+    }
+    switch action {
+    case .lidPermissionInstall:
+      let result = await setUpClosedLidPermission()
+      switch result {
+      case .cancelled:
+        return reply(ok: true, message: "Cancelled. Nothing changed.", code: "cancelled")
+      case .failed:
+        return reply(
+          ok: false,
+          message: closedLidPermission.lastError ?? message ?? closedLidPermission.summary,
+          code: "permissionFailure")
+      case .done:
+        return reply(ok: true, message: closedLidPermission.summary)
+      }
+    case .lidPermissionRemove:
+      let result = await removeClosedLidPermission()
+      switch result {
+      case .cancelled:
+        return reply(ok: true, message: "Cancelled. Nothing changed.", code: "cancelled")
+      case .failed:
+        return reply(
+          ok: false,
+          message: closedLidPermission.lastError ?? message ?? closedLidPermission.summary,
+          code: "permissionFailure")
+      case .done:
+        return reply(ok: true, message: "Closed-lid is off and the permission has been removed.")
+      }
+    default:
+      await closedLidPermission.refresh()
+      return reply(ok: true, message: closedLidPermission.summary)
+    }
+  }
+  public func setUpClosedLidPermission() async -> ClosedLidPermissionModel.Result {
+    guard allowNewWork() else { return .failed }
+    let result = await closedLidPermission.install()
+    message = closedLidPermission.lastError
+    onChange?()
+    return result
+  }
+  public func removeClosedLidPermission() async -> ClosedLidPermissionModel.Result {
+    guard allowNewWork(allowSettingsRecovery: true) else { return .failed }
+    resetTriggerLidArming()
+    engine.clearClosedLidRequests()
+    commit()
+    do { try await synchronizeClosedLid() } catch {
+      message = error.localizedDescription
+      onChange?()
+      return .failed
+    }
+    let result = await closedLidPermission.remove()
+    message = closedLidPermission.lastError
+    onChange?()
+    return result
+  }
+  public func restoreNormalSleep() async {
+    await closedLidPermission.restoreNormalSleep()
+    message = closedLidPermission.lastError
+    onChange?()
+  }
   private func controlHelper(_ action: ControlAction) async -> ControlResponse {
+    if closedLid.usesLocalTransport {
+      let note = "Helper commands are deprecated. Use dilated lid-permission."
+      let mapped: ControlAction =
+        switch action {
+        case .helperSetup: .lidPermissionInstall
+        case .helperRemove: .lidPermissionRemove
+        default: .lidPermissionStatus
+        }
+      return await controlLidPermission(mapped, deprecationNote: note)
+    }
     helperInstallation.refreshStatus()
     guard !helperInstallation.busy || action == .helperStatus else {
       return ControlResponse(
@@ -1139,15 +1238,25 @@ public struct AppSettings: Codable, Equatable, Sendable {
       "Closed-lid needs an AppleScript hold or exactly one active hold. Supply a hold ID in Shortcuts when several holds are active."
     )
   }
+  private func requireClosedLidSetup() async throws {
+    if closedLid.usesLocalTransport {
+      await closedLidPermission.refresh()
+      guard closedLidPermission.state == .ready else {
+        throw InputError("Set up closed-lid permission in Dilated first.")
+      }
+      return
+    }
+    helperInstallation.refreshStatus()
+    guard helperInstallation.status == .enabled else {
+      throw InputError("Set up and approve the closed-lid helper in Dilated first.")
+    }
+  }
   func setAutomationClosedLid(id: UUID, enabled: Bool) async throws {
     engine.updatePower(readPower())
     commit()
     if enabled {
       if engine.automationPaused { throw WakeError.automationPaused }
-      helperInstallation.refreshStatus()
-      guard helperInstallation.status == .enabled else {
-        throw InputError("Set up and approve the closed-lid helper in Dilated first.")
-      }
+      try await requireClosedLidSetup()
     }
     try await setClosedLid(id: id, enabled: enabled, allowPrompt: false, requireAutomation: true)
   }
@@ -1353,10 +1462,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     else {
       throw InputError("Enable this trigger and its closed-lid option first.")
     }
-    helperInstallation.refreshStatus()
-    guard helperInstallation.status == .enabled else {
-      throw InputError("Set up and approve the closed-lid helper in Dilated first.")
-    }
+    try await requireClosedLidSetup()
     armingClosedLidTrigger = id
     let revision = triggerLidRevision
     defer {
@@ -1370,7 +1476,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
       triggerRules.first(where: { $0.id == id }) == rule
     else { throw CancellationError() }
     guard closedLid.state?.ready == true else {
-      throw InputError("The helper isn't ready. Check Closed Lid settings before arming a trigger.")
+      throw InputError(
+        closedLid.usesLocalTransport
+          ? "Closed-lid isn't ready. Check Closed Lid settings before arming a trigger."
+          : "The helper isn't ready. Check Closed Lid settings before arming a trigger.")
     }
     guard commit() else { throw InputError(message ?? "Couldn't save awake state.") }
     armedClosedLidTriggers.insert(id)

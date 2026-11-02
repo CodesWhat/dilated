@@ -17,6 +17,7 @@ import Observation
   @ObservationIgnored private var operation = UUID()
   @ObservationIgnored private var operationFailure: (any Error)?
   var usesLocalTransport: Bool { transport is LocalClosedLidTransport }
+  var localTransport: LocalClosedLidTransport? { transport as? LocalClosedLidTransport }
   public var active: Bool { leaseID != nil && state?.enabled == true }
   public var hasLease: Bool { leaseID != nil }
 

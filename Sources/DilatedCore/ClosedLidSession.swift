@@ -263,6 +263,21 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
     return observed
   }
 
+  /// Called after the password-backed restore. Clears a failed revert once macOS confirms sleep
+  /// is back on; returns false (and changes nothing) when it isn't.
+  public func acknowledgeManualRestore() async -> Bool {
+    guard await power.readback().confirmedDisabled else { return false }
+    if let lock = try? await store.acquireLock() {
+      if let marker = store.read() { store.clear(generation: marker.generation) }
+      lock.release()
+    }
+    session = nil
+    recoveryError = nil
+    recovery = .reverted
+    settled = true
+    return true
+  }
+
   private func recoverIfNeeded() async {
     guard !settled, session == nil else { return }
     recoveryError = nil

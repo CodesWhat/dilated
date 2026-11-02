@@ -3,6 +3,17 @@ import Foundation
 
 public enum ClosedLidPermissionState: Equatable, Sendable {
   case notInstalled, needsRepair, blocked, ready, notAdmin
+
+  /// The word the CLI prints and the control socket carries.
+  public var word: String {
+    switch self {
+    case .notInstalled: "notInstalled"
+    case .needsRepair: "needsRepair"
+    case .blocked: "blocked"
+    case .ready: "ready"
+    case .notAdmin: "notAdmin"
+    }
+  }
 }
 
 public struct ClosedLidFileInfo: Equatable, Sendable {
@@ -65,6 +76,8 @@ public struct ClosedLidPermission: Sendable {
     "/bin/rm -f \(rulePath)",
     "/usr/sbin/visudo -c",
   ].joined(separator: "; ")
+
+  static let restoreScript = "/usr/bin/pmset -a disablesleep 0"
 
   /// The AppleScript that runs a fixed shell script as root. Only backslashes and double quotes
   /// need escaping, and the scripts above are constants.
@@ -131,6 +144,11 @@ public struct ClosedLidPermission: Sendable {
 
   public func remove() async -> ClosedLidPermissionOutcome {
     await perform(Self.removeScript)
+  }
+
+  /// The password-backed fallback: turns sleep back on without the sudo rule.
+  public func restoreNormalSleep() async -> PrivilegedScriptOutcome {
+    await runner.run(script: Self.appleScriptSource(for: Self.restoreScript))
   }
 
   private func perform(_ script: String) async -> ClosedLidPermissionOutcome {

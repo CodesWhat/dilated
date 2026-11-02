@@ -123,6 +123,17 @@ struct ClosedLidPermissionTests {
     #expect(await runner.scripts.isEmpty)
   }
 
+  @Test func restoreNormalSleepRunsTheFixedPmsetCommand() async {
+    let runner = RecordingRunner(outcome: .succeeded)
+    #expect(await permission(runner: runner).restoreNormalSleep() == .succeeded)
+    let scripts = await runner.scripts
+    #expect(scripts.count == 1)
+    #expect(scripts[0].contains("/usr/bin/pmset -a disablesleep 0"))
+    #expect(scripts[0].hasSuffix("with administrator privileges"))
+    let cancelled = RecordingRunner(outcome: .cancelled)
+    #expect(await permission(runner: cancelled).restoreNormalSleep() == .cancelled)
+  }
+
   @Test func visudoAcceptsTheFixedContent() throws {
     let visudo = "/usr/sbin/visudo"
     guard FileManager.default.isExecutableFile(atPath: visudo) else { return }

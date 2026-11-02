@@ -232,6 +232,24 @@ struct ClosedLidSessionTests {
     #expect(store.read() == nil)
   }
 
+  @Test func aManualRestoreClearsAFailedRevertOnlyWhenMacOSConfirmsIt() async throws {
+    let store = makeStore()
+    let marker = staleMarker()
+    try store.write(marker)
+    let power = RecordingPower(store: store, state: disabledState)
+    await power.fail(true)
+    let guardian = ClosedLidSessionGuard(power: power, store: store, startMicros: { _ in nil })
+    await #expect(throws: (any Error).self) { try await guardian.setSleepDisabled(false) }
+    // Sleep is still disabled: nothing changes.
+    #expect(await guardian.acknowledgeManualRestore() == false)
+    #expect(store.read() == marker)
+    // The password-backed restore worked.
+    await power.setState(enabledState)
+    #expect(await guardian.acknowledgeManualRestore() == true)
+    #expect(await guardian.recovery == .reverted)
+    #expect(store.read() == nil)
+  }
+
   @Test func aStaleMarkerIsRevertedBeforeANewSessionStarts() async throws {
     let store = makeStore()
     try store.write(staleMarker())

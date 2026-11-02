@@ -49,7 +49,9 @@ import Foundation
       do {
         response = try LocalSocketClient.send(request, to: endpoint)
       } catch let error as AppConnectionUnavailable {
-        guard ![.status, .helperStatus].contains(request.action) else { throw error }
+        guard ![.status, .helperStatus, .lidPermissionStatus].contains(request.action) else {
+          throw error
+        }
         try await launchApp(endpoint: endpoint)
         response = try LocalSocketClient.send(request, to: endpoint)
       }
@@ -59,8 +61,13 @@ import Foundation
       if input.json {
         print(String(decoding: try WireJSON.encode(response), as: UTF8.self))
       } else if response.ok {
-        if [.helperStatus, .helperSetup, .helperRemove, .prepareUpdate, .prepareUninstall].contains(
-          request.action)
+        if request.action == .lidPermissionStatus, let word = response.lidPermission {
+          print(word)
+        } else if [.lidPermissionInstall, .lidPermissionRemove].contains(request.action) {
+          print(response.message ?? "Closed-lid permission updated.")
+        } else if [.helperStatus, .helperSetup, .helperRemove, .prepareUpdate, .prepareUninstall]
+          .contains(
+            request.action)
         {
           print(response.message ?? "Helper operation completed.")
         } else if let id = response.id {
@@ -264,6 +271,7 @@ import Foundation
            dilated hold --ttl 10m [--label NAME] [--id ID | --lid]
            dilated release --id ID
            dilated run [--label NAME] [--lid] -- command arguments
+           dilated lid-permission status|install|remove [--json]
            dilated helper status|setup|remove [--json]
            dilated prepare-update|prepare-uninstall [--json]
            dilated package-check
@@ -271,6 +279,9 @@ import Foundation
     Starts allow display sleep unless --display-awake is supplied.
     --override-low-power explicitly allows a new hold in Low Power Mode.
     --lid requires the app's approved helper and its closed-lid safety limits.
+    lid-permission status prints notInstalled, needsRepair, blocked, ready or notAdmin.
+    lid-permission install and remove ask for your administrator password in the app.
+    With closed-lid permission turned on, the helper commands map to it and are deprecated.
     helper setup opens macOS approval when needed. Move the app to Applications first.
     helper remove verifies sleep-disable is off before unregistering the helper.
     prepare-update removes the helper and quits while preserving only unexpired timers.

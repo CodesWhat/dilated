@@ -35,6 +35,48 @@ struct ControlTests {
     }
   }
 
+  @Test func lidPermissionCommandsAreExplicitAppOperations() throws {
+    for (command, action) in [
+      ("status", ControlAction.lidPermissionStatus), ("install", .lidPermissionInstall),
+      ("remove", .lidPermissionRemove),
+    ] {
+      let input = try CLIInput.parse(["lid-permission", command, "--json"])
+      #expect(input.request?.action == action)
+      #expect(input.json)
+      #expect(try CLIInput.parse(["lid-permission", command]).json == false)
+      var engine = WakeEngine()
+      #expect(!ControlRouter.handle(input.request!, engine: &engine).ok)
+      #expect(engine.holds.isEmpty)
+    }
+    for arguments in [
+      ["lid-permission"], ["lid-permission", "setup"], ["lid-permission", "remove", "--lid"],
+      ["lid-permission", "status", "--json", "--json"],
+    ] {
+      #expect(throws: (any Error).self) { try CLIInput.parse(arguments) }
+    }
+  }
+
+  @Test func lidPermissionActionsAndStateRoundTripOnTheWire() throws {
+    for action in [
+      ControlAction.lidPermissionStatus, .lidPermissionInstall, .lidPermissionRemove,
+    ] {
+      let data = try WireJSON.encode(ControlRequest(action: action))
+      #expect(try WireJSON.decode(ControlRequest.self, from: data).action == action)
+    }
+    let response = ControlResponse(ok: true, message: "Ready.", lidPermission: "ready")
+    let decoded = try WireJSON.decode(
+      ControlResponse.self, from: try WireJSON.encode(response))
+    #expect(decoded.lidPermission == "ready")
+    let old = try WireJSON.decode(ControlResponse.self, from: Data(#"{"ok":true}"#.utf8))
+    #expect(old.lidPermission == nil)
+    #expect(
+      Set(
+        [
+          ClosedLidPermissionState.notInstalled, .needsRepair, .blocked, .ready, .notAdmin,
+        ].map(\.word))
+        == ["notInstalled", "needsRepair", "blocked", "ready", "notAdmin"])
+  }
+
   @Test func minimalWireRequestsUseSafeDefaults() throws {
     let request = try WireJSON.decode(ControlRequest.self, from: Data(#"{"action":"status"}"#.utf8))
     #expect(request.action == .status)
