@@ -99,7 +99,7 @@ class PublicationGuardsTests(unittest.TestCase):
             if key not in stage.PRERELEASE_REQUIRED_CHECKS:
                 check['status'] = 'notRun'
                 check['evidence'] = 'Not run for this beta.'
-        record['checks']['helperCrashRecovery']['status'] = 'failed'
+        record['checks']['sudoRuleRevoked']['status'] = 'failed'
         return record
 
     def use_ga_version(self):
@@ -111,9 +111,9 @@ class PublicationGuardsTests(unittest.TestCase):
         required = list(stage.PRERELEASE_REQUIRED_CHECKS)
         self.assertTrue(summary['prerelease'])
         self.assertEqual(summary['passed'], [key for key in stage.ACCEPTANCE_CHECKS if key in required])
-        self.assertEqual(summary['failed'], ['helperCrashRecovery'])
+        self.assertEqual(summary['failed'], ['sudoRuleRevoked'])
         self.assertEqual(summary['notRun'], [
-            key for key in stage.ACCEPTANCE_CHECKS if key not in required and key != 'helperCrashRecovery'])
+            key for key in stage.ACCEPTANCE_CHECKS if key not in required and key != 'sudoRuleRevoked'])
         full = stage.validate_acceptance(self.acceptance(), self.manifest)
         self.assertEqual(full, {'prerelease': True, 'passed': list(stage.ACCEPTANCE_CHECKS), 'failed': [], 'notRun': []})
 
@@ -191,7 +191,7 @@ class PublicationGuardsTests(unittest.TestCase):
         latest = stage.latest_metadata(self.manifest, summary)
         self.assertTrue(latest['prerelease'])
         self.assertEqual(latest['unverified'], summary['failed'] + summary['notRun'])
-        self.assertIn('helperCrashRecovery', latest['unverified'])
+        self.assertIn('sudoRuleRevoked', latest['unverified'])
         self.use_ga_version()
         ga = stage.latest_metadata(self.manifest, stage.validate_acceptance(self.acceptance(), self.manifest))
         self.assertFalse(ga['prerelease'])

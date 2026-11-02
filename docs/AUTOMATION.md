@@ -18,7 +18,7 @@ Removal preserves other commands and the executable inside the app bundle.
 | `dilated on --for 90m --label build` | Start a timed hold and print its ID |
 | `dilated on --until 17:00` | Keep awake until the next local 17:00 |
 | `dilated on --for 1h --display-awake` | Keep the display awake too |
-| `dilated on --for 1h --lid` | Request closed-lid for this hold through the approved helper |
+| `dilated on --for 1h --lid` | Request closed-lid for this hold using the closed-lid sudo rule |
 | `dilated off` | Stop all app-managed holds and pause automation |
 | `dilated off --id ID` | Stop only that hold |
 | `dilated off --label build` | Stop matching automated holds without affecting manual holds |
@@ -26,15 +26,17 @@ Removal preserves other commands and the executable inside the app bundle.
 | `dilated hold --id ID --ttl 10m` | Renew that hold from now |
 | `dilated release --id ID` | End the identified hold |
 | `dilated run -- make test` | Keep awake while the command runs and preserve its exit status |
-| `dilated helper status --json` | Query helper registration, authenticated state and power readback |
-| `dilated helper setup` | Set up or repair the helper, opening macOS approval when needed |
-| `dilated helper remove --json` | Confirm normal sleep before unregistering the helper |
+| `dilated lid-permission status --json` | Report the sudo rule state: `ready`, `notInstalled`, `needsRepair`, `blocked`, `notAdmin` or `allowedByOtherRule` |
+| `dilated lid-permission install` | Install or repair the sudo rule, asking for an administrator password |
+| `dilated lid-permission remove` | Confirm normal sleep, then remove the sudo rule (asks for a password) |
+
+`dilated helper status|setup|remove` still work as deprecated aliases and go away in a later release.
 
 Durations use `s`, `m` or `h`, including decimals such as `1.5h`. Until-times use
 24-hour local time. A past time means tomorrow. `--override-low-power` permits a
 new hold in Low Power Mode. The configured battery floor still applies. New
 requests also respect the explicit Low Power Mode override in Settings.
-`--lid` requires the app and approved helper, even for `run`, and never bypasses
+`--lid` requires the app and the closed-lid sudo rule, even for `run`, and never bypasses
 closed-lid safety limits or the first battery-use warning. Renewals preserve an
 active lid request but cannot re-enable one that stopped. See
 [installation and removal](INSTALLATION.md) for setup and current acceptance
@@ -80,12 +82,12 @@ The signed app exposes four actions in the Mac's Shortcuts action library:
 | Action | Result |
 |---|---|
 | Start keeping awake | Optional minutes and display-sleep preference; returns the new hold's UUID text |
-| Stop keeping awake | Ends every app-managed hold, confirms helper teardown and durably pauses automation |
-| Get awake status | Text containing active IDs/deadlines, pause state, requested closed-lid and last observed helper state |
+| Stop keeping awake | Ends every app-managed hold, confirms closed-lid is off and durably pauses automation |
+| Get awake status | Text containing active IDs/deadlines, pause state, requested closed-lid and last observed closed-lid state |
 | Set closed-lid mode | Takes a hold UUID and enabled Boolean; changes only that active hold |
 
 Chain Start's result into Set closed-lid's Hold ID. Closed-lid enable requires
-previous helper approval, any battery-warning review, and passing guards. It never
+the sudo rule in place, any battery-warning review, and passing guards. It never
 opens setup prompts, enables a future default or resumes automation. Disable remains
 available while paused. Expired/malformed IDs and failed operations return errors.
 
@@ -114,7 +116,7 @@ unimplemented.
 | `session time remaining` | Longest timed lifetime in seconds; -3 inactive, 0 indefinite non-trigger, -1 trigger |
 | `display sleep allowed` | Aggregate current holds, or the session default when inactive |
 | `allow display sleep`, `prevent display sleep` | Changes current holds without replacing their IDs/deadlines, or changes the idle session default |
-| `closed display mode enabled` | Confirmed helper state; unknown state is an error |
+| `closed display mode enabled` | Confirmed sleep-disable state; unknown state is an error |
 | `enable closed display mode`, `disable closed display mode` | Targets its own AppleScript hold, otherwise requires exactly one active hold |
 | `Triggers are enabled`, `enable Triggers`, `disable Triggers` | Persistent master switch, independent of each rule and the automation pause |
 
@@ -135,7 +137,7 @@ enable respect Stop; manual timers from the app remain available during the paus
 
 Cold scripting launches use the same normal startup policy as Shortcuts. Caller-side
 macOS Automation consent is separate from receiving commands in Dilated. Scripts
-receive success only after state/assertion work and any helper operation completes.
+receive success only after state/assertion work and any closed-lid operation completes.
 
 ## Sleep and user switching
 
@@ -156,7 +158,7 @@ it, and a pause that existed before you switched stays in place.
 
 A trigger's saved **Work with the lid closed** choice requires **Arm closed-lid**
 in Settings for the current app run. Saving a rule or launching Dilated cannot
-arm it. Stop, safety stops, rule edits, helper changes and relaunch revoke that
+arm it. Stop, safety stops, rule edits, permission changes and relaunch revoke that
 permission. CLI/AppleScript/Shortcuts closed-lid requests still target their
 specified current holds through their existing gates; they don't arm future
 triggers.
@@ -164,7 +166,7 @@ triggers.
 Settings → Triggers creates named rules. All conditions inside a rule must match;
 each matching rule contributes its own awake reason. Rules can keep the display
 awake and explicitly override Low Power Mode. Other battery and closed-lid safety
-limits still apply. Closed-lid follows the explicit arming and helper checks above.
+limits still apply. Closed-lid follows the explicit arming and permission checks above.
 
 Conditions include a running or frontmost app, an exact process name/path, a
 specific process instance, weekly/overnight schedules, battery/power, display
@@ -309,15 +311,17 @@ preserved until Clear. No diagnostic/history files are uploaded.
 
 `dilated prepare-update [--json]` prepares an external package upgrade and quits
 the app, keeping only unexpired timed holds at their original deadlines.
-`dilated prepare-uninstall [--json]` removes the helper, login item and owned CLI
-link, discards saved holds and quits. Both require closed-lid to be off and
-helper changes to be finished. They remain available while automation is paused
+`dilated prepare-uninstall [--remove-lid-permission] [--json]` removes the login
+item and owned CLI link, discards saved holds and quits. It leaves the closed-lid
+sudo rule alone unless you pass `--remove-lid-permission`, which asks for an
+administrator password; `brew uninstall --zap` removes it too. Both require
+closed-lid to be off. They remain available while automation is paused
 and do not resume it. Errors keep the app open and prevent package preparation.
 
 The CLI requests termination only from the app process that acknowledged the
 preparation. Homebrew's read-only `dilated package-check` rejects a running app,
 missing/expired preparation, unconfirmed off power readings, or a remaining
-helper job/process. Fixed read-only system checks are bounded; unknown state
+old helper job/process. Fixed read-only system checks are bounded; unknown state
 refuses replacement. The cask invokes this check through declarative steps. Preparation lasts ten minutes
 and is cleared at the next app start. Reopen Dilated after upgrading. See
 [installation](INSTALLATION.md#updates) for the full sequence and remaining
@@ -330,7 +334,7 @@ Supported links are `dilated://awake?for=90m&display=allow`,
 `dilated://awake?until=17:00&display=prevent`, `dilated://stop`, and
 `dilated://toggle`. Duplicate, conflicting and unknown parameters are rejected.
 The additional `lid=closed` option requires Allow closed-lid links in Settings →
-Closed Lid, which is off by default, plus the approved helper. Any website can
+Closed Lid, which is off by default, plus the closed-lid sudo rule. Any website can
 open these links, so this gate is separate from ordinary URL automation. Stop
 still pauses link starts. Trigger and safety-setting changes aren't supported
 by the URL interface.

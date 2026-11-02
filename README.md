@@ -65,7 +65,7 @@ Dilated needs **macOS 26 or later on Apple Silicon**. The current release is 1.0
 
 Prefer Homebrew? `brew install --cask codeswhat/tap/dilated` installs the same build.
 
-Closed-lid mode needs a privileged helper and your approval in macOS. The [installation guide](docs/INSTALLATION.md) covers helper setup, updates and removal.
+Closed-lid mode needs a narrow sudo rule that you install once with an administrator password. The [installation guide](docs/INSTALLATION.md) covers setup, crash recovery, updates and removal.
 
 <hr>
 
@@ -88,7 +88,7 @@ Battery floor and Low Power Mode guards can end a hold before it drains your bat
 | **Triggers** | Named rules that keep the Mac awake while all their conditions match. Conditions: running or frontmost apps, processes, schedules, power, displays, network identity, Wi-Fi SSIDs, mounted volumes, USB and paired Bluetooth devices, selected audio output, CPU load and idle time. Dwell and grace delays. |
 | **Automation** | URL scheme, AppleScript, four Shortcuts actions and a `dilated` CLI. The CLI covers `on`, `off`, `status`, `run -- <command>` and renewable agent holds (`hold`, `release`). Configurable global shortcuts. |
 | **Drive Alive** | Opt-in. Writes a small hidden file to selected volumes at an interval you choose (30 to 3600 seconds) so they don't idle. It doesn't wake a sleeping Mac. |
-| **Closed-lid mode** | Keeps the Mac running with the lid closed, through a privileged helper you approve. Experimental. A closed-lid trigger has to be armed each app run. |
+| **Closed-lid mode** | Keeps the Mac running with the lid closed, through a sudo rule that lets Dilated run only `pmset -a disablesleep 0|1`. Admin accounts only. Experimental. A closed-lid trigger has to be armed each app run. |
 | **Feedback** | Optional notification banners and sounds, both off by default. Local history and statistics. |
 
 The [automation reference](docs/AUTOMATION.md) has every command, trigger condition and safety rule.
@@ -99,7 +99,7 @@ The [automation reference](docs/AUTOMATION.md) has every command, trigger condit
 
 - **Location** is requested only to match the Wi-Fi network names you choose for triggers. Dilated doesn't request or record your geographic location.
 - **Bluetooth** is used only to match paired devices you choose for triggers. It doesn't scan for nearby devices or change their connections.
-- **Closed-lid mode** needs the privileged helper, which you approve in macOS.
+- **Closed-lid mode** needs the sudo rule at `/private/etc/sudoers.d/dilated`. Remove it any time with `dilated lid-permission remove` or `sudo rm /private/etc/sudoers.d/dilated`. If Dilated crashes, a watchdog restores sleep within seconds. A reboot without relaunching Dilated can leave sleep disabled until it next opens.
 - **Notifications** are requested only when you enable banners.
 - **Files** are accessed only through your selection, for example a download watch or a Drive Alive volume.
 
@@ -109,7 +109,7 @@ History and statistics stay on your Mac. The only network use in the app code is
 
 <h2 align="center" id="roadmap">Roadmap</h2>
 
-1.0.0 GA is gated on the hardware recovery checks listed in the [installation guide](docs/INSTALLATION.md#release-acceptance): helper and app crash recovery, reboot recovery, helper upgrade and the closed-lid transitions. Automatic agent setup is later work.
+1.0.0 GA is gated on the hardware recovery checks listed in the [installation guide](docs/INSTALLATION.md#release-acceptance): sudo rule revocation and integrity, app crash recovery, reboot recovery, helper migration and the closed-lid transitions. Automatic agent setup is later work.
 
 <hr>
 

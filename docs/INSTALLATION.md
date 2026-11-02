@@ -15,9 +15,8 @@ install and upgrade over prepared earlier builds. These receipts come from
 earlier betas; they do not establish a fresh hardware run for every release.
 These hardware checks are not verified yet and are listed in the cask caveats
 and `latest.json`: `macOS27ClosedLid`,
-`helperCrashRecovery`, `appCrashRecovery`, `guardTransitions`, `rebootRecovery`,
-`approvalDenied`, `helperUpgrade`,
-`uninstallNormalSleep` and `nativeUI`. A signed or notarized build alone does not
+`sudoRuleRevoked`, `guardTransitions`, `rebootRecovery`, `adminPromptCancelled`,
+`helperMigration`, `sudoRuleIntegrity`, `uninstallNormalSleep` and `nativeUI`. A signed or notarized build alone does not
 close them.
 
 ## Local builds and first launch
@@ -39,10 +38,9 @@ saves the original file privately under Application Support/Dilated/recovery,
 persists the pause, then writes defaults. Review Battery & Safety before starting
 another hold. Automation still requires an explicit Resume automation afterward.
 
-For helper setup, use a signed, notarized candidate copied to
+For closed-lid setup, use a signed, notarized candidate copied to
 `/Applications/Dilated.app`. Launch that copy rather than the app on a mounted
-disk image. A bare SwiftPM executable or an ad-hoc development bundle does not
-establish that the privileged service can be registered.
+disk image.
 
 ## Command line tool
 
@@ -59,45 +57,69 @@ Keep `~/.local/bin` on PATH. The bundled CLI also works directly, for example
 [automation](AUTOMATION.md) for holds, command runners, exit statuses and pause
 behavior.
 
-## Closed-lid helper
+## Closed-lid permission
 
-Ordinary awake holds do not require a privileged helper. Closed-lid mode does.
-In Settings → Closed Lid, choose Set up closed-lid and complete the approval
-shown by macOS in Login Items. An approval request is not an enabled lid session:
-closed-lid must still be enabled explicitly for an awake hold.
+Ordinary awake holds need no special permission. Closed-lid mode needs one
+thing: a narrow sudo rule that lets Dilated turn macOS's sleep-disable setting
+on and off without a password. Dilated has no root helper or background service.
 
-`dilated helper status --json` reports service registration and any authenticated
-helper state. `helperInstallation: "enabled"` means registered/approved. A usable
-helper must also report `helper.ready: true`. When protection is off, expect
-`helper.enabled: false` and both
-`helper.readback.storedDisabled` and `helper.readback.effectiveDisabled` to be
-`false`. A missing value is unknown, not confirmation of normal sleep. The
-command's successful exit by itself does not prove the helper is ready or off.
+The rule is the file `/private/etc/sudoers.d/dilated`, owned by root:wheel with
+mode 0440. It lets members of the `admin` group run exactly two commands as root
+without a password: `/usr/bin/pmset -a disablesleep 0` and
+`/usr/bin/pmset -a disablesleep 1`. Nothing else. Any process running as an admin
+user can use it to toggle sleep, and you accept that when you install it.
 
-`dilated helper setup` uses the same setup/repair flow as Settings and may open
-macOS approval. A changed helper is disabled, unregistered and re-registered.
-Repair allows a bounded retry for macOS's transient registration failure after
-unregistration. Once registered, setup waits for the helper's startup reset to
-finish. A reset failure or readiness timeout remains an error.
-A version/identity mismatch is an error, not permission to keep using an old
-helper. After a crash, reboot or safety stop, closed-lid needs explicit
-enablement again.
+To set it up, open Settings → Closed Lid and choose Set Up in the Permission group, or run `dilated lid-permission install`. macOS asks for an
+administrator password once. Dilated writes the file, checks it with `visudo -c`
+and removes it again if the check fails. An installed rule isn't a lid session:
+closed-lid still has to be enabled explicitly for an awake hold.
 
-If an approved helper won't launch or respond, Repair and removal can recover
-without its acknowledgement only when there was no active or pending lid lease
-and both independent sleep-disable readings confirm off. They check again
-before unregistration and afterward. Enabled/unknown readings, protocol/reset
-errors and cancellation still block this recovery; the app never assumes off
-from a timeout alone.
+`dilated lid-permission status [--json]` prints one of these states:
 
-A helper waiting for approval can be unregistered without approving it first
-when both sleep-disable readings are off. Removal checks those readings again
-after unregistration. Enabled or unknown readings require helper recovery first.
+- `ready`: the rule is installed, matches exactly and works.
+- `notInstalled`: no rule, and no other rule that allows the command.
+- `needsRepair`: the file exists but its contents, owner or mode differ. Run
+  `dilated lid-permission install` to rewrite it.
+- `blocked`: the file is right but sudo doesn't honor it, for example because
+  sudoers no longer includes `/private/etc/sudoers.d`.
+- `notAdmin`: your account isn't an administrator, so the rule can't cover it.
+- `allowedByOtherRule`: another rule already lets you run the command without a
+  password, such as the one Amphetamine installs. Closed-lid works, and Dilated
+  leaves that rule alone.
+
+Standard (non-admin) accounts can't use closed-lid mode. If sudo can't run the
+command when you enable closed-lid, Dilated refuses and tells you to set the
+permission up again. If it can't turn sleep back on, it keeps retrying, shows
+an alert with Restore normal sleep (which asks for your password), and blocks
+quit and update until sleep is confirmed normal.
+
+### If Dilated crashes
+
+When a closed-lid session starts, Dilated writes a session marker and starts a
+small detached watchdog process. If the app dies, the watchdog restores normal
+sleep within seconds. If the watchdog can't, the next launch of Dilated sees the
+marker and reverts sleep. While the app is running, a 90-second lease also ends
+the session if the app stops responding.
+
+A reboot is the gap. The sleep-disable setting survives a reboot. If Dilated
+crashes and the watchdog doesn't get to run, and you reboot without opening
+Dilated again, sleep stays disabled until Dilated next launches. Launch at login
+closes that gap. You can also run `sudo pmset -a disablesleep 0` yourself. This
+case is on the GA acceptance list as `rebootRecovery` and hasn't been verified
+on hardware.
 
 Closed-lid defaults are a 20% battery floor and an eight-hour closed-lid battery
-limit. Battery, thermal, Low Power Mode and optional AC-only guards remain
-effective in the daemon if the app stops responding. Their actual hardware
-recovery tests are still required before release.
+limit. Battery, thermal, Low Power Mode and optional AC-only guards run inside
+the app.
+
+### Upgrading from a helper build
+
+Earlier betas used a privileged helper approved in Login Items. The first launch
+after upgrading unregisters it, confirms its launchd job is gone and, if the
+helper left sleep disabled, restores it. Settings shows the result, and tells
+you if anything needs attention. Set up the sudo rule afterward to use
+closed-lid again. If you'd rather clean up by hand, remove the Dilated entry
+under System Settings → General → Login Items & Extensions.
 
 ## Updates
 
@@ -105,12 +127,11 @@ Local candidates do not contact a production update feed. Release builds,
 including the beta, carry the Sparkle feed at
 https://dilated.codeswhat.com/updates/appcast.xml with updates enabled. The feed
 and update archives are signed. Updates wait until
-closed-lid mode is off and helper changes/recovery have finished.
+closed-lid mode is off.
 
 A planned in-app update restores only unexpired timed holds, preserving their
 original deadlines and rechecking guards. Indefinite manual holds do not return.
-Stop's automation pause remains in effect. Helper replacement invalidates the
-previous lease; an ordinary relaunch does not re-enable closed-lid.
+Stop's automation pause remains in effect. An ordinary relaunch does not re-enable closed-lid.
 
 Manual Quit ends app-managed holds and discards saved timers. Quitting and
 replacing the app therefore does not preserve timers for an update.
@@ -122,38 +143,40 @@ expose upgrade versus uninstall to its preflight hook, so Dilated requires an
 explicit preparation command instead of a generic Quit step:
 
 1. For an upgrade, run `dilated prepare-update`. It requires closed-lid to be
-   off, unregisters the helper, saves only unexpired timers with their original
+   off, saves only unexpired timers with their original
    deadlines and quits the app. Launch-at-login and the owned CLI link are kept.
 2. Run the Homebrew upgrade, then reopen Dilated. Timers are restored subject to
    their deadlines and current guards. Reopening within the ten-minute handoff
-   window also reinstalls a previously approved helper, leaving closed-lid off.
-   A helper that was never approved is not installed automatically.
+   window restores them. The sudo rule stays installed, so closed-lid keeps
+   working after the upgrade.
 3. For removal, run `dilated prepare-uninstall` before Homebrew uninstall. This
-   removes the helper, login item and owned CLI link, discards holds and quits.
+   removes the login item and owned CLI link, discards holds and quits.
+   Add `--remove-lid-permission` to delete the sudo rule too (asks for your
+   password). Without it the rule stays, and `brew uninstall --zap` removes it.
    Preferences remain available for a later reinstall.
 
 Versions 1.0.0-beta.1 and beta.2 can fail `dilated prepare-update` with
-"Operation not permitted" when macOS reports the helper as not found. Update
+"Operation not permitted" when macOS reports the old helper as not found. Update
 those installs with Check for Updates in Settings instead.
 
-Preparation requires closed-lid and helper changes to have finished. A failure
+Preparation requires closed-lid to be off. A failure
 keeps the app open and blocks the package operation. Preparation expires after
 ten minutes and is invalidated when the app starts again. The cask checks the
 preparation, absence of the app, confirmed off power readings, absence of the
-helper job and absence of its process before allowing replacement or removal.
+old helper job and absence of its process before allowing replacement or removal.
 Unknown states block it. Run preparation again if the window expires or you
 reopen Dilated before the package operation. `dilated package-check` is the
 read-only CLI part of this preflight; it does not start the app.
 
 ## Remove Dilated
 
-Remove the helper while the signed app still exists in Applications:
+Remove the closed-lid permission while the signed app still exists in Applications:
 
 1. In General settings, turn off Launch at login if enabled.
-2. In Closed Lid settings, choose Turn off and remove helper. The CLI equivalent
-   is `dilated helper remove --json`. It first clears closed-lid requests,
-   verifies normal sleep and awaits service unregistration. If it fails, leave
-   the app installed and use the reported error or helper repair flow.
+2. In Closed Lid settings, choose Remove in the Permission group, or run
+   `dilated lid-permission remove`. Either asks for your administrator password
+   and deletes `/private/etc/sudoers.d/dilated`. Dilated confirms normal sleep
+   first. If it can't, leave the app installed and use the reported error.
 3. In Automation settings, choose Remove command line tool if this copy installed
    the link. A link to another location is left unchanged.
 4. Choose Quit Dilated. This ends app-managed holds and discards saved timers.
@@ -161,23 +184,25 @@ Remove the helper while the signed app still exists in Applications:
    finishes.
 5. Move Dilated.app to Trash.
 
+If the app is already gone, remove the rule by hand with
+`sudo rm /private/etc/sudoers.d/dilated`. Check that `pmset -g | grep SleepDisabled`
+shows 0; if it shows 1, run `sudo pmset -a disablesleep 0`.
+
 Normal removal preserves preferences in
 `~/Library/Application Support/Dilated`. Removing those preferences is a
-separate reset, after the app and helper have stopped. Deleting the app first or
-stopping its launchd job alone does not verify that sleep-disable was cleared.
+separate reset, after the app has stopped. Deleting the app first does not
+verify that sleep-disable was cleared.
 
-If the app was moved or removed before helper cleanup, restore the matching
-signed bundle to Applications and use its setup/repair and removal flow. Keep
-the app installed if macOS cannot confirm normal sleep. Actual uninstall
-acceptance must separately verify service removal, absence of Dilated-owned
+Keep the app installed if macOS cannot confirm normal sleep. Actual uninstall
+acceptance must separately verify rule removal, absence of Dilated-owned
 assertions and normal sleep.
 
 ## Release acceptance
 
 The beta shipped with the checks listed at the top still open. Before a GA
-release, verify real helper approval and denial, CLI linking without overwriting files, helper replacement,
+release, verify the admin prompt and cancelling it, sudo rule integrity and revocation, CLI linking without overwriting files, upgrading from a helper build,
 an actual older-to-newer Sparkle update, uninstall and normal sleep. Closed-lid
-acceptance also covers macOS 26 and 27, app/helper crash, heartbeat loss, reboot,
+acceptance also covers macOS 26 and 27, app crash, heartbeat loss, reboot,
 guard transitions and power/display changes. Power-setting experiments require
 bounded execution and independent cleanup.
 Releases are verified on the maintainer's Mac only, with no second-machine
