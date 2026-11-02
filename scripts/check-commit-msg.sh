@@ -21,7 +21,7 @@ if printf '%s' "$subject" | perl -CS -ne 'exit(/[\x{1F000}-\x{1FFFF}\x{2190}-\x{
 fi
 
 case "$subject" in
-  "Merge "* | "Revert "* | "fixup! "* | "squash! "*) exit 0 ;;
+  "Merge "* | "Revert "* | "fixup! "* | "squash! "* | "amend! "*) exit 0 ;;
 esac
 
 if ! printf '%s' "$subject" | grep -E -q '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^()[:space:]]+\))?!?: [^[:space:]].*$'; then

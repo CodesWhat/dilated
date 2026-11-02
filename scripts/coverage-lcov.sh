@@ -29,12 +29,12 @@ case "${1:-}" in
       -ignore-filename-regex='(/\.build/|/Tests/|/checkouts/)' > "$out/lcov.info"
     # Keep only Sources/ records, with repo-relative paths so Codecov maps them to files.
     python3 - "$out/lcov.info" "$PWD" <<'PY'
-import sys
-path, root = sys.argv[1], sys.argv[2] + "/"
+import os, sys
+path, root = sys.argv[1], os.path.realpath(sys.argv[2]) + "/"
 keep, out = False, []
 for line in open(path):
     if line.startswith("SF:"):
-        file = line[3:].strip()
+        file = os.path.realpath(line[3:].strip())
         keep = file.startswith(root + "Sources/")
         line = "SF:" + file[len(root):] + "\n" if keep else line
     if keep:
