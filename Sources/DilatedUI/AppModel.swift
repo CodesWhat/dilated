@@ -284,7 +284,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     self.feedback = FeedbackController(
       service: NativeFeedbackService(),
       sounds: NativeFeedbackSounds(directory: endpoint.stateDirectory))
-    self.closedLid = closedLid ?? ClosedLidController.configured()
+    self.closedLid =
+      closedLid ?? ClosedLidController.configured(stateDirectory: endpoint.stateDirectory)
     self.helperInstallation = helperInstallation ?? HelperInstallation()
     self.updater = updater ?? AppUpdater()
     var loadMessage: String?

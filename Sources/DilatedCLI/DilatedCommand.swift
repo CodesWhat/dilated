@@ -6,6 +6,9 @@ import Foundation
 
 @main struct DilatedCommand {
   @MainActor static func main() async {
+    if let launch = ClosedLidWatchdogCommand.parse(Array(CommandLine.arguments.dropFirst())) {
+      exit(await ClosedLidWatchdogCommand.run(launch))
+    }
     do {
       let input = try CLIInput.parse(Array(CommandLine.arguments.dropFirst()))
       if input.help {
