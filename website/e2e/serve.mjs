@@ -22,6 +22,8 @@ const types = {
   '.woff2': 'font/woff2',
   '.ttf': 'font/ttf',
   '.txt': 'text/plain; charset=utf-8',
+  '.xml': 'application/xml; charset=utf-8',
+  '.png': 'image/png',
 };
 
 const server = createServer(async (request, response) => {
