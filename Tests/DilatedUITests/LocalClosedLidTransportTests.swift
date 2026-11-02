@@ -57,7 +57,8 @@ import Testing
   }
 
   @Test func deniedPermissionOnDisableStaysFailedAndRetriesEachTick() async throws {
-    let fixture = await LocalFixture()
+    let sleeps = SleepLog()
+    let fixture = await LocalFixture(sleeps: sleeps)
     let controller = fixture.controller()
     defer { controller.invalidate() }
     try await controller.enable(policy: .init())
@@ -66,20 +67,35 @@ import Testing
     #expect(!controller.active)
     #expect(await fixture.runner.readback().confirmedEnabled)
     let attempts = await fixture.runner.disableAttempts
-    await waitUntil { await fixture.runner.disableAttempts > attempts + 1 }
+    await waitUntil { await fixture.runner.disableAttempts > attempts + 6 }
     #expect(await fixture.runner.readback().confirmedEnabled)
+    let seconds = sleeps.values.map { Int($0.components.seconds) }
+    let backoffSteps = Array(seconds.drop { $0 != 1 })
+    #expect(backoffSteps.starts(with: [1, 2, 4, 8, 16, 30, 30]))
+    #expect(backoffSteps.allSatisfy { $0 <= 30 })
     await fixture.runner.allow()
     await waitUntil { await fixture.runner.readback().confirmedDisabled }
+    await waitUntil { sleeps.values.last == .milliseconds(20) }
+  }
+
+  @Test func backoffDoublesToTheCapAndResetsOnRequest() {
+    let backoff = RetryBackoff(initial: .seconds(1), cap: .seconds(30))
+    let steps = (0..<8).map { _ in Int(backoff.next().components.seconds) }
+    #expect(steps == [1, 2, 4, 8, 16, 30, 30, 30])
+    backoff.reset()
+    #expect(backoff.next() == .seconds(1))
   }
 
   @Test func theFlagDefaultsOffAndKeepsTheHelperTransport() {
     let defaults = UserDefaults(suiteName: "local-lid-\(UUID().uuidString)")!
     #expect(defaults.bool(forKey: LocalClosedLidTransport.defaultsKey) == false)
-    let off = ClosedLidController.configured(defaults: defaults)
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "local-lid-\(UUID().uuidString)")
+    let off = ClosedLidController.configured(defaults: defaults, stateDirectory: directory)
     #expect(!off.hasLease)
     #expect(!off.usesLocalTransport)
     defaults.set(true, forKey: LocalClosedLidTransport.defaultsKey)
-    let on = ClosedLidController.configured(defaults: defaults)
+    let on = ClosedLidController.configured(defaults: defaults, stateDirectory: directory)
     defer { on.invalidate() }
     #expect(on.usesLocalTransport)
   }
@@ -96,18 +112,30 @@ private func waitUntil(_ condition: @escaping @Sendable () async -> Bool) async 
   Issue.record("condition not met in time")
 }
 
+private final class SleepLog: @unchecked Sendable {
+  private let lock = NSLock()
+  private var log: [Duration] = []
+  var values: [Duration] { lock.withLock { log } }
+  func record(_ duration: Duration) { lock.withLock { log.append(duration) } }
+}
+
 @MainActor private struct LocalFixture {
   let runner = FakeSudoRunner()
   let inputs = LocalInputs()
   let clock = LocalClock()
   let transport: LocalClosedLidTransport
-  init() async {
+  init(sleeps: SleepLog? = nil) async {
     let runner = runner
     let inputs = inputs
     let clock = clock
     transport = LocalClosedLidTransport(
       power: SerialPowerDriver(runner: runner, readback: { await runner.readback() }),
-      environment: { inputs.read() }, clock: { clock.now() }, tickInterval: .milliseconds(20))
+      environment: { inputs.read() }, clock: { clock.now() }, tickInterval: .milliseconds(20),
+      sleep: { duration in
+        guard let sleeps else { return try await Task.sleep(for: duration) }
+        sleeps.record(duration)
+        try await Task.sleep(for: .milliseconds(5))
+      })
     await waitUntil { await runner.calls.contains(.setSleepDisabled(false)) }
     try? await Task.sleep(for: .milliseconds(60))
   }
