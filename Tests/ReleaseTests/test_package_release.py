@@ -69,7 +69,7 @@ class ReleaseGuardsTests(unittest.TestCase):
             release.verify_source(self.root, '1.0.0-beta.1', candidate=True)
 
     @unittest.skipUnless(sys.platform == "darwin", "Signed bundle integration requires macOS")
-    def test_packager_builds_into_its_own_output_with_canonical_metadata_and_helper(self):
+    def test_packager_builds_into_its_own_output_with_canonical_metadata_and_retired_helper_plist(self):
         output = self.root / 'bundle output'
         release.build_app(SCRIPT.parents[1], output, '-', enable_updates=True)
         app = output / 'Dilated.app'
@@ -86,7 +86,7 @@ class ReleaseGuardsTests(unittest.TestCase):
         entitlements = plistlib.loads(signed.stdout)
         self.assertTrue(entitlements['com.apple.security.personal-information.location'])
         self.assertNotIn('com.apple.wifi.events', entitlements)
-        for binary in ['dilated', 'dilated-helper']:
+        for binary in ['dilated']:
             signed_child = subprocess.run(
                 ['codesign', '-d', '--entitlements', ':-', str(app / 'Contents/MacOS' / binary)],
                 capture_output=True, check=True)
@@ -110,16 +110,14 @@ class ReleaseGuardsTests(unittest.TestCase):
             'LNValueTypeSpecificMetadataKeyDefaultValue', {'int': {'wrapper': 1}}])
         linked = subprocess.check_output(['otool', '-L', str(app / 'Contents/MacOS/DilatedApp')], text=True)
         self.assertIn('@rpath/Sparkle.framework', linked)
-        for binary in ['dilated', 'dilated-helper']:
+        for binary in ['dilated']:
             linked = subprocess.check_output(['otool', '-L', str(app / 'Contents/MacOS' / binary)], text=True)
             self.assertNotIn('Sparkle', linked)
         with (app / 'Contents/Library/LaunchDaemons/com.codeswhat.dilated.helper.plist').open('rb') as file:
             helper = plistlib.load(file)
         self.assertEqual(helper['BundleProgram'], 'Contents/MacOS/dilated-helper')
-        self.assertTrue(helper['KeepAlive'])
-        self.assertEqual(release.validate_helper_bundle(app), app / helper['BundleProgram'])
-        probe = subprocess.check_output([str(app / helper['BundleProgram']), '--inspect'], text=True)
-        self.assertEqual(json.loads(probe)['protocolVersion'], 1)
+        self.assertFalse((app / helper['BundleProgram']).exists())
+        release.validate_retired_helper_bundle(app)
         subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
         import os
         state = self.root / 'launch-state'
@@ -162,14 +160,10 @@ class ReleaseGuardsTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'automation'):
             release.validate_automation_bundle(app)
 
-    def test_a_mispackaged_helper_cannot_reach_notarization(self):
+    def test_a_mispackaged_helper_plist_cannot_reach_notarization(self):
         app = self.root / 'Dilated.app'
         folder = app / 'Contents/Library/LaunchDaemons'
         folder.mkdir(parents=True)
-        helper = app / 'Contents/MacOS/dilated-helper'
-        helper.parent.mkdir(parents=True)
-        helper.write_text('fixture')
-        helper.chmod(0o755)
         correct = {'Label': 'com.codeswhat.dilated.helper',
                    'BundleProgram': 'Contents/MacOS/dilated-helper',
                    'MachServices': {'com.codeswhat.dilated.helper': True},
@@ -180,7 +174,27 @@ class ReleaseGuardsTests(unittest.TestCase):
                 with (folder / 'com.codeswhat.dilated.helper.plist').open('wb') as file:
                     plistlib.dump({**correct, key: value}, file)
                 with self.assertRaisesRegex(RuntimeError, 'helper'):
-                    release.validate_helper_bundle(app)
+                    release.validate_retired_helper_bundle(app)
+
+    def test_the_retired_helper_plist_ships_but_its_executable_cannot(self):
+        app = self.root / 'Dilated.app'
+        folder = app / 'Contents/Library/LaunchDaemons'
+        folder.mkdir(parents=True)
+        with self.assertRaisesRegex(RuntimeError, 'migration plist'):
+            release.validate_retired_helper_bundle(app)
+        correct = {'Label': 'com.codeswhat.dilated.helper',
+                   'BundleProgram': 'Contents/MacOS/dilated-helper',
+                   'MachServices': {'com.codeswhat.dilated.helper': True},
+                   'UserName': 'root', 'RunAtLoad': True, 'KeepAlive': True}
+        with (folder / 'com.codeswhat.dilated.helper.plist').open('wb') as file:
+            plistlib.dump(correct, file)
+        release.validate_retired_helper_bundle(app)
+        executable = app / 'Contents/MacOS/dilated-helper'
+        executable.parent.mkdir(parents=True)
+        executable.write_text('fixture')
+        executable.chmod(0o755)
+        with self.assertRaisesRegex(RuntimeError, 'must not be bundled'):
+            release.validate_retired_helper_bundle(app)
 
     def test_dirty_tracked_or_untracked_source_cannot_ship(self):
         for name in ['source.txt', 'unreviewed.txt']:

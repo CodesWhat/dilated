@@ -70,7 +70,8 @@ shell_app="build/automation-shell/DerivedData/Build/Products/$shell_configuratio
 cp "$shell_app/Contents/MacOS/DilatedApp" "$app/Contents/MacOS/DilatedApp"
 ditto "$shell_app/Contents/Resources/Metadata.appintents" "$app/Contents/Resources/Metadata.appintents"
 cp "$bin_dir/dilated" "$app/Contents/MacOS/dilated"
-cp "$bin_dir/dilated-helper" "$app/Contents/MacOS/dilated-helper"
+# The helper plist ships for one release so macOS can unregister the job older installs still
+# have. The helper executable is gone.
 cp packaging/com.codeswhat.dilated.helper.plist "$app/Contents/Library/LaunchDaemons/"
 cp packaging/Info.plist "$app/Contents/Info.plist"
 cp packaging/Dilated.sdef "$app/Contents/Resources/Dilated.sdef"
@@ -121,7 +122,6 @@ for nested in "$app/Contents/Resources/"*.bundle; do
     codesign --force "${sign_options[@]}" "$timestamp" --sign "$sign_as" "$nested"
 done
 codesign --force "${sign_options[@]}" "$timestamp" --sign "$sign_as" "$app/Contents/MacOS/dilated"
-codesign --force --identifier com.codeswhat.dilated.helper "${sign_options[@]}" "$timestamp" --sign "$sign_as" "$app/Contents/MacOS/dilated-helper"
 codesign --force "${sign_options[@]}" "$timestamp" --entitlements packaging/Dilated.entitlements --sign "$sign_as" "$app"
 codesign --verify --deep --strict "$app"
 echo "$app"

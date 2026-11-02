@@ -57,18 +57,21 @@ def create_output(base, version):
     return output
 
 
-def validate_helper_bundle(app):
+def validate_retired_helper_bundle(app):
+    """The privileged helper is gone. Its LaunchDaemon plist ships for one release so macOS can
+    unregister the job older installs still have; the executable must not."""
     name = 'com.codeswhat.dilated.helper'
-    with (app / f'Contents/Library/LaunchDaemons/{name}.plist').open('rb') as file:
-        daemon = plistlib.load(file)
+    try:
+        with (app / f'Contents/Library/LaunchDaemons/{name}.plist').open('rb') as file:
+            daemon = plistlib.load(file)
+    except (OSError, plistlib.InvalidFileException) as error:
+        raise RuntimeError(f'The bundled helper migration plist is missing or unreadable: {error}') from error
     expected = {'Label': name, 'BundleProgram': 'Contents/MacOS/dilated-helper',
                 'MachServices': {name: True}, 'UserName': 'root', 'RunAtLoad': True, 'KeepAlive': True}
     if any(daemon.get(key) != value for key, value in expected.items()):
-        raise RuntimeError('The bundled helper has an invalid LaunchDaemon configuration')
-    executable = app / expected['BundleProgram']
-    if not executable.is_file() or not os.access(executable, os.X_OK):
-        raise RuntimeError('The bundled helper executable is missing or not executable')
-    return executable
+        raise RuntimeError('The bundled helper migration plist has an invalid LaunchDaemon configuration')
+    if (app / expected['BundleProgram']).exists():
+        raise RuntimeError('The retired helper executable must not be bundled')
 
 
 def validate_automation_bundle(app):
@@ -102,12 +105,11 @@ def verify_requirement(executable, requirement):
 
 
 def verify_app(app, output, label):
-    helper = validate_helper_bundle(app)
+    validate_retired_helper_bundle(app)
     validate_automation_bundle(app)
     run(['codesign', '--verify', '--deep', '--strict', str(app)])
-    for executable, identifier in ((app, 'com.codeswhat.dilated'), (helper, 'com.codeswhat.dilated.helper')):
-        requirement = f'identifier "{identifier}" and anchor apple generic and certificate leaf[subject.OU] = "3524374A2S"'
-        verify_requirement(executable, requirement)
+    requirement = 'identifier "com.codeswhat.dilated" and anchor apple generic and certificate leaf[subject.OU] = "3524374A2S"'
+    verify_requirement(app, requirement)
     run(['xcrun', 'stapler', 'validate', str(app)], log=output / f'{label}-staple.log')
     run(['spctl', '--assess', '--type', 'execute', '--verbose=2', str(app)], log=output / f'{label}-gatekeeper.log')
 
@@ -259,7 +261,7 @@ def main():
     app = output / 'Dilated.app'
     print(f'Building {version} from {source}', flush=True)
     build_app(root, output, args.identity, enable_updates=not args.candidate)
-    validate_helper_bundle(app)
+    validate_retired_helper_bundle(app)
     with (app / 'Contents/Info.plist').open('rb') as file:
         info = plistlib.load(file)
     for key in ('DilatedDisplayVersion', 'CFBundleShortVersionString', 'CFBundleVersion'):
