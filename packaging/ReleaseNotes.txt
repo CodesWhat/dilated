@@ -1,2 +1,3 @@
 Settings has an About page with the version, license and project links.
+Sparkle, the update framework, is now 2.10.1.
 Closed-lid mode remains experimental. Crash, reboot and update recovery remain unverified on hardware.
