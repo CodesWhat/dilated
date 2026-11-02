@@ -48,6 +48,9 @@ The package app product and internal executable are named `DilatedApp` to avoid
 a case-only collision with the `dilated` CLI on macOS filesystems. The app shown
 to users is Dilated.
 
+[Star History](https://www.star-history.com/?repos=CodesWhat%2Fdilated&type=date&legend=top-left)
+tracks the repository's stars.
+
 See [installation and removal](docs/INSTALLATION.md),
 [automation](docs/AUTOMATION.md), [architecture](docs/ARCHITECTURE.md), and
 [third-party notices](docs/THIRD-PARTY.md). Dilated is free software under MIT.
