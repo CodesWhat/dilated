@@ -388,3 +388,16 @@ test.describe('readability and usability', () => {
     expect(alt.trim().split(/\s+/).length).toBeLessThanOrEqual(8);
   });
 });
+
+test.describe('discoverability', () => {
+  test('structured data is inert under the CSP and the crawl files are served', async ({ page, request, open }) => {
+    await open('/', { release: releases.missing });
+    const raw = await page.locator('script[type="application/ld+json"]').first().textContent();
+    expect(JSON.parse(raw)['@type']).toBe('SoftwareApplication');
+    for (const [path, type] of [['/robots.txt', /text\/plain/], ['/sitemap.xml', /xml/], ['/llms.txt', /text\/plain/], ['/assets/social-card.png', /image\/png/]]) {
+      const response = await request.get(path);
+      expect(response.status(), path).toBe(200);
+      expect(response.headers()['content-type'], path).toMatch(type);
+    }
+  });
+});
