@@ -5,15 +5,6 @@ public enum HelperIdentity {
   public static let serviceID = "com.codeswhat.dilated.helper"
   public static let plistName = serviceID + ".plist"
   public static let protocolVersion = 1
-  public static let maximumMessageBytes = 16 * 1024
-  public static let appRequirement =
-    "identifier \"com.codeswhat.dilated\" and anchor apple generic and certificate leaf[subject.OU] = \"3524374A2S\""
-  public static let helperRequirement =
-    "identifier \"com.codeswhat.dilated.helper\" and anchor apple generic and certificate leaf[subject.OU] = \"3524374A2S\""
-}
-
-@objc public protocol HelperXPCProtocol {
-  func perform(_ payload: Data, reply: @escaping @Sendable (Data) -> Void)
 }
 
 public enum HelperAction: String, Codable, Sendable {

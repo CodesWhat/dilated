@@ -81,14 +81,20 @@ class CaskTests(unittest.TestCase):
         self.assertNotIn('uninstall_preflight do', recipe)
         self.assertIn('depends_on macos: :tahoe', recipe)
 
+    def test_zap_removes_the_sudo_rule_but_uninstall_does_not(self):
+        recipe = stage.cask_text(self.manifest)
+        self.assertIn('zap delete: "/private/etc/sudoers.d/dilated"', recipe)
+        self.assertNotIn('uninstall delete:', recipe)
+        self.assertNotRegex(recipe, r'(?m)^\s*uninstall\b')
+
     def test_a_beta_cask_lists_the_checks_not_verified_on_hardware(self):
-        summary = {'prerelease': True, 'passed': ['macOS26ClosedLid'], 'failed': ['helperCrashRecovery'],
+        summary = {'prerelease': True, 'passed': ['macOS26ClosedLid'], 'failed': ['sudoRuleRevoked'],
                    'notRun': ['rebootRecovery']}
         recipe = stage.cask_text(self.manifest, summary)
         self.assertIn('''
   caveats <<~EOS
     Beta release. Closed-lid mode is experimental.
-    Not yet verified on hardware: helperCrashRecovery, rebootRecovery.
+    Not yet verified on hardware: sudoRuleRevoked, rebootRecovery.
 
     Before upgrading''', recipe)
         complete = {'prerelease': True, 'passed': list(stage.ACCEPTANCE_CHECKS), 'failed': [], 'notRun': []}

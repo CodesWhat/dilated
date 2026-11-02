@@ -23,12 +23,12 @@ DISTRIBUTION_CHECKS = (
     'dmgSignatureVerified', 'dmgStapleVerified', 'dmgGatekeeperAccepted', 'updatesEnabled',
 )
 PRERELEASE_VERSION = re.compile(r'-(?:alpha|beta|rc)\.[1-9]\d*$')
-PRERELEASE_REQUIRED_CHECKS = ('macOS26ClosedLid', 'heartbeatExpiry', 'stopResume')
+PRERELEASE_REQUIRED_CHECKS = ('macOS26ClosedLid', 'appCrashRecovery', 'heartbeatExpiry', 'stopResume')
 ACCEPTANCE_STATUSES = ('passed', 'failed', 'notRun')
 ACCEPTANCE_CHECKS = (
-    'macOS26ClosedLid', 'macOS27ClosedLid', 'helperCrashRecovery', 'appCrashRecovery',
-    'heartbeatExpiry', 'stopResume', 'guardTransitions', 'rebootRecovery', 'approvalDenied',
-    'helperUpgrade', 'sparkleUpgrade', 'uninstallNormalSleep', 'nativeUI',
+    'macOS26ClosedLid', 'macOS27ClosedLid', 'sudoRuleRevoked', 'appCrashRecovery',
+    'heartbeatExpiry', 'stopResume', 'guardTransitions', 'rebootRecovery', 'adminPromptCancelled',
+    'helperMigration', 'sudoRuleIntegrity', 'sparkleUpgrade', 'uninstallNormalSleep', 'nativeUI',
 )
 
 
@@ -199,6 +199,8 @@ def cask_text(manifest, acceptance=None):
   uninstall_preflight_steps do
     run "Dilated.app/Contents/MacOS/dilated", base: :appdir, args: ["package-check"]
   end
+
+  zap delete: "/private/etc/sudoers.d/dilated"
 
   caveats <<~EOS
 {caveats}    Before upgrading, run dilated prepare-update, then brew upgrade --cask dilated.

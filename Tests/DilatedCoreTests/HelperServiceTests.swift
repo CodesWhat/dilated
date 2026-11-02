@@ -219,14 +219,6 @@ struct HelperServiceTests {
     #expect(calls == [false, true, true])
   }
 
-  @Test func fixedSigningRequirementsParseAsActualSecurityRequirements() {
-    for text in [HelperIdentity.appRequirement, HelperIdentity.helperRequirement] {
-      var requirement: SecRequirement?
-      #expect(SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess)
-      #expect(requirement != nil)
-    }
-  }
-
   @Test func aChangedPowerSettingCannotBeReportedReadyBeforeRepair() async throws {
     let power = TestHelperPower()
     let service = makeService(power, HelperInputs())
@@ -239,32 +231,6 @@ struct HelperServiceTests {
     let repaired = await service.handle(.init(action: .status), owner: owner)
     #expect(repaired.state?.ready == true)
     #expect(repaired.state?.readback.confirmedDisabled == true)
-  }
-
-  @Test func malformedAndOversizedMessagesCannotReachPowerOperations() async throws {
-    let power = TestHelperPower()
-    let service = makeService(power, HelperInputs())
-    await service.start()
-    var oversized = try JSONEncoder().encode(HelperRequest(action: .status))
-    oversized.append(Data(repeating: 32, count: 16 * 1024))
-    for payload in [Data("{bad}".utf8), oversized] {
-      let data = await service.handlePayload(payload, owner: owner)
-      let response = try JSONDecoder().decode(HelperReply.self, from: data)
-      #expect(!response.ok)
-      #expect(response.code == "invalidRequest")
-    }
-    let calls = await power.calls
-    #expect(calls == [false])
-  }
-
-  @Test func helperBuildIdentityComesFromTheSignedExecutable() throws {
-    let file = URL(fileURLWithPath: "/usr/bin/true")
-    let first = try HelperCodeIdentity.executable(at: file)
-    #expect(!first.isEmpty)
-    #expect(first == (try HelperCodeIdentity.executable(at: file)))
-    #expect(throws: (any Error).self) {
-      try HelperCodeIdentity.executable(at: URL(fileURLWithPath: "/missing-dilated-helper"))
-    }
   }
 
   private func makeService(_ power: TestHelperPower, _ inputs: HelperInputs) -> ClosedLidService {

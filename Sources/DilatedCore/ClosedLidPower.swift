@@ -35,7 +35,7 @@ public enum ClosedLidPowerError: Error, Sendable, LocalizedError {
 
   public var errorDescription: String? {
     switch self {
-    case .requiresRoot: "The approved Dilated helper is required for this operation."
+    case .requiresRoot: "Closed-lid permission is required for this operation."
     case .permissionUnavailable:
       "Closed-lid permission isn't available. Set it up again to continue."
     case .commandTimedOut: "The power-setting operation timed out."

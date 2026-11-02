@@ -38,23 +38,10 @@ public actor ClosedLidService {
     await task.value
   }
 
-  public func handlePayload(_ payload: Data, owner: UUID) async -> Data {
-    let response: HelperReply
-    if payload.count <= HelperIdentity.maximumMessageBytes,
-      let request = try? JSONDecoder().decode(HelperRequest.self, from: payload)
-    {
-      response = await handle(request, owner: owner)
-    } else {
-      response = reply(false, code: "invalidRequest", text: "Invalid helper request.")
-    }
-    return (try? JSONEncoder().encode(response))
-      ?? Data("{\"ok\":false,\"code\":\"encodingFailure\"}".utf8)
-  }
-
   public func handle(_ request: HelperRequest, owner: UUID) async -> HelperReply {
     guard request.protocolVersion == HelperIdentity.protocolVersion else {
       return reply(
-        false, code: "protocolMismatch", text: "The app and helper need matching updates.")
+        false, code: "protocolMismatch", text: "Dilated needs a matching update.")
     }
     switch request.action {
     case .status:

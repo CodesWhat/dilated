@@ -15,7 +15,8 @@ import Testing
     var power = PowerState(onBattery: false, batteryPercent: 100)
     let assertions = TransitionAssertions()
     let model = AppModel(
-      endpoint: .init(stateDirectory: directory), power: { power }, assertions: assertions)
+      endpoint: .init(stateDirectory: directory), power: { power }, assertions: assertions,
+      closedLid: inertClosedLid(), helperMigration: inertMigration(directory))
     defer { model.shutdown() }
     try model.saveTrigger(.init(name: "AC", criteria: [.power(onBattery: false)]))
     try model.saveTrigger(.init(name: "Battery", criteria: [.power(onBattery: true)]))

@@ -10,7 +10,6 @@ let package = Package(
     .library(name: "DilatedControl", targets: ["DilatedControl"]),
     .executable(name: "DilatedApp", targets: ["Dilated"]),
     .executable(name: "dilated", targets: ["DilatedCLI"]),
-    .executable(name: "dilated-helper", targets: ["DilatedHelper"]),
   ],
   dependencies: [
     .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
@@ -30,7 +29,6 @@ let package = Package(
       ]),
     .executableTarget(name: "Dilated", dependencies: ["DilatedUI"]),
     .executableTarget(name: "DilatedCLI", dependencies: ["DilatedCore", "DilatedControl"]),
-    .executableTarget(name: "DilatedHelper", dependencies: ["DilatedCore"]),
     .testTarget(name: "DilatedCoreTests", dependencies: ["DilatedCore"]),
     .testTarget(name: "DilatedControlTests", dependencies: ["DilatedControl"]),
     .testTarget(

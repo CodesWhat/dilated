@@ -1,6 +1,6 @@
 # Dilated
 
-> Dilated is a free, MIT-licensed menu bar app that keeps a Mac awake for a set time or until you stop it. It is a public beta for macOS 26 or later on Apple Silicon, from CodesWhat. It also has a command line tool, URL automation and AppleScript, and an experimental closed-lid mode that uses a privileged helper.
+> Dilated is a free, MIT-licensed menu bar app that keeps a Mac awake for a set time or until you stop it. It is a public beta for macOS 26 or later on Apple Silicon, from CodesWhat. It also has a command line tool, URL automation and AppleScript, and an experimental closed-lid mode that uses a narrow sudo rule you install once with an administrator password.
 
 Dilated is distributed as a notarized Developer ID build outside the Mac App Store. Install it from the website download or with Homebrew: `brew install --cask codeswhat/tap/dilated`.
 
@@ -18,5 +18,5 @@ Dilated is distributed as a notarized Developer ID build outside the Mac App Sto
 ## Source
 
 - [GitHub repository](https://github.com/CodesWhat/dilated): source code and issues
-- [Architecture](https://github.com/CodesWhat/dilated/blob/main/docs/ARCHITECTURE.md): how the app and helper fit together
+- [Architecture](https://github.com/CodesWhat/dilated/blob/main/docs/ARCHITECTURE.md): how the app and its closed-lid sudo rule fit together
 - [License](https://github.com/CodesWhat/dilated/blob/main/LICENSE): MIT

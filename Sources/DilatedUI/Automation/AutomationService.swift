@@ -93,7 +93,7 @@ enum ScriptValue: Equatable, Sendable {
         snapshot.holds.isEmpty ? "Sleeping normally" : "Keeping awake",
         "Automation: \(snapshot.automationPaused ? "paused" : "running")",
         "Closed-lid requested: \(snapshot.holds.contains { $0.closedLid == true } ? "yes" : "no")",
-        "\(model.closedLid.usesLocalTransport ? "Closed-lid permission" : "Helper") state: \(helper)",
+        "Closed-lid permission state: \(helper)",
       ] + holds).joined(separator: "\n")
   }
   public func setClosedLid(id: UUID, enabled: Bool) async throws {
@@ -138,12 +138,11 @@ enum ScriptValue: Equatable, Sendable {
       guard !model.closedLid.busy, !model.closedLid.pendingEnable else {
         throw InputError("Closed-lid is still changing. Wait for confirmation before querying it.")
       }
-      let subject = model.closedLid.usesLocalTransport ? "permission" : "helper"
       guard let helper = model.closedLid.state else {
-        throw InputError("Closed-lid \(subject) state is unknown.")
+        throw InputError("Closed-lid permission state is unknown.")
       }
       guard helper.enabled || helper.readback.confirmedDisabled else {
-        throw InputError("Closed-lid \(subject) state is unknown.")
+        throw InputError("Closed-lid permission state is unknown.")
       }
       return .boolean(helper.enabled)
     case .remaining:
