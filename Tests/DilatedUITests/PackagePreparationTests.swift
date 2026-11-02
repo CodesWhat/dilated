@@ -137,7 +137,14 @@ import Testing
     defer { try? FileManager.default.removeItem(at: directory) }
     let power = SessionPower()
     let controller = ClosedLidController(
-      transport: LocalClosedLidTransport(power: power, tickInterval: .seconds(3600)))
+      transport: LocalClosedLidTransport(
+        power: power,
+        // Fixed readings: CI runners have no battery or thermal data, which the real reader
+        // reports as unavailable and the governor refuses.
+        environment: {
+          ClosedLidEnvironment(powerSource: .ac, thermal: .nominal, lidClosed: false)
+        },
+        tickInterval: .seconds(3600)))
     let model = AppModel(
       endpoint: .init(stateDirectory: directory), power: { .init() }, closedLid: controller,
       helperMigration: inertMigration(directory))
