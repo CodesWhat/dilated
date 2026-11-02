@@ -19,10 +19,24 @@ public struct ClosedLidSessionMarker: Codable, Equatable, Sendable {
 
 public struct ClosedLidMarkerStore: Sendable {
   public static let fileName = "closed-lid-session.json"
+  public static let lockFileName = "closed-lid-session.lock"
   public let file: URL
 
   public init(directory: URL) { file = directory.appendingPathComponent(Self.fileName) }
   public init(file: URL) { self.file = file }
+
+  /// The advisory lock that serializes the app and the watchdog around the marker and the revert.
+  public var lockFile: URL {
+    file.deletingLastPathComponent().appendingPathComponent(Self.lockFileName)
+  }
+
+  /// Takes the lock without blocking a thread: retries `flock(LOCK_NB)` with a short sleep until
+  /// `timeout`, so callers on an actor never wait indefinitely.
+  public func acquireLock(
+    timeout: Duration = .seconds(5), retry: Duration = .milliseconds(25)
+  ) async throws -> ClosedLidFileLock {
+    try await ClosedLidFileLock.acquire(at: lockFile, timeout: timeout, retry: retry)
+  }
 
   public func read() -> ClosedLidSessionMarker? {
     guard let data = try? Data(contentsOf: file) else { return nil }
@@ -56,6 +70,63 @@ public struct ClosedLidMarkerStore: Sendable {
   }
 }
 
+public enum ClosedLidSessionError: Error, Sendable, LocalizedError {
+  case lockTimeout, startTimeUnreadable
+
+  public var errorDescription: String? {
+    switch self {
+    case .lockTimeout: "Closed-lid state is busy. Try again."
+    case .startTimeUnreadable:
+      "Dilated couldn't read its own start time, so it won't disable sleep."
+    }
+  }
+}
+
+/// An exclusive advisory `flock` on a file. Released by `release()` or when the object goes away.
+public final class ClosedLidFileLock: @unchecked Sendable {
+  private let guardLock = NSLock()
+  private var descriptor: Int32
+
+  private init(descriptor: Int32) { self.descriptor = descriptor }
+  deinit { release() }
+
+  public static func acquire(
+    at url: URL, timeout: Duration, retry: Duration
+  ) async throws -> ClosedLidFileLock {
+    try FileManager.default.createDirectory(
+      at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+      attributes: [.posixPermissions: 0o700])
+    let descriptor = open(url.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+    guard descriptor >= 0 else { throw ClosedLidSessionError.lockTimeout }
+    let deadline = ContinuousClock.now + timeout
+    while true {
+      if flock(descriptor, LOCK_EX | LOCK_NB) == 0 {
+        return ClosedLidFileLock(descriptor: descriptor)
+      }
+      guard errno == EWOULDBLOCK || errno == EINTR, ContinuousClock.now < deadline else {
+        close(descriptor)
+        throw ClosedLidSessionError.lockTimeout
+      }
+      do { try await Task.sleep(for: retry) } catch {
+        close(descriptor)
+        throw error
+      }
+    }
+  }
+
+  public func release() {
+    let held = guardLock.withLock {
+      let held = descriptor
+      descriptor = -1
+      return held
+    }
+    if held >= 0 {
+      flock(held, LOCK_UN)
+      close(held)
+    }
+  }
+}
+
 public enum ProcessStartTime {
   /// Kernel start time of a live process in microseconds, or nil when it's gone or a zombie.
   /// A pid with a different start time is a different process.
@@ -75,13 +146,11 @@ public struct ClosedLidWatchdogLaunch: Equatable, Sendable {
   public var pid: Int32
   public var marker: URL
   public var generation: UUID
-  public var maxSeconds: Int
 
-  public init(pid: Int32, marker: URL, generation: UUID, maxSeconds: Int) {
+  public init(pid: Int32, marker: URL, generation: UUID) {
     self.pid = pid
     self.marker = marker
     self.generation = generation
-    self.maxSeconds = maxSeconds
   }
 }
 
@@ -101,9 +170,6 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
     /// A stale marker is still there because the revert failed. Retried on every power call.
     case failed(String)
   }
-
-  /// Longest a watchdog outlives a session: the policy ceiling (24h) plus an hour.
-  public static let watchdogLifetimeSeconds = 25 * 3600
 
   private let power: any ClosedLidPowerControlling
   private let store: ClosedLidMarkerStore
@@ -141,27 +207,43 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
   }
 
   private func enable() async throws -> ClosedLidReadback {
+    let lock = try await store.acquireLock()
+    defer { lock.release() }
+    var created: ClosedLidSessionMarker?
     if session == nil {
+      // A zero start time would make the watchdog think the live app is already gone.
+      guard let start = startMicros(pid), start > 0 else {
+        throw ClosedLidSessionError.startTimeUnreadable
+      }
       let marker = ClosedLidSessionMarker(
-        pid: pid, processStartMicros: startMicros(pid) ?? 0, generation: UUID(),
-        enabledAt: now())
+        pid: pid, processStartMicros: start, generation: UUID(), enabledAt: now())
       try store.write(marker)
       session = marker
+      created = marker
       do {
         try launchWatchdog(
-          ClosedLidWatchdogLaunch(
-            pid: pid, marker: store.file, generation: marker.generation,
-            maxSeconds: Self.watchdogLifetimeSeconds))
+          ClosedLidWatchdogLaunch(pid: pid, marker: store.file, generation: marker.generation))
       } catch {
         store.clear(generation: marker.generation)
         session = nil
         throw error
       }
     }
-    return try await power.setSleepDisabled(true)
+    do {
+      return try await power.setSleepDisabled(true)
+    } catch {
+      // No confirmed enable: drop the session. Deleting the marker makes the watchdog exit.
+      if let created {
+        store.clear(generation: created.generation)
+        session = nil
+      }
+      throw error
+    }
   }
 
   private func disable() async throws -> ClosedLidReadback {
+    let lock = try await store.acquireLock()
+    defer { lock.release() }
     if session == nil {
       if recovery == .activeElsewhere { return await power.readback() }
       if store.read() == nil {
@@ -194,6 +276,10 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
       return
     }
     do {
+      let lock = try await store.acquireLock()
+      defer { lock.release() }
+      // The marker may have been replaced or cleared while waiting for the lock.
+      guard store.read()?.generation == marker.generation else { return }
       let observed = try await power.setSleepDisabled(false)
       guard observed.confirmedDisabled else { throw ClosedLidPowerError.readbackMismatch }
       store.clear(generation: marker.generation)

@@ -105,6 +105,64 @@ struct ClosedLidSessionTests {
     #expect(await power.calls.isEmpty)
   }
 
+  @Test func aFailedEnableClearsTheMarkerAndTheSession() async throws {
+    let store = makeStore()
+    let launches = LaunchLog()
+    let power = RecordingPower(store: store)
+    await power.fail(true)
+    let guardian = ClosedLidSessionGuard(
+      power: power, store: store, launchWatchdog: { launches.record($0) })
+    await #expect(throws: (any Error).self) { try await guardian.setSleepDisabled(true) }
+    #expect(store.read() == nil)
+    await power.fail(false)
+    _ = try await guardian.setSleepDisabled(true)
+    // The failed session was dropped, so this is a fresh generation with its own watchdog.
+    #expect(launches.values.count == 2)
+    #expect(launches.values[1].generation != launches.values[0].generation)
+    #expect(store.read()?.generation == launches.values[1].generation)
+  }
+
+  @Test func anUnreadableOrZeroStartTimeRefusesToEnable() async throws {
+    for start: Int64? in [nil, 0] {
+      let store = makeStore()
+      let launches = LaunchLog()
+      let power = RecordingPower(store: store)
+      let guardian = ClosedLidSessionGuard(
+        power: power, store: store, startMicros: { _ in start },
+        launchWatchdog: { launches.record($0) })
+      await #expect(throws: ClosedLidSessionError.self) {
+        try await guardian.setSleepDisabled(true)
+      }
+      #expect(store.read() == nil)
+      #expect(launches.values.isEmpty)
+      #expect(await power.calls.isEmpty)
+    }
+  }
+
+  @Test func theGuardWaitsForTheLockBeforeWritingAMarkerOrEnabling() async throws {
+    let store = makeStore()
+    let power = RecordingPower(store: store)
+    let held = try await store.acquireLock()
+    let guardian = ClosedLidSessionGuard(power: power, store: store)
+    let enabling = Task { try await guardian.setSleepDisabled(true) }
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(store.read() == nil)
+    #expect(await power.calls.isEmpty)
+    held.release()
+    _ = try await enabling.value
+    #expect(store.read() != nil)
+    #expect(await power.calls == ["disable marker=true"])
+  }
+
+  @Test func aLockThatNeverFreesTimesOutInsteadOfBlocking() async throws {
+    let store = makeStore()
+    let held = try await store.acquireLock()
+    defer { held.release() }
+    await #expect(throws: ClosedLidSessionError.lockTimeout) {
+      _ = try await store.acquireLock(timeout: .milliseconds(100))
+    }
+  }
+
   @Test func relaunchWithADeadPidRevertsAndClears() async throws {
     let store = makeStore()
     try store.write(staleMarker())
@@ -178,7 +236,8 @@ struct ClosedLidSessionTests {
     let store = makeStore()
     try store.write(staleMarker())
     let power = RecordingPower(store: store, state: disabledState)
-    let guardian = ClosedLidSessionGuard(power: power, store: store, startMicros: { _ in nil })
+    let guardian = ClosedLidSessionGuard(
+      power: power, store: store, startMicros: { $0 == 999_999 ? nil : 5_000 })
     _ = try await guardian.setSleepDisabled(true)
     let calls = await power.calls
     #expect(calls.count == 2)
@@ -199,7 +258,7 @@ struct ClosedLidSessionTests {
   @Test func watchdogArgumentsRoundTrip() throws {
     let launch = ClosedLidWatchdogLaunch(
       pid: 123, marker: URL(fileURLWithPath: "/tmp/x/closed-lid-session.json"),
-      generation: UUID(), maxSeconds: 90_000)
+      generation: UUID())
     #expect(
       ClosedLidWatchdogCommand.parse(ClosedLidWatchdogCommand.arguments(for: launch)) == launch)
     #expect(ClosedLidWatchdogCommand.parse(["status"]) == nil)

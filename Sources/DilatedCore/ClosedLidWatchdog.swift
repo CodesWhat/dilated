@@ -6,44 +6,64 @@ import Foundation
 public struct ClosedLidWatchdog: Sendable {
   public enum Outcome: Equatable, Sendable {
     case reverted
-    /// The app exited but sleep couldn't be restored. The marker stays for the relaunch revert.
+    /// The wait was cancelled while a revert was still failing. The marker stays for the relaunch revert.
     case revertFailed
     /// The session ended normally, or a newer one replaced it.
     case markerGone
-    case expired
   }
 
-  private enum Event: Sendable { case exited, markerGone, expired }
+  private enum Event: Sendable { case exited, markerGone }
+
+  /// First retry delay after a failed revert. It doubles up to `maxRevertBackoff`.
+  public static let initialRevertBackoff = Duration.seconds(5)
+  public static let maxRevertBackoff = Duration.seconds(300)
+
+  public static func revertBackoff(attempt: Int) -> Duration {
+    var delay = initialRevertBackoff
+    for _ in 0..<max(attempt, 0) {
+      delay = min(delay * 2, maxRevertBackoff)
+    }
+    return delay
+  }
 
   private let generation: UUID
-  private let maxLifetime: Duration
   private let pollInterval: Duration
   private let readMarker: @Sendable () -> ClosedLidSessionMarker?
   private let waitForExit: @Sendable () async -> Void
   private let power: any ClosedLidPowerControlling
   private let clearMarker: @Sendable () -> Void
+  private let acquireLock: @Sendable () async -> (@Sendable () -> Void)?
   private let sleep: @Sendable (Duration) async throws -> Void
 
+  /// `acquireLock` returns a release closure, or nil when the lock couldn't be taken in time.
   public init(
-    generation: UUID, maxLifetime: Duration, pollInterval: Duration = .seconds(10),
+    generation: UUID, pollInterval: Duration = .seconds(10),
     readMarker: @escaping @Sendable () -> ClosedLidSessionMarker?,
     waitForExit: @escaping @Sendable () async -> Void,
     power: any ClosedLidPowerControlling,
     clearMarker: @escaping @Sendable () -> Void,
+    acquireLock: @escaping @Sendable () async -> (@Sendable () -> Void)? = { {} },
     sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
   ) {
     self.generation = generation
-    self.maxLifetime = maxLifetime
     self.pollInterval = pollInterval
     self.readMarker = readMarker
     self.waitForExit = waitForExit
     self.power = power
     self.clearMarker = clearMarker
+    self.acquireLock = acquireLock
     self.sleep = sleep
   }
 
-  private var markerIsOurs: Bool { readMarker()?.generation == generation }
+  /// Ours means the same generation and a usable start time. A zero start time can't identify
+  /// the app, so it's never acted on.
+  private var markerIsOurs: Bool {
+    guard let marker = readMarker() else { return false }
+    return marker.generation == generation && marker.processStartMicros > 0
+  }
 
+  /// Waits as long as the marker is ours and the app is alive. There is no lifetime cap: an AC
+  /// session can run indefinitely, and the poll ends the watchdog once the marker goes away.
   public func run() async -> Outcome {
     guard markerIsOurs else { return .markerGone }
     let event = await withTaskGroup(of: Event?.self) { group in
@@ -57,9 +77,6 @@ public struct ClosedLidWatchdog: Sendable {
         }
         return nil
       }
-      group.addTask {
-        (try? await sleep(maxLifetime)) == nil ? nil : .expired
-      }
       var first: Event?
       for await event in group {
         if let event {
@@ -68,24 +85,31 @@ public struct ClosedLidWatchdog: Sendable {
           break
         }
       }
-      return first ?? .expired
+      return first
     }
     switch event {
-    case .markerGone: return .markerGone
-    case .expired: return .expired
+    case .markerGone, nil: return .markerGone
     case .exited: return await revert()
     }
   }
 
+  /// Retries with backoff for as long as the marker is still ours. Each attempt holds the lock,
+  /// re-checks the marker, reverts, confirms the readback, then deletes the marker.
   private func revert() async -> Outcome {
-    for _ in 0..<3 {
+    var attempt = 0
+    while true {
       guard markerIsOurs else { return .markerGone }
-      if let observed = try? await power.setSleepDisabled(false), observed.confirmedDisabled {
-        clearMarker()
-        return .reverted
+      if let release = await acquireLock() {
+        defer { release() }
+        guard markerIsOurs else { return .markerGone }
+        if let observed = try? await power.setSleepDisabled(false), observed.confirmedDisabled {
+          clearMarker()
+          return .reverted
+        }
       }
+      do { try await sleep(Self.revertBackoff(attempt: attempt)) } catch { return .revertFailed }
+      attempt += 1
     }
-    return .revertFailed
   }
 }
 
@@ -165,18 +189,16 @@ public enum ClosedLidWatchdogCommand {
     guard index == arguments.count,
       let pid = values["--pid"].flatMap({ Int32($0) }), pid > 0,
       let marker = values["--marker"], marker.hasPrefix("/"),
-      let generation = values["--generation"].flatMap({ UUID(uuidString: $0) }),
-      let maxSeconds = values["--max-seconds"].flatMap({ Int($0) }), maxSeconds > 0
+      let generation = values["--generation"].flatMap({ UUID(uuidString: $0) })
     else { return nil }
     return ClosedLidWatchdogLaunch(
-      pid: pid, marker: URL(fileURLWithPath: marker), generation: generation,
-      maxSeconds: maxSeconds)
+      pid: pid, marker: URL(fileURLWithPath: marker), generation: generation)
   }
 
   public static func arguments(for launch: ClosedLidWatchdogLaunch) -> [String] {
     [
       name, "--pid", String(launch.pid), "--marker", launch.marker.path,
-      "--generation", launch.generation.uuidString, "--max-seconds", String(launch.maxSeconds),
+      "--generation", launch.generation.uuidString,
     ]
   }
 
@@ -184,16 +206,20 @@ public enum ClosedLidWatchdogCommand {
   public static func run(_ launch: ClosedLidWatchdogLaunch) async -> Int32 {
     let store = ClosedLidMarkerStore(file: launch.marker)
     guard let marker = store.read(), marker.generation == launch.generation,
-      marker.pid == launch.pid
+      marker.pid == launch.pid, marker.processStartMicros > 0
     else { return 0 }
     let watchdog = ClosedLidWatchdog(
-      generation: launch.generation, maxLifetime: .seconds(launch.maxSeconds),
+      generation: launch.generation,
       readMarker: { store.read() },
       waitForExit: {
         await ProcessExit.wait(pid: marker.pid, startMicros: marker.processStartMicros)
       },
       power: SerialPowerDriver(runner: SudoPowerRunner()),
-      clearMarker: { store.clear(generation: launch.generation) })
+      clearMarker: { store.clear(generation: launch.generation) },
+      acquireLock: {
+        guard let lock = try? await store.acquireLock() else { return nil }
+        return { lock.release() }
+      })
     return await watchdog.run() == .revertFailed ? 1 : 0
   }
 }

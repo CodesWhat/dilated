@@ -16,7 +16,8 @@ enum ClosedLidWatchdogSpawner {
     { launch in try spawn(launch, executable: executable) }
   }
 
-  static func spawn(_ launch: ClosedLidWatchdogLaunch, executable: URL) throws {
+  @discardableResult
+  static func spawn(_ launch: ClosedLidWatchdogLaunch, executable: URL) throws -> pid_t {
     guard FileManager.default.isExecutableFile(atPath: executable.path) else {
       throw WatchdogSpawnError(
         detail: "The crash-recovery watchdog isn't available in this copy of Dilated.")
@@ -44,5 +45,6 @@ enum ClosedLidWatchdogSpawner {
       var ignored: Int32 = 0
       waitpid(child, &ignored, 0)
     }
+    return child
   }
 }
