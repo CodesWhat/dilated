@@ -345,6 +345,35 @@ test.describe('readability and usability', () => {
     }
   });
 
+  test('footer carries one SUPPORT link and the availability section a single support sentence', async ({ page, open }) => {
+    await open('/');
+    const link = page.locator('footer a', { hasText: 'SUPPORT' });
+    await expect(link).toHaveCount(1);
+    await expect(link).toHaveAttribute('href', 'https://codeswhat.com/support');
+    await expect(page.locator('footer a[href*="sponsors"]')).toHaveCount(0);
+    const note = page.locator('#availability .support-note');
+    await expect(note).toHaveCount(1);
+    await expect(note.locator('a')).toHaveCount(2);
+    await expect(note.locator('a').nth(0)).toHaveAttribute('href', 'https://github.com/sponsors/CodesWhat');
+    await expect(note.locator('a').nth(1)).toHaveAttribute('href', 'https://codeswhat.com/support');
+  });
+
+  for (const width of [390, 320]) {
+    test(`footer SUPPORT link is a tall target and does not overflow at ${width}px`, async ({ page, open }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await open('/');
+      await page.evaluate(() => document.fonts.ready);
+      const box = await page.locator('footer a', { hasText: 'SUPPORT' }).evaluate(el => {
+        const r = el.getBoundingClientRect();
+        return { w: r.width, h: r.height, right: r.right };
+      });
+      expect(box.h).toBeGreaterThanOrEqual(44);
+      expect(box.right).toBeLessThanOrEqual(width);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+    });
+  }
+
   test('listed controls are at least 44px at 390px', async ({ page, open }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await open('/');
