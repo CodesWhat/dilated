@@ -78,6 +78,13 @@ Run all behavior checks with `node --test website/tests/*.test.mjs` from the rep
 root. Syntax checks are `node --check website/dist/app.mjs`,
 `node --check website/dist/state.mjs`, and `node --check website/dist/release.mjs`.
 
+Browser checks run the page in Chromium, Firefox and WebKit with Playwright. Run
+`bash scripts/verify-website-browsers.sh` from the repo root. It installs the pinned
+dependencies and browsers, serves `dist/` with the CSP from `vercel.json`, and fails on
+console errors, CSP violations, layout overflow or menu regressions. It runs in the
+required `verify` CI job, and the tooling lives in `website/` outside `dist/`, so it
+isn't published.
+
 The earlier page passed CUA Chrome checks on desktop and at 390px. All nine
 layout/typeface combinations fit at 390px without horizontal overflow. Timer
 start/stop, CLI copy feedback, expandable notes, study controls, and the icon SVG
