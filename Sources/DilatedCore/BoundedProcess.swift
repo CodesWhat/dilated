@@ -9,7 +9,8 @@ struct ProcessOutcome: Sendable {
 
 enum BoundedProcess {
   static func run(
-    executable: URL, arguments: [String], timeout: TimeInterval, standardError: FileHandle? = nil
+    executable: URL, arguments: [String], timeout: TimeInterval, standardError: FileHandle? = nil,
+    environment: [String: String]? = nil
   ) async throws -> ProcessOutcome {
     guard timeout.isFinite, timeout > 0, timeout <= 3 else {
       throw ClosedLidPowerError.invalidDeadline
@@ -18,6 +19,7 @@ enum BoundedProcess {
       let process = Process()
       process.executableURL = executable
       process.arguments = arguments
+      if let environment { process.environment = environment }
       process.standardInput = FileHandle.nullDevice
       process.standardOutput = FileHandle.nullDevice
       process.standardError = standardError ?? FileHandle.nullDevice
