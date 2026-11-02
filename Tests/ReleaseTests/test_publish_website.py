@@ -142,6 +142,16 @@ class PublishWebsiteTests(unittest.TestCase):
                                             f"sourceCommit={self.git('rev-parse', 'HEAD').strip()}",
                                             '--meta', 'sourceRepository=CodesWhat/dilated'])
 
+    def test_dotfile_directories_in_committed_dist_reach_the_deploy_root(self):
+        (self.repo / 'website/dist/.well-known').mkdir()
+        (self.repo / 'website/dist/.well-known/security.txt').write_text('Contact: mailto:x@example.com\n')
+        self.commit()
+        source = self.git('rev-parse', 'HEAD').strip()
+        staging = Path(self.temp.name) / 'staging'
+        staging.mkdir()
+        deploy = publish.build_staging(self.repo, source, self.assets, staging)
+        self.assertTrue((deploy / '.well-known/security.txt').is_file())
+
     def test_only_committed_website_files_are_exported(self):
         (self.repo / 'website/dist/draft.html').write_text('uncommitted')
         (self.repo / 'secret.txt').write_text('private')
