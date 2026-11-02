@@ -11,7 +11,7 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 </div>
 
 <p align="center">
-  <a href="https://dilated.codeswhat.com/download/file"><img src="https://img.shields.io/badge/version-1.0.0--beta.8-2ea44f" alt="Version 1.0.0-beta.8"></a>
+  <a href="https://dilated.codeswhat.com/download/file"><img src="https://img.shields.io/badge/version-1.0.0--beta.9-2ea44f" alt="Version 1.0.0-beta.9"></a>
   <a href="https://dilated.codeswhat.com/"><img src="https://img.shields.io/badge/macOS-26%2B-000000?logo=apple&amp;logoColor=white" alt="macOS 26 or later"></a>
   <a href="https://dilated.codeswhat.com/"><img src="https://img.shields.io/badge/Apple_Silicon-arm64-000000?logo=apple&amp;logoColor=white" alt="Apple Silicon"></a>
   <a href="https://github.com/CodesWhat/dilated/releases"><img src="https://img.shields.io/github/v/release/CodesWhat/dilated?include_prereleases" alt="Latest release"></a>
@@ -22,7 +22,7 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 <hr>
 
 > [!IMPORTANT]
-> **1.0.0-beta.8 is a public beta.** Closed-lid mode is experimental. Crash, reboot and update recovery haven't been verified on hardware yet, so don't rely on closed-lid mode for anything you can't afford to interrupt. Report problems on [GitHub](https://github.com/CodesWhat/dilated/issues).
+> **1.0.0-beta.9 is a public beta.** Closed-lid mode is experimental. Crash, reboot and update recovery haven't been verified on hardware yet, so don't rely on closed-lid mode for anything you can't afford to interrupt. Report problems on [GitHub](https://github.com/CodesWhat/dilated/issues).
 
 <h2 align="center">Contents</h2>
 
@@ -58,7 +58,7 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 
 <h2 align="center" id="quick-start">Quick Start</h2>
 
-Dilated needs **macOS 26 or later on Apple Silicon**. The current release is 1.0.0-beta.8, a public beta.
+Dilated needs **macOS 26 or later on Apple Silicon**. The current release is 1.0.0-beta.9, a public beta.
 
 1. Download the signed, notarized DMG from [dilated.codeswhat.com](https://dilated.codeswhat.com/download/file).
 2. Open the DMG, drag Dilated to Applications and open it.
