@@ -27,12 +27,17 @@ public struct ClosedLidFileInfo: Equatable, Sendable {
   public var owner: UInt32
   public var group: UInt32
   public var mode: UInt16
+  public var size: Int
 
-  public init(isRegularFile: Bool, owner: UInt32, group: UInt32, mode: UInt16) {
+  public init(
+    isRegularFile: Bool, owner: UInt32, group: UInt32, mode: UInt16,
+    size: Int = ClosedLidPermission.ruleContent.count
+  ) {
     self.isRegularFile = isRegularFile
     self.owner = owner
     self.group = group
     self.mode = mode
+    self.size = size
   }
 }
 
@@ -75,15 +80,15 @@ public struct ClosedLidPermission: Sendable {
     "trap '/bin/rm -f \"$tmp\" \"$stage\"' EXIT",
     "/usr/bin/printf '%s\\n%s\\n' '\(ruleLines[0])' '\(ruleLines[1])' > \"$tmp\"",
     "/usr/sbin/visudo -cf \"$tmp\"",
-    "/usr/bin/install -o root -g wheel -m 0444 \"$tmp\" \"$stage\"",
+    "/usr/bin/install -o root -g wheel -m 0440 \"$tmp\" \"$stage\"",
     "/bin/mv -f \"$stage\" \(rulePath)",
-    "/usr/sbin/visudo -c || { /bin/rm -f \(rulePath); exit 1; }",
+    "/usr/sbin/visudo -cf \(rulePath) || { /bin/rm -f \(rulePath); exit 1; }",
   ].joined(separator: "; ")
 
   static let removeScript = [
     "set -eu",
     "/bin/rm -f \(rulePath)",
-    "/usr/sbin/visudo -c",
+    "test ! -e \(rulePath)",
   ].joined(separator: "; ")
 
   static let restoreScript = "/usr/bin/pmset -a disablesleep 0"
@@ -145,9 +150,14 @@ public struct ClosedLidPermission: Sendable {
     guard let info = seams.stat(Self.rulePath) else {
       return await seams.probe() ? .allowedByOtherRule : .notInstalled
     }
-    guard info.isRegularFile, info.owner == 0, info.group == 0, info.mode == 0o444,
-      seams.readFile(Self.rulePath) == Self.ruleContent
+    // The file is 0440 root:wheel, so the app can't read it. Size stands in for the bytes, and
+    // they're compared only if the file happens to be readable.
+    guard info.isRegularFile, info.owner == 0, info.group == 0, info.mode == 0o440,
+      info.size == Self.ruleContent.count
     else { return .needsRepair }
+    if let bytes = seams.readFile(Self.rulePath), bytes != Self.ruleContent {
+      return .needsRepair
+    }
     return await seams.probe() ? .ready : .blocked
   }
 
@@ -179,11 +189,12 @@ public struct ClosedLidPermission: Sendable {
     var info = stat()
     guard lstat(path, &info) == 0 else {
       if errno == ENOENT || errno == ENOTDIR { return nil }
-      return ClosedLidFileInfo(isRegularFile: false, owner: UInt32.max, group: UInt32.max, mode: 0)
+      return ClosedLidFileInfo(
+        isRegularFile: false, owner: UInt32.max, group: UInt32.max, mode: 0, size: 0)
     }
     return ClosedLidFileInfo(
       isRegularFile: info.st_mode & S_IFMT == S_IFREG, owner: info.st_uid, group: info.st_gid,
-      mode: info.st_mode & 0o7777)
+      mode: info.st_mode & 0o7777, size: Int(info.st_size))
   }
 
   static func liveProbe() async -> Bool {

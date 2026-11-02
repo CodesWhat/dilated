@@ -19,7 +19,7 @@ private final class PermissionWorld: @unchecked Sendable {
   private var _outcomes: [PrivilegedScriptOutcome] = []
   private var _acknowledged = true
 
-  static let good = ClosedLidFileInfo(isRegularFile: true, owner: 0, group: 0, mode: 0o444)
+  static let good = ClosedLidFileInfo(isRegularFile: true, owner: 0, group: 0, mode: 0o440)
 
   func set(
     info: ClosedLidFileInfo?? = nil, content: Data?? = nil, probe: Bool? = nil, admin: Bool? = nil,

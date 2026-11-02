@@ -5,10 +5,10 @@ import Testing
 
 struct ClosedLidPermissionTests {
   private static let good = ClosedLidFileInfo(
-    isRegularFile: true, owner: 0, group: 0, mode: 0o444)
+    isRegularFile: true, owner: 0, group: 0, mode: 0o440)
 
   private func permission(
-    info: ClosedLidFileInfo? = good, content: Data? = ClosedLidPermission.ruleContent,
+    info: ClosedLidFileInfo? = good, content: Data? = nil,
     probe: Bool = true, admin: Bool = true,
     runner: any PrivilegedScriptRunning = RecordingRunner(outcome: .succeeded)
   ) -> ClosedLidPermission {
@@ -37,7 +37,7 @@ struct ClosedLidPermissionTests {
     #expect(!ClosedLidPermissionState.notInstalled.isUsable)
     #expect(!ClosedLidPermissionState.blocked.isUsable)
     #expect(await permission(content: Data("x\n".utf8)).state() == .needsRepair)
-    #expect(await permission(content: nil).state() == .needsRepair)
+    #expect(await permission(content: nil).state() == .ready)
     var info = Self.good
     info.owner = 501
     #expect(await permission(info: info).state() == .needsRepair)
@@ -45,7 +45,13 @@ struct ClosedLidPermissionTests {
     info.group = 20
     #expect(await permission(info: info).state() == .needsRepair)
     info = Self.good
+    info.mode = 0o444
+    #expect(await permission(info: info).state() == .needsRepair)
+    info = Self.good
     info.mode = 0o644
+    #expect(await permission(info: info).state() == .needsRepair)
+    info = Self.good
+    info.size = ClosedLidPermission.ruleContent.count + 1
     #expect(await permission(info: info).state() == .needsRepair)
     info = Self.good
     info.isRegularFile = false
@@ -62,21 +68,45 @@ struct ClosedLidPermissionTests {
     #expect(install.contains("/usr/bin/mktemp /private/var/root/"))
     #expect(install.contains("/usr/bin/printf"))
     #expect(install.contains("/usr/sbin/visudo -cf \"$tmp\""))
-    #expect(install.contains("/usr/bin/install -o root -g wheel -m 0444"))
+    #expect(install.contains("/usr/bin/install -o root -g wheel -m 0440"))
     #expect(install.contains("/bin/mv -f \"$stage\" /private/etc/sudoers.d/dilated"))
     #expect(
       install.contains(
-        "/usr/sbin/visudo -c || { /bin/rm -f /private/etc/sudoers.d/dilated; exit 1; }"))
+        "/usr/sbin/visudo -cf /private/etc/sudoers.d/dilated || { /bin/rm -f /private/etc/sudoers.d/dilated; exit 1; }"
+      ))
     #expect(install.contains("DILATED_PMSET"))
     let remove = ClosedLidPermission.removeScript
     #expect(remove.contains("/bin/rm -f /private/etc/sudoers.d/dilated"))
-    #expect(remove.hasSuffix("/usr/sbin/visudo -c"))
+    #expect(remove.hasSuffix("test ! -e /private/etc/sudoers.d/dilated"))
+    #expect(!remove.contains("visudo"))
     let source = ClosedLidPermission.appleScriptSource(for: remove)
     #expect(source.hasPrefix("do shell script \""))
     #expect(source.hasSuffix("\" with administrator privileges"))
     let quoted = ClosedLidPermission.appleScriptSource(for: install)
     #expect(quoted.contains("\\\"$tmp\\\""))
     #expect(quoted.contains("\\\\n"))
+  }
+
+  @Test func scriptsNeverGateOnTheGlobalSudoersCheck() {
+    // Another app's bad sudoers file (Amphetamine's 0644) makes a global `visudo -c` exit 1.
+    // Every visudo call must name a single file with -f.
+    for script in [ClosedLidPermission.installScript, ClosedLidPermission.removeScript] {
+      for part in script.components(separatedBy: "; ") where part.contains("visudo") {
+        #expect(part.contains("visudo -cf "))
+      }
+      #expect(!script.contains("visudo -c ||"))
+      #expect(!script.hasSuffix("visudo -c"))
+    }
+  }
+
+  @Test func ourInstallStaysReadyWhenAnotherSudoersFileIsBad() async {
+    // The fake world has our file good and another file bad; detection and scripts only see ours.
+    let runner = RecordingRunner(outcome: .succeeded)
+    let outcome = await permission(runner: runner).install()
+    #expect(outcome == .completed(.ready))
+    let script = ClosedLidPermission.installScript
+    #expect(!script.contains("amphetamine"))
+    #expect(!script.contains("sudoers.d/*"))
   }
 
   @Test func installRunsTheFixedScriptThenRedetects() async {
