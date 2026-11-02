@@ -1,3 +1,4 @@
+import DilatedControl
 import DilatedCore
 import Foundation
 
@@ -13,8 +14,10 @@ import Foundation
   private let owner = UUID()
   private let ticker: TickLoop
   private let backoff: RetryBackoff
+  private let sessionGuard: ClosedLidSessionGuard?
 
   public init(
+    sessionGuard: ClosedLidSessionGuard? = nil,
     power: any ClosedLidPowerControlling = SerialPowerDriver(runner: SudoPowerRunner()),
     environment: @escaping @Sendable () -> ClosedLidEnvironment = NativeClosedLidPower.environment,
     clock: (@Sendable () -> TimeInterval)? = nil,
@@ -33,6 +36,7 @@ import Foundation
       buildIdentity: Self.buildIdentity)
     self.service = service
     self.backoff = backoff
+    self.sessionGuard = sessionGuard
     ticker = TickLoop(service: service, interval: tickInterval, backoff: backoff, sleep: sleep)
   }
 
@@ -40,6 +44,17 @@ import Foundation
     backoff.reset()
     await service.start()
     return await service.handle(request, owner: owner)
+  }
+
+  /// What the launch-time check found. Slice 4's UI reads this to show a failed revert or a
+  /// sleep-disable that something else owns.
+  public func recovery() async -> ClosedLidSessionGuard.Recovery {
+    await sessionGuard?.recovery ?? .notChecked
+  }
+
+  /// Tells the session guard that sleep was restored by hand. False when macOS doesn't confirm it.
+  public func acknowledgeRestore() async -> Bool {
+    await sessionGuard?.acknowledgeManualRestore() ?? false
   }
 
   public func invalidate() {
@@ -102,12 +117,19 @@ private final class TickLoop: Sendable {
 extension ClosedLidController {
   /// Picks the transport from the `DilatedLocalClosedLidTransport` defaults flag. Off by default,
   /// which keeps the privileged helper.
-  public static func configured(defaults: UserDefaults = .standard) -> ClosedLidController {
+  public static func configured(
+    defaults: UserDefaults = .standard,
+    stateDirectory: URL = SocketEndpoint.current.stateDirectory
+  ) -> ClosedLidController {
     guard defaults.bool(forKey: LocalClosedLidTransport.defaultsKey) else {
       return ClosedLidController()
     }
+    let session = ClosedLidSessionGuard(
+      power: SerialPowerDriver(runner: SudoPowerRunner()),
+      store: ClosedLidMarkerStore(directory: stateDirectory),
+      launchWatchdog: ClosedLidWatchdogSpawner.launcher())
     return ClosedLidController(
-      transport: LocalClosedLidTransport(),
+      transport: LocalClosedLidTransport(sessionGuard: session, power: session),
       expectedBuild: { LocalClosedLidTransport.buildIdentity })
   }
 }

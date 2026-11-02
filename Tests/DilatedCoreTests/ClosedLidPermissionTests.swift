@@ -5,10 +5,10 @@ import Testing
 
 struct ClosedLidPermissionTests {
   private static let good = ClosedLidFileInfo(
-    isRegularFile: true, owner: 0, group: 0, mode: 0o444)
+    isRegularFile: true, owner: 0, group: 0, mode: 0o440)
 
   private func permission(
-    info: ClosedLidFileInfo? = good, content: Data? = ClosedLidPermission.ruleContent,
+    info: ClosedLidFileInfo? = good, content: Data? = nil,
     probe: Bool = true, admin: Bool = true,
     runner: any PrivilegedScriptRunning = RecordingRunner(outcome: .succeeded)
   ) -> ClosedLidPermission {
@@ -30,9 +30,14 @@ struct ClosedLidPermissionTests {
   }
 
   @Test func detectsEveryState() async {
-    #expect(await permission(info: nil).state() == .notInstalled)
+    #expect(await permission(info: nil, probe: false).state() == .notInstalled)
+    #expect(await permission(info: nil).state() == .allowedByOtherRule)
+    #expect(ClosedLidPermissionState.allowedByOtherRule.isUsable)
+    #expect(ClosedLidPermissionState.ready.isUsable)
+    #expect(!ClosedLidPermissionState.notInstalled.isUsable)
+    #expect(!ClosedLidPermissionState.blocked.isUsable)
     #expect(await permission(content: Data("x\n".utf8)).state() == .needsRepair)
-    #expect(await permission(content: nil).state() == .needsRepair)
+    #expect(await permission(content: nil).state() == .ready)
     var info = Self.good
     info.owner = 501
     #expect(await permission(info: info).state() == .needsRepair)
@@ -40,7 +45,13 @@ struct ClosedLidPermissionTests {
     info.group = 20
     #expect(await permission(info: info).state() == .needsRepair)
     info = Self.good
+    info.mode = 0o444
+    #expect(await permission(info: info).state() == .needsRepair)
+    info = Self.good
     info.mode = 0o644
+    #expect(await permission(info: info).state() == .needsRepair)
+    info = Self.good
+    info.size = ClosedLidPermission.ruleContent.count + 1
     #expect(await permission(info: info).state() == .needsRepair)
     info = Self.good
     info.isRegularFile = false
@@ -49,6 +60,7 @@ struct ClosedLidPermissionTests {
     #expect(await permission().state() == .ready)
     #expect(await permission(admin: false).state() == .notAdmin)
     #expect(await permission(info: nil, admin: false).state() == .notAdmin)
+    #expect(ClosedLidPermissionState.allowedByOtherRule.word == "allowedByOtherRule")
   }
 
   @Test func installAndRemoveScriptsAreConstantAndCheckSudoers() {
@@ -56,21 +68,45 @@ struct ClosedLidPermissionTests {
     #expect(install.contains("/usr/bin/mktemp /private/var/root/"))
     #expect(install.contains("/usr/bin/printf"))
     #expect(install.contains("/usr/sbin/visudo -cf \"$tmp\""))
-    #expect(install.contains("/usr/bin/install -o root -g wheel -m 0444"))
+    #expect(install.contains("/usr/bin/install -o root -g wheel -m 0440"))
     #expect(install.contains("/bin/mv -f \"$stage\" /private/etc/sudoers.d/dilated"))
     #expect(
       install.contains(
-        "/usr/sbin/visudo -c || { /bin/rm -f /private/etc/sudoers.d/dilated; exit 1; }"))
+        "/usr/sbin/visudo -cf /private/etc/sudoers.d/dilated || { /bin/rm -f /private/etc/sudoers.d/dilated; exit 1; }"
+      ))
     #expect(install.contains("DILATED_PMSET"))
     let remove = ClosedLidPermission.removeScript
     #expect(remove.contains("/bin/rm -f /private/etc/sudoers.d/dilated"))
-    #expect(remove.hasSuffix("/usr/sbin/visudo -c"))
+    #expect(remove.hasSuffix("test ! -e /private/etc/sudoers.d/dilated"))
+    #expect(!remove.contains("visudo"))
     let source = ClosedLidPermission.appleScriptSource(for: remove)
     #expect(source.hasPrefix("do shell script \""))
     #expect(source.hasSuffix("\" with administrator privileges"))
     let quoted = ClosedLidPermission.appleScriptSource(for: install)
     #expect(quoted.contains("\\\"$tmp\\\""))
     #expect(quoted.contains("\\\\n"))
+  }
+
+  @Test func scriptsNeverGateOnTheGlobalSudoersCheck() {
+    // Another app's bad sudoers file (Amphetamine's 0644) makes a global `visudo -c` exit 1.
+    // Every visudo call must name a single file with -f.
+    for script in [ClosedLidPermission.installScript, ClosedLidPermission.removeScript] {
+      for part in script.components(separatedBy: "; ") where part.contains("visudo") {
+        #expect(part.contains("visudo -cf "))
+      }
+      #expect(!script.contains("visudo -c ||"))
+      #expect(!script.hasSuffix("visudo -c"))
+    }
+  }
+
+  @Test func ourInstallStaysReadyWhenAnotherSudoersFileIsBad() async {
+    // The fake world has our file good and another file bad; detection and scripts only see ours.
+    let runner = RecordingRunner(outcome: .succeeded)
+    let outcome = await permission(runner: runner).install()
+    #expect(outcome == .completed(.ready))
+    let script = ClosedLidPermission.installScript
+    #expect(!script.contains("amphetamine"))
+    #expect(!script.contains("sudoers.d/*"))
   }
 
   @Test func installRunsTheFixedScriptThenRedetects() async {
@@ -89,7 +125,7 @@ struct ClosedLidPermissionTests {
 
   @Test func removeRunsTheFixedScriptThenRedetects() async {
     let runner = RecordingRunner(outcome: .succeeded)
-    let outcome = await permission(info: nil, runner: runner).remove()
+    let outcome = await permission(info: nil, probe: false, runner: runner).remove()
     #expect(outcome == .completed(.notInstalled))
     #expect(
       await runner.scripts
@@ -100,16 +136,52 @@ struct ClosedLidPermissionTests {
     let runner = RecordingRunner(outcome: .cancelled)
     #expect(await permission(runner: runner).install() == .cancelled)
     #expect(await permission(runner: runner).remove() == .cancelled)
-    #expect(ClosedLidPermission.outcome(errorNumber: -128, message: "User canceled.") == .cancelled)
-    #expect(ClosedLidPermission.outcome(errorNumber: 1, message: "boom") == .failed("boom"))
     #expect(
-      ClosedLidPermission.outcome(errorNumber: nil, message: nil)
+      ClosedLidPermission.outcome(
+        status: 1, stderr: "execution error: User canceled. (-128)") == .cancelled)
+    #expect(ClosedLidPermission.outcome(status: 1, stderr: "boom\n") == .failed("boom"))
+    #expect(
+      ClosedLidPermission.outcome(status: 1, stderr: "")
         == .failed("The administrator command failed."))
+    #expect(ClosedLidPermission.outcome(status: 0, stderr: "") == .succeeded)
+    #expect(
+      ClosedLidPermission.outcome(status: 15, stderr: "", timedOut: true)
+        == .failed("The administrator prompt timed out."))
+  }
+
+  @Test func theProbeChecksBothPmsetCommands() {
+    #expect(
+      ClosedLidPermission.probeArgumentSets == [
+        ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", "1"],
+        ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", "0"],
+      ])
+  }
+
+  @Test func theOsascriptRunnerMapsExitStatusAndStderr() async {
+    let sh = URL(fileURLWithPath: "/bin/sh")
+    func run(_ command: String, timeout: TimeInterval = 10) async -> PrivilegedScriptOutcome {
+      await OsascriptAdminRunner.execute(
+        executable: sh, arguments: ["-c", command], timeout: timeout)
+    }
+    #expect(await run("exit 0") == .succeeded)
+    #expect(await run("echo 'execution error: User canceled. (-128)' >&2; exit 1") == .cancelled)
+    #expect(await run("echo 'nope' >&2; exit 1") == .failed("nope"))
+    #expect(
+      await OsascriptAdminRunner.execute(
+        executable: URL(fileURLWithPath: "/nonexistent/osascript"), arguments: [], timeout: 5)
+        == .failed("The administrator command couldn't start."))
+    #expect(
+      await run("exec sleep 5", timeout: 0.3) == .failed("The administrator prompt timed out."))
+  }
+
+  @Test func theAdminPromptBoundIsFiveMinutes() {
+    // Separate from BoundedProcess, which caps at 3 seconds and would kill the prompt.
+    #expect(OsascriptAdminRunner.promptTimeout == 300)
   }
 
   @Test func aFailedScriptReportsTheStateAfterward() async {
     let runner = RecordingRunner(outcome: .failed("visudo said no"))
-    let outcome = await permission(info: nil, runner: runner).install()
+    let outcome = await permission(info: nil, probe: false, runner: runner).install()
     #expect(outcome == .failed("visudo said no", .notInstalled))
   }
 
@@ -121,6 +193,17 @@ struct ClosedLidPermissionTests {
       return
     }
     #expect(await runner.scripts.isEmpty)
+  }
+
+  @Test func restoreNormalSleepRunsTheFixedPmsetCommand() async {
+    let runner = RecordingRunner(outcome: .succeeded)
+    #expect(await permission(runner: runner).restoreNormalSleep() == .succeeded)
+    let scripts = await runner.scripts
+    #expect(scripts.count == 1)
+    #expect(scripts[0].contains("/usr/bin/pmset -a disablesleep 0"))
+    #expect(scripts[0].hasSuffix("with administrator privileges"))
+    let cancelled = RecordingRunner(outcome: .cancelled)
+    #expect(await permission(runner: cancelled).restoreNormalSleep() == .cancelled)
   }
 
   @Test func visudoAcceptsTheFixedContent() throws {

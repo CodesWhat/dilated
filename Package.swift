@@ -35,6 +35,8 @@ let package = Package(
     .testTarget(name: "DilatedControlTests", dependencies: ["DilatedControl"]),
     .testTarget(
       name: "DilatedUITests",
-      dependencies: ["DilatedUI", .product(name: "ViewInspector", package: "ViewInspector")]),
+      dependencies: [
+        "DilatedUI", "DilatedCLI", .product(name: "ViewInspector", package: "ViewInspector"),
+      ]),
   ]
 )

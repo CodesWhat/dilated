@@ -4,6 +4,7 @@ import Foundation
 public enum ControlAction: String, Codable, Sendable {
   case status, start, lease, runner, renew, release, stopAll, toggle
   case helperStatus, helperSetup, helperRemove
+  case lidPermissionStatus, lidPermissionInstall, lidPermissionRemove
   case prepareUpdate, prepareUninstall
 }
 public struct ControlRequest: Codable, Sendable {
@@ -52,11 +53,12 @@ public struct ControlResponse: Codable, Sendable {
   public var code: String?
   public var helper: HelperState?
   public var helperInstallation: String?
+  public var lidPermission: String?
   public var appPID: Int32?
   public init(
     ok: Bool, id: UUID? = nil, snapshot: EngineSnapshot? = nil, message: String? = nil,
     code: String? = nil, helper: HelperState? = nil, helperInstallation: String? = nil,
-    appPID: Int32? = nil
+    appPID: Int32? = nil, lidPermission: String? = nil
   ) {
     self.ok = ok
     self.id = id
@@ -65,6 +67,7 @@ public struct ControlResponse: Codable, Sendable {
     self.code = code
     self.helper = helper
     self.helperInstallation = helperInstallation
+    self.lidPermission = lidPermission
     self.appPID = appPID
   }
 }
@@ -94,6 +97,8 @@ public enum ControlRouter {
       switch request.action {
       case .helperStatus, .helperSetup, .helperRemove, .prepareUpdate, .prepareUninstall:
         throw InputError("Helper management requires the Dilated app.")
+      case .lidPermissionStatus, .lidPermissionInstall, .lidPermissionRemove:
+        throw InputError("Closed-lid permission requires the Dilated app.")
       case .status: break
       case .stopAll: engine.stopAll(now: now)
       case .release:
@@ -164,6 +169,16 @@ public struct CLIInput {
       return CLIInput(
         request: .init(action: verb == "prepare-update" ? .prepareUpdate : .prepareUninstall),
         json: arguments.count == 2)
+    }
+    if verb == "lid-permission" {
+      let actions: [String: ControlAction] = [
+        "status": .lidPermissionStatus, "install": .lidPermissionInstall,
+        "remove": .lidPermissionRemove,
+      ]
+      guard arguments.count >= 2, let action = actions[arguments[1]],
+        arguments.count == 2 || (arguments.count == 3 && arguments[2] == "--json")
+      else { throw InputError("Use dilated lid-permission status|install|remove [--json].") }
+      return CLIInput(request: .init(action: action), json: arguments.count == 3)
     }
     if verb == "helper" {
       let actions: [String: ControlAction] = [

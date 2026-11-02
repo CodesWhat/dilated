@@ -6,28 +6,33 @@ import SwiftUI
   @Bindable var model: AppModel
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
-      SettingsGroup(eyebrow: "HELPER") {
-        SettingsRow(
-          title: model.closedLid.active ? "Closed-lid armed" : model.helperInstallation.statusText,
-          detail: model.helperInstallation.lastError ?? model.closedLid.lastError
-            ?? model.closedLid.state?.message
-            ?? "Approve the signed background helper in Login Items. Regular awake holds work without it."
-        ) {
-          Button(model.helperInstallation.buttonTitle) { Task { await model.setupHelper() } }
-            .disabled(model.helperInstallation.busy || model.closedLid.busy)
-        }
-        SettingsRow(title: "Check helper status") {
-          Button("Refresh") { model.refreshHelperStatus() }
-            .disabled(model.helperInstallation.busy || model.closedLid.busy)
-        }
-        if let state = model.closedLid.state {
-          SettingsRow(title: "Power setting", detail: state.stopReason?.localizedDescription) {
-            Text(
-              state.readback.confirmedDisabled
-                ? "Off, confirmed" : state.enabled ? "On, confirmed" : "Needs attention")
+      if model.closedLid.usesLocalTransport {
+        permissionGroup
+      } else {
+        SettingsGroup(eyebrow: "HELPER") {
+          SettingsRow(
+            title: model.closedLid.active
+              ? "Closed-lid armed" : model.helperInstallation.statusText,
+            detail: model.helperInstallation.lastError ?? model.closedLid.lastError
+              ?? model.closedLid.state?.message
+              ?? "Approve the signed background helper in Login Items. Regular awake holds work without it."
+          ) {
+            Button(model.helperInstallation.buttonTitle) { Task { await model.setupHelper() } }
+              .disabled(model.helperInstallation.busy || model.closedLid.busy)
           }
-          SettingsRow(title: "Lid") {
-            Text(state.environment.lidClosed.map { $0 ? "Closed" : "Open" } ?? "Unavailable")
+          SettingsRow(title: "Check helper status") {
+            Button("Refresh") { model.refreshHelperStatus() }
+              .disabled(model.helperInstallation.busy || model.closedLid.busy)
+          }
+          if let state = model.closedLid.state {
+            SettingsRow(title: "Power setting", detail: state.stopReason?.localizedDescription) {
+              Text(
+                state.readback.confirmedDisabled
+                  ? "Off, confirmed" : state.enabled ? "On, confirmed" : "Needs attention")
+            }
+            SettingsRow(title: "Lid") {
+              Text(state.environment.lidClosed.map { $0 ? "Closed" : "Open" } ?? "Unavailable")
+            }
           }
         }
       }
@@ -93,14 +98,17 @@ import SwiftUI
                   }
                 )
               ).labelsHidden().accessibilityHint("Keep working with the lid closed")
-                .disabled(model.closedLid.busy || model.helperInstallation.busy)
+                .disabled(
+                  model.closedLid.busy || model.helperInstallation.busy
+                    || model.closedLidPermission.busy)
             }
           }
         }
       }
       SettingsNote(
-        text:
-          "Keep your Mac ventilated. Don't put it in a bag while it works. The helper checks battery, temperature and its 90-second app lease independently. A crash, reboot or safety stop requires enabling closed-lid again."
+        text: model.closedLid.usesLocalTransport
+          ? "Keep your Mac ventilated. Don't put it in a bag while it works. Dilated checks battery, temperature and its 90-second lease on its own. If Dilated quits or crashes, it restores normal sleep the next time it opens."
+          : "Keep your Mac ventilated. Don't put it in a bag while it works. The helper checks battery, temperature and its 90-second app lease independently. A crash, reboot or safety stop requires enabling closed-lid again."
       )
       SettingsGroup(eyebrow: "AUTOMATION") {
         SettingsRow(
@@ -114,10 +122,55 @@ import SwiftUI
             )
         }
       }
-      if model.helperInstallation.status == .enabled {
+      if !model.closedLid.usesLocalTransport, model.helperInstallation.status == .enabled {
         Button("Turn off and remove helper") { Task { await model.removeHelper() } }
           .disabled(model.closedLid.busy || model.helperInstallation.busy)
       }
     }
+  }
+
+  @ViewBuilder private var permissionGroup: some View {
+    let permission = model.closedLidPermission
+    SettingsGroup(eyebrow: "PERMISSION") {
+      SettingsRow(
+        title: model.closedLid.active ? "Closed-lid armed" : permission.title,
+        detail: permission.lastError ?? model.closedLid.lastError ?? model.closedLid.state?.message
+          ?? permission.detail
+      ) {
+        HStack {
+          if let title = permission.setUpTitle {
+            Button(title) { Task { await model.setUpClosedLidPermission() } }
+              .disabled(permission.busy || model.closedLid.busy)
+          }
+          if permission.canRemove {
+            Button("Remove") { Task { await model.removeClosedLidPermission() } }
+              .disabled(permission.busy || model.closedLid.busy)
+          }
+        }
+      }
+      SettingsRow(title: "Check permission") {
+        Button("Refresh") { Task { await permission.refresh() } }
+          .disabled(permission.busy || model.closedLid.busy)
+      }
+      if let title = permission.recoveryTitle {
+        SettingsRow(title: title, detail: permission.recoveryDetail) {
+          if permission.canRestoreNormalSleep {
+            Button("Restore normal sleep") { Task { await model.restoreNormalSleep() } }
+              .disabled(permission.busy || model.closedLid.busy)
+          }
+        }
+      }
+      if let state = model.closedLid.state {
+        SettingsRow(title: "Power setting", detail: state.stopReason?.localizedDescription) {
+          Text(
+            state.readback.confirmedDisabled
+              ? "Off, confirmed" : state.enabled ? "On, confirmed" : "Needs attention")
+        }
+        SettingsRow(title: "Lid") {
+          Text(state.environment.lidClosed.map { $0 ? "Closed" : "Open" } ?? "Unavailable")
+        }
+      }
+    }
+    .task { await permission.refresh() }
   }
 }
