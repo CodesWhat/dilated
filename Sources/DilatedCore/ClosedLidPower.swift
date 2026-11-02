@@ -27,7 +27,7 @@ public protocol ClosedLidPowerControlling: Sendable {
   func sleep() async throws
 }
 public enum ClosedLidPowerError: Error, Sendable, LocalizedError {
-  case requiresRoot, commandTimedOut
+  case requiresRoot, commandTimedOut, permissionUnavailable
   case commandFailed(Int32)
   case readbackMismatch,
     invalidDeadline, childDidNotExit
@@ -36,6 +36,8 @@ public enum ClosedLidPowerError: Error, Sendable, LocalizedError {
   public var errorDescription: String? {
     switch self {
     case .requiresRoot: "The approved Dilated helper is required for this operation."
+    case .permissionUnavailable:
+      "Closed-lid permission isn't available. Set it up again to continue."
     case .commandTimedOut: "The power-setting operation timed out."
     case .commandFailed(let status): "The power-setting operation failed (\(status))."
     case .readbackMismatch: "macOS didn't confirm the requested power setting."
@@ -104,11 +106,43 @@ public struct NativePowerRunner: PowerCommandRunning {
       if result.timedOut { throw ClosedLidPowerError.commandTimedOut }
       guard result.status == 0 else { throw ClosedLidPowerError.commandFailed(result.status) }
     case .sleep:
-      let connection = IOPMFindPowerManagement(mach_port_t(MACH_PORT_NULL))
-      guard connection != 0 else { throw ClosedLidPowerError.sleepFailed(kIOReturnNotFound) }
-      defer { IOServiceClose(connection) }
-      let status = IOPMSleepSystem(connection)
-      guard status == kIOReturnSuccess else { throw ClosedLidPowerError.sleepFailed(status) }
+      try Self.requestSystemSleep()
+    }
+  }
+
+  static func requestSystemSleep() throws {
+    let connection = IOPMFindPowerManagement(mach_port_t(MACH_PORT_NULL))
+    guard connection != 0 else { throw ClosedLidPowerError.sleepFailed(kIOReturnNotFound) }
+    defer { IOServiceClose(connection) }
+    let status = IOPMSleepSystem(connection)
+    guard status == kIOReturnSuccess else { throw ClosedLidPowerError.sleepFailed(status) }
+  }
+}
+
+/// Runs `pmset` through a narrow sudoers rule instead of a root helper. Readback stays on the
+/// non-root IORegistry and preferences path in `NativeClosedLidPower`.
+public struct SudoPowerRunner: PowerCommandRunning {
+  static let sudoPath = "/usr/bin/sudo"
+  static let pmsetPath = "/usr/bin/pmset"
+  private let sudo: URL
+
+  public init() { sudo = URL(fileURLWithPath: Self.sudoPath) }
+  init(sudo: URL) { self.sudo = sudo }
+
+  static func arguments(disabled: Bool) -> [String] {
+    ["-n", pmsetPath, "-a", "disablesleep", disabled ? "1" : "0"]
+  }
+
+  public func run(_ command: PowerCommand) async throws {
+    switch command {
+    case .setSleepDisabled(let disabled):
+      let result = try await BoundedProcess.run(
+        executable: sudo, arguments: Self.arguments(disabled: disabled), timeout: 3,
+        environment: [:])
+      if result.timedOut { throw ClosedLidPowerError.commandTimedOut }
+      guard result.status == 0 else { throw ClosedLidPowerError.permissionUnavailable }
+    case .sleep:
+      try NativePowerRunner.requestSystemSleep()
     }
   }
 }
