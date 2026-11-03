@@ -8,6 +8,16 @@ import Foundation
 @MainActor public final class LocalClosedLidTransport: HelperTransporting {
   public static let buildIdentity = "local-sudo"
 
+  /// The direct build runs sudo itself; the sandboxed Mac App Store build runs the script the
+  /// Closed-Lid Setup companion installed.
+  public static var powerRunner: any PowerCommandRunning {
+    #if MAS_CHANNEL
+      UserScriptPowerRunner()
+    #else
+      SudoPowerRunner()
+    #endif
+  }
+
   public var onDisconnect: (() -> Void)?
   private let service: ClosedLidService
   private let owner = UUID()
@@ -18,7 +28,8 @@ import Foundation
 
   public init(
     sessionGuard: ClosedLidSessionGuard? = nil,
-    power: any ClosedLidPowerControlling = SerialPowerDriver(runner: SudoPowerRunner()),
+    power: any ClosedLidPowerControlling = SerialPowerDriver(
+      runner: LocalClosedLidTransport.powerRunner),
     environment: @escaping @Sendable () -> ClosedLidEnvironment = NativeClosedLidPower.environment,
     clock: (@Sendable () -> TimeInterval)? = nil,
     tickInterval: Duration = .seconds(1),
@@ -134,10 +145,18 @@ extension ClosedLidController {
   public static func configured(
     stateDirectory: URL = SocketEndpoint.current.stateDirectory
   ) -> ClosedLidController {
-    let session = ClosedLidSessionGuard(
-      power: SerialPowerDriver(runner: SudoPowerRunner()),
-      store: ClosedLidMarkerStore(directory: stateDirectory),
-      launchWatchdog: ClosedLidWatchdogSpawner.launcher())
+    #if MAS_CHANNEL
+      // No crash watchdog in the sandboxed build until slice BUILD.4 decides its revert path.
+      // The in-app lease and the relaunch revert still run.
+      let session = ClosedLidSessionGuard(
+        power: SerialPowerDriver(runner: LocalClosedLidTransport.powerRunner),
+        store: ClosedLidMarkerStore(directory: stateDirectory))
+    #else
+      let session = ClosedLidSessionGuard(
+        power: SerialPowerDriver(runner: SudoPowerRunner()),
+        store: ClosedLidMarkerStore(directory: stateDirectory),
+        launchWatchdog: ClosedLidWatchdogSpawner.launcher())
+    #endif
     return ClosedLidController(
       transport: LocalClosedLidTransport(sessionGuard: session, power: session, autostart: false),
       expectedBuild: { LocalClosedLidTransport.buildIdentity })
