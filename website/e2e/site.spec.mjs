@@ -418,6 +418,49 @@ test.describe('readability and usability', () => {
   });
 });
 
+test.describe('privacy page', () => {
+  test('/privacy serves the policy with a title, canonical and no console errors', async ({ page, request }) => {
+    const response = await request.get('/privacy');
+    expect(response.status()).toBe(200);
+    expect(response.headers()['content-type']).toMatch(/text\/html/);
+    await page.goto('/privacy');
+    await expect(page).toHaveTitle('Privacy · Dilated');
+    await expect(page.locator('h1')).toHaveText('Privacy.');
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://dilated.app/privacy');
+    await page.evaluate(() => document.fonts.ready);
+  });
+
+  test('the home footer links to it and the link lands on the page', async ({ page, open }) => {
+    await open('/');
+    const link = page.locator('footer a', { hasText: 'PRIVACY' });
+    await expect(link).toHaveCount(1);
+    await link.click();
+    await expect(page).toHaveURL(/\/privacy$/);
+    await expect(page.locator('h1')).toHaveText('Privacy.');
+  });
+
+  for (const width of [1280, 390, 320]) {
+    test(`fits at ${width}px with no text under 12px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto('/privacy');
+      await page.evaluate(() => document.fonts.ready);
+      const result = await page.evaluate(() => {
+        const small = [];
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+          const node = walker.currentNode;
+          const el = node.parentElement;
+          if (!node.textContent.trim() || el.closest('[aria-hidden="true"]') || !el.getBoundingClientRect().width) continue;
+          if (parseFloat(getComputedStyle(el).fontSize) < 12) small.push(`${el.tagName}: "${node.textContent.trim().slice(0, 30)}"`);
+        }
+        return { small, overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+      });
+      expect(result.small).toEqual([]);
+      expect(result.overflow).toBeLessThanOrEqual(0);
+    });
+  }
+});
+
 test.describe('discoverability', () => {
   test('structured data is inert under the CSP and the crawl files are served', async ({ page, request, open }) => {
     await open('/', { release: releases.missing });

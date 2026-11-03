@@ -14,6 +14,7 @@ Dilated is distributed as a notarized Developer ID build outside the Mac App Sto
 
 - [Automation](https://github.com/CodesWhat/dilated/blob/main/docs/AUTOMATION.md): command line, URL scheme and AppleScript
 - [Product page](https://dilated.app/): what it does, with an interactive menu preview
+- [Privacy policy](https://dilated.app/privacy): what Dilated collects (nothing), what stays on the Mac, and why each permission is asked
 
 ## Source
 

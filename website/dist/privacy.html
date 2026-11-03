@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en" data-concept="gas-station" data-font="barlow">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Dilated's privacy policy. The app collects nothing: no analytics, no telemetry, no accounts. Here's what stays on your Mac, what each permission is for, and the one network request the direct build makes.">
+  <link rel="canonical" href="https://dilated.app/privacy">
+  <meta name="theme-color" content="#ffdf24">
+  <title>Privacy · Dilated</title>
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Privacy · Dilated">
+  <meta property="og:description" content="Dilated collects nothing. What stays on your Mac, what each permission is for, and the one update check the direct build makes.">
+  <meta property="og:url" content="https://dilated.app/privacy">
+  <meta property="og:site_name" content="Dilated">
+  <meta property="og:image" content="https://dilated.app/assets/social-card.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://dilated.app/assets/social-card.png">
+  <link rel="icon" href="./assets/icon-gas-station.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="masthead page-width">
+    <a class="brand" href="./" aria-label="Dilated home"><img src="./assets/icon-gas-station.svg" alt="" width="43" height="43"><span>dilated</span></a>
+    <nav aria-label="Main navigation"><a href="./">Home</a><a class="nav-source" href="https://github.com/CodesWhat/dilated"><span>Source</span> <span aria-hidden="true">↗</span></a></nav>
+  </header>
+  <main id="main" class="page-width legal">
+    <p class="eyebrow">EFFECTIVE 2026-11-03</p>
+    <h1>Privacy.</h1>
+    <p class="legal-lede">Dilated doesn't collect anything about you. There's no analytics, no telemetry and no account, in the app or on this site.</p>
+
+    <h2>What stays on your Mac</h2>
+    <p>Your settings, timers, history, statistics and holds live on your Mac and nowhere else. The direct build keeps them in <code>~/Library/Application Support/Dilated</code>. The Mac App Store build keeps them in its sandbox container. Nothing is uploaded, and there's no copy on our side to ask for.</p>
+
+    <h2>Permissions, and why Dilated asks</h2>
+    <ul>
+      <li><strong>Location.</strong> macOS only lets an app read the Wi-Fi network name if it has Location access. Dilated asks for it so a trigger can match the network names you pick. It doesn't request or record where you are.</li>
+      <li><strong>Bluetooth.</strong> Used to match the paired devices you pick for a trigger while they're connected. It doesn't scan for nearby devices or change their connections.</li>
+      <li><strong>Files and folders.</strong> Dilated reads only what you choose in an open panel: a download folder or file to watch, an app for a trigger, a custom sound. In the App Store build that choice is saved as a sandbox bookmark. Drive Alive writes a small hidden file to a drive's root, and only after you grant that drive.</li>
+      <li><strong>Notifications.</strong> Asked for only when you turn on banners.</li>
+    </ul>
+    <p>Wi-Fi names, paired devices and chosen paths are read on your Mac to evaluate your triggers. They aren't sent anywhere.</p>
+
+    <h2>Network use</h2>
+    <p>The direct build checks for updates with Sparkle. It requests <code>https://dilated.app/updates/appcast.xml</code> and verifies the signed feed before installing anything. Sparkle's system profile option is off, so the request carries the usual HTTP details (your IP address, the app name and version, your macOS version) and no hardware or usage profile. Like any web host, ours can see that request in its server logs.</p>
+    <p>The Mac App Store build has no update code and makes no network requests. The App Store delivers its updates.</p>
+    <p>This website sets no cookies and loads no third-party scripts, fonts or trackers. Your browser fetches the page and, on the home page, a small file with the current release details, all from <code>dilated.app</code>.</p>
+
+    <h2>Closed-lid companion</h2>
+    <p>Closed-lid mode is optional. It needs a sudo rule limited to <code>pmset -a disablesleep 0</code> and <code>pmset -a disablesleep 1</code>, and nothing else. The direct build installs the rule when you choose to. The App Store build can't run sudo from its sandbox, so it uses a separate Closed-Lid Setup companion that installs the same rule, a small script (<code>dilated-power</code>) and a LaunchAgent that restores normal sleep if the app disappears. All of it runs locally and none of it uses the network.</p>
+    <p>To remove them, use Remove in Dilated's Closed Lid settings, or in the companion. The direct build also has <code>dilated lid-permission remove</code>. By hand:</p>
+    <pre><code>sudo rm /private/etc/sudoers.d/dilated
+launchctl bootout gui/$(id -u)/com.codeswhat.dilated.closed-lid-repair
+rm ~/Library/LaunchAgents/com.codeswhat.dilated.closed-lid-repair.plist
+rm "$HOME/Library/Application Scripts/com.codeswhat.dilated.appstore/dilated-power"
+sudo pmset -a disablesleep 0</code></pre>
+    <p>Both builds share the sudo rule, so removing it turns closed-lid mode off in each. The <a href="https://github.com/CodesWhat/dilated/blob/main/docs/INSTALLATION.md#remove-dilated">installation guide</a> has the full removal steps.</p>
+
+    <h2>Contact</h2>
+    <p>Questions about any of this: <a href="mailto:security@codeswhat.com">security@codeswhat.com</a>. Dilated is MIT licensed and the <a href="https://github.com/CodesWhat/dilated">source</a> is public, so you can check these claims against the code.</p>
+    <p class="legal-date">Effective 2026-11-03. If this changes, the date changes with it.</p>
+  </main>
+  <footer class="page-width"><a class="footer-brand" href="./">dilated</a><p>Made by <a href="https://codeswhat.com">CodesWhat</a>.<br>small, sharp tools from one developer and a lot of agents</p><div><a href="https://mouthtype.app">Also from CodesWhat: Mouthtype ↗</a><a href="https://codeswhat.com/support">SUPPORT</a><a href="./privacy">PRIVACY</a></div><span>FREE SOFTWARE<br>MIT LICENSE</span></footer>
+</body>
+</html>

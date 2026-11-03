@@ -63,9 +63,9 @@ test('robots.txt allows all and names the sitemap', async () => {
   assert.match(robots, new RegExp(`^Sitemap: ${CANONICAL}sitemap\\.xml$`, 'm'));
 });
 
-test('sitemap.xml lists only the canonical page', async () => {
+test('sitemap.xml lists the home page and the privacy page', async () => {
   const sitemap = await read('sitemap.xml');
-  assert.deepEqual([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map(match => match[1]), [CANONICAL]);
+  assert.deepEqual([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map(match => match[1]), [CANONICAL, `${CANONICAL}privacy`]);
 });
 
 test('llms.txt leads with the product and links the key pages', async () => {
