@@ -23,6 +23,8 @@ for module in website/dist/*.mjs; do node --check "$module"; done
 swift format lint --strict --recursive Sources Tests Package.swift design/menubar/generate.swift design/app-icon/generate.swift scripts/dmg/background.swift scripts/dmg/volume-icon.swift
 for script in scripts/build-app.sh scripts/swift-test.sh scripts/verify.sh scripts/verify-website-browsers.sh scripts/coverage-lcov.sh scripts/check-commit-msg.sh; do bash -n "$script"; done
 bash -n packaging/mas/dilated-power
+bash -n scripts/mas-repair-agent-check.sh
+plutil -lint packaging/mas/com.codeswhat.dilated.closed-lid-repair.plist
 python3 -c 'import ast; from pathlib import Path; [ast.parse(file.read_text(), filename=str(file)) for file in Path("scripts").rglob("*.py")]'
 plutil -lint packaging/Info.plist
 plutil -lint packaging/Dilated.entitlements
