@@ -70,6 +70,22 @@ import Testing
     #expect(forced.value == 1)
   }
 
+  @Test func forceExitIsArmedBeforeATerminateThatNeverReturns() async {
+    let forced = Counter()
+    let gate = DispatchSemaphore(value: 0)
+    var quit = PackageQuit()
+    quit.delay = .milliseconds(1)
+    quit.grace = 0.05
+    // Stands in for `.terminateLater`: blocks until the fallback fires (or 10s, failing the test).
+    quit.terminate = { _ = gate.wait(timeout: .now() + 10) }
+    quit.forceExit = {
+      forced.bump()
+      gate.signal()
+    }
+    await quit.run()
+    #expect(forced.value == 1)
+  }
+
   private func pump() { RunLoop.main.run(until: Date().addingTimeInterval(0.5)) }
 }
 
