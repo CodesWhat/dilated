@@ -1,6 +1,7 @@
 import AppKit
 import DilatedControl
 import DilatedCore
+import DilatedUpdates
 import Foundation
 import Testing
 
@@ -101,6 +102,105 @@ import Testing
     #expect(presented.last?.items.contains { $0.title == "Resume automation" } == true)
     #expect(controller.statusItem.menu == nil)
     #expect(button.action == action && button.target === target)
+  }
+
+  private func flushMainQueue() async {
+    await withCheckedContinuation { continuation in
+      DispatchQueue.main.async { continuation.resume() }
+    }
+  }
+
+  /// Opens the real controller menu, captures only weak handles to the item's target, then closes.
+  private func openAndClose(
+    _ controller: MenuBarController, title: String, presented: inout [NSMenu]
+  ) -> (target: WeakBox, action: Selector)? {
+    controller.showMenu()
+    guard let menu = presented.last, let item = menu.items.first(where: { $0.title == title })
+    else { return nil }
+    let box = WeakBox(item.target as AnyObject?)
+    let action = item.action
+    let delegate = menu.delegate
+    presented.removeAll()
+    delegate?.menuDidClose?(menu)
+    return (box, action!)
+  }
+
+  private func makeController(
+    _ model: AppModel, presented: UnsafeMutablePointer<[NSMenu]>
+  ) -> MenuBarController {
+    _ = NSApplication.shared
+    return MenuBarController(
+      model: model, openSettings: {},
+      presentMenu: { item in if let menu = item.menu { presented.pointee.append(menu) } })
+  }
+
+  @Test func menuActionsSurviveMenuDidCloseBeforeDispatch() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    let presented = UnsafeMutablePointer<[NSMenu]>.allocate(capacity: 1)
+    presented.initialize(to: [])
+    defer { presented.deallocate() }
+    let controller = makeController(model, presented: presented)
+    defer { controller.stop() }
+
+    model.stopAll()
+    #expect(model.engine.automationPaused)
+    var resume = autoreleasepool {
+      openAndClose(controller, title: "Resume automation", presented: &presented.pointee)
+    }
+    try #require(resume != nil)
+    #expect(resume?.target.value != nil)
+    _ = (resume!.target.value as? NSObject)?.perform(resume!.action)
+    #expect(!model.engine.automationPaused)
+    await flushMainQueue()
+    resume = nil
+
+    let keep = autoreleasepool {
+      openAndClose(controller, title: "Keep Awake", presented: &presented.pointee)
+    }
+    try #require(keep != nil)
+    _ = (keep!.target.value as? NSObject)?.perform(keep!.action)
+    #expect(!model.engine.holds.isEmpty)
+    await flushMainQueue()
+
+    let stop = autoreleasepool {
+      openAndClose(controller, title: "Stop", presented: &presented.pointee)
+    }
+    try #require(stop != nil)
+    _ = (stop!.target.value as? NSObject)?.perform(stop!.action)
+    #expect(model.engine.holds.isEmpty)
+    await flushMainQueue()
+  }
+
+  @Test func reopeningTheMenuKeepsItsCommandsAcrossThePreviousDeferredRelease() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    let presented = UnsafeMutablePointer<[NSMenu]>.allocate(capacity: 1)
+    presented.initialize(to: [])
+    defer { presented.deallocate() }
+    let controller = makeController(model, presented: presented)
+    defer { controller.stop() }
+
+    model.stopAll()
+    controller.showMenu()
+    let first = try #require(presented.pointee.last)
+    first.delegate?.menuDidClose?(first)
+    // Reopen before the first close's deferred release runs.
+    controller.showMenu()
+    let second = try #require(presented.pointee.last)
+    let box = WeakBox(second.items.first { $0.title == "Resume automation" }?.target as AnyObject?)
+    let action = try #require(second.items.first { $0.title == "Resume automation" }?.action)
+    presented.pointee.removeAll()
+    await flushMainQueue()
+    #expect(box.value != nil)
+    _ = (box.value as? NSObject)?.perform(action)
+    #expect(!model.engine.automationPaused)
+    second.delegate?.menuDidClose?(second)
+    await flushMainQueue()
   }
 
   @Test func statusAndPauseUseNativeMenuRows() throws {
@@ -282,4 +382,9 @@ import Testing
   var checks = 0
   func start() throws {}
   func checkForUpdates() { checks += 1 }
+}
+
+private final class WeakBox {
+  weak var value: AnyObject?
+  init(_ value: AnyObject?) { self.value = value }
 }
