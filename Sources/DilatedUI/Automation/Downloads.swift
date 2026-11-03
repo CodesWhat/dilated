@@ -159,6 +159,8 @@ private final class DownloadEventTarget: Sendable {
   private var needsRefresh = false
   private var generation = 0
   private var active = false
+  /// Scoped access to the target, held until the monitor is released.
+  var scopeAccess: BookmarkAccess?
 
   init(
     target: DownloadTarget, quietSeconds: TimeInterval,
