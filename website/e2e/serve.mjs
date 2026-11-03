@@ -32,7 +32,10 @@ const server = createServer(async (request, response) => {
     response.end(request.method === 'HEAD' ? undefined : body);
   };
   try {
-    const { pathname } = new URL(request.url, 'http://127.0.0.1');
+    let { pathname } = new URL(request.url, 'http://127.0.0.1');
+    // Same path rewrites as vercel.json, so clean URLs like /privacy resolve here too.
+    const rewrite = config.routes.find(item => item.dest && !item.has && new RegExp(item.src).test(pathname));
+    if (rewrite) pathname = rewrite.dest;
     const relative = normalize(decodeURIComponent(pathname)).replace(/^[/\\]+/, '');
     const file = join(distRoot, relative === '' || relative.endsWith(sep) ? join(relative, 'index.html') : relative);
     if (file !== distRoot && !file.startsWith(distRoot + sep)) return send(403, 'Forbidden');

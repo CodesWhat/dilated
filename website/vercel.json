@@ -73,6 +73,10 @@
       "continue": true
     },
     {
+      "src": "^/privacy/?$",
+      "dest": "/privacy.html"
+    },
+    {
       "src": "/download/file",
       "headers": {
         "Location": "/releases/1.0.0-beta.10/Dilated-1.0.0-beta.10-macos-arm64.dmg",
