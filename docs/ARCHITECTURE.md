@@ -369,4 +369,29 @@ compiled out with `#if MAS_CHANNEL`, not hidden:
 - Update controls: the General updates group, the About update row and both "Check for Updates…" menu items.
   `AppUpdater.statusText` reads "Updates come from the Mac App Store."
 
+Closed-lid mode in this channel can't spawn `sudo` from the sandbox. `LocalClosedLidTransport` uses
+`SerialPowerDriver(runner: UserScriptPowerRunner())`, which runs `~/Library/Application Scripts/<bundle id>/dilated-power`
+through `NSUserUnixTask` (`LiveUserScriptLauncher`, 3 second bound; a task can't be killed, so a timeout drops the result).
+The script runs unsandboxed as the user and the sudoers rule does the elevation. A separate companion, Dilated
+Closed-Lid Setup, installs the script and the rule; the app never installs either. The source is
+`packaging/mas/dilated-power`.
+
+The script takes exactly one argument, `on`, `off` or `probe`. Anything else prints `usage` to stderr and exits 64. It uses
+absolute paths, runs `/usr/bin/env -i /usr/bin/sudo -n`, and reads no environment. `probe` runs `sudo -n -l` for both
+`pmset -a disablesleep` commands. It prints one word, then exits:
+
+| Word | Exit | Meaning |
+| --- | --- | --- |
+| `ok` | 0 | The command ran, or sudo allows both commands. |
+| `norule` | 3 | sudo needs a password, doesn't allow the command, or the user may not run sudo. |
+| `failed` | the failing status, or 1 | Anything else. |
+
+The app reads the first stdout word, not the exit status, because `NSUserUnixTask` only reports an `Error`. `norule` and a
+missing script become `ClosedLidPowerError.permissionUnavailable`, a timeout becomes `.commandTimedOut`, and the rest
+`.commandFailed`. `ClosedLidScriptState` (`scriptMissing`, `ruleMissing`, `ready`) comes from `probe`; a timeout or failure
+reads as `ruleMissing`. `ClosedLidPermissionModel` shows plain copy for each state and no install or remove button.
+
+There is no crash watchdog in this channel (`ClosedLidWatchdogSpawner` is compiled out) until slice BUILD.4 decides the
+revert path. The in-app lease and the relaunch revert still run.
+
 `scripts/check-mas-build.sh` builds this channel in `.build-mas`; CI also runs the `MASChannel` tests there.

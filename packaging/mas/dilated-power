@@ -1,0 +1,68 @@
+#!/bin/bash
+# Runs the two pmset commands Dilated needs for closed-lid mode, through the sudoers rule that
+# Dilated Closed-Lid Setup installs. The Mac App Store build can't spawn sudo, so it runs this
+# script from ~/Library/Application Scripts/<bundle id>/ through NSUserUnixTask.
+#
+# Usage: dilated-power on|off|probe
+# Output: one word on stdout, then the exit status.
+#   ok      0   the command ran (or, for probe, sudo allows both commands)
+#   norule  3   sudo needs a password, doesn't allow the command, or the user may not run sudo
+#   failed  N   anything else; N is the failing command's status, or 1
+# Anything but exactly one of the three verbs prints usage to stderr and exits 64.
+set -euo pipefail
+
+usage() {
+  echo "usage: dilated-power on|off|probe" >&2
+  exit 64
+}
+
+[ "$#" -eq 1 ] || usage
+case "$1" in
+  on | off | probe) ;;
+  *) usage ;;
+esac
+verb=$1
+
+# Mirrors SudoPowerRunner.lacksPermission: status 1 plus one of the three sudo messages.
+report() {
+  local status=$1 detail=$2
+  if [ "$status" -eq 1 ]; then
+    case "$detail" in
+      *"a password is required"* | *"not allowed"* | *"may not run sudo"*)
+        echo norule
+        exit 3
+        ;;
+    esac
+  fi
+  echo failed
+  exit "$status"
+}
+
+# Runs sudo with an empty environment. Arguments are fixed strings from this file.
+run_sudo() {
+  /usr/bin/env -i /usr/bin/sudo -n "$@" 2>&1
+}
+
+status=0
+detail=""
+case "$verb" in
+  on)
+    detail=$(run_sudo /usr/bin/pmset -a disablesleep 1) || status=$?
+    ;;
+  off)
+    detail=$(run_sudo /usr/bin/pmset -a disablesleep 0) || status=$?
+    ;;
+  probe)
+    # One `sudo -n -l` per command, mirroring ClosedLidPermission.probeArgumentSets.
+    for value in 1 0; do
+      detail=$(run_sudo -l /usr/bin/pmset -a disablesleep "$value") || status=$?
+      [ "$status" -eq 0 ] || break
+    done
+    ;;
+esac
+
+if [ "$status" -eq 0 ]; then
+  echo ok
+  exit 0
+fi
+report "$status" "$detail"
