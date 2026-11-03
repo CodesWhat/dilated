@@ -124,20 +124,22 @@ import SwiftUI
           }
         }
       }
-      if let record = model.helperMigration.record {
-        SettingsRow(
-          title: record.needsAttention ? "Old helper needs attention" : "Old helper removed",
-          detail: record.message
-        ) {
-          HStack {
-            if record.outcome == .needsRestore {
-              Button("Restore normal sleep") { Task { await model.restoreNormalSleep() } }
-                .disabled(permission.busy || model.closedLid.busy)
+      #if !MAS_CHANNEL
+        if let record = model.helperMigration.record {
+          SettingsRow(
+            title: record.needsAttention ? "Old helper needs attention" : "Old helper removed",
+            detail: record.message
+          ) {
+            HStack {
+              if record.outcome == .needsRestore {
+                Button("Restore normal sleep") { Task { await model.restoreNormalSleep() } }
+                  .disabled(permission.busy || model.closedLid.busy)
+              }
+              Button("Dismiss") { model.helperMigration.dismiss() }
             }
-            Button("Dismiss") { model.helperMigration.dismiss() }
           }
         }
-      }
+      #endif
       if let state = model.closedLid.state {
         SettingsRow(title: "Power setting", detail: state.stopReason?.localizedDescription) {
           Text(

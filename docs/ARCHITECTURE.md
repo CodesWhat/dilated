@@ -355,3 +355,18 @@ armed run; crash/relaunch never restore arming. Pending replies cannot restore
 permission after Stop/Resume, disarm or edit. Closed-lid failures remain visible and
 require a new explicit arm. The native closed-lid and installed UI acceptance gates
 remain separate from injected tests and offscreen rendering.
+
+## Mac App Store build
+
+`DILATED_CHANNEL=mas` defines `MAS_CHANNEL` and drops Sparkle (see `Distribution.current`). These surfaces are
+compiled out with `#if MAS_CHANNEL`, not hidden:
+
+- Donate and sponsor links: `SupportLinks`, the "Support Dilated" menu item and the About credits line.
+- Command line install: the Automation row, the `CommandLineInstallation` type and its package-removal call.
+- Process triggers: both process kinds in the trigger editor, `ProcessCatalog`, and process evaluation in
+  `TriggerMonitor`. Saved process rules stay in the data, show a note in the editor and never match.
+- Helper migration: `HelperMigration` and its launch, package and Closed Lid settings call sites.
+- Update controls: the General updates group, the About update row and both "Check for Updates…" menu items.
+  `AppUpdater.statusText` reads "Updates come from the Mac App Store."
+
+`scripts/check-mas-build.sh` builds this channel in `.build-mas`; CI also runs the `MASChannel` tests there.

@@ -200,13 +200,17 @@ struct PageIdentity: Hashable {
   @State private var presetsLoaded = false
   @FocusState private var presetsFocused: Bool
   @State private var loginRefresh = 0
-  @State private var cliRefresh = 0
+  #if !MAS_CHANNEL
+    @State private var cliRefresh = 0
+  #endif
   @State private var confirmSettingsReset = false
   @State private var recoveryError: String?
   @State private var recoveryNote: String?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   private let loginItem = LoginItem()
-  private let cliInstallation = CommandLineInstallation()
+  #if !MAS_CHANNEL
+    private let cliInstallation = CommandLineInstallation()
+  #endif
 
   var body: some View {
     HStack(spacing: 0) {
@@ -501,25 +505,27 @@ struct PageIdentity: Hashable {
             .disabled(!model.settings.stopOnUserSwitch)
         }
       }
-      SettingsGroup(eyebrow: "UPDATES") {
-        SettingsRow(title: "App updates", detail: model.updater.statusText) {
-          Button("Check for Updates…") { model.updater.checkForUpdates() }
-            .disabled(!model.updater.canCheckForUpdates)
-        }
-        if model.updater.isAvailable {
-          SettingsRow(
-            title: "Check automatically", detail: "Downloading and installing always asks first."
-          ) {
-            Toggle(
-              "Check automatically",
-              isOn: Binding(
-                get: { model.updater.automaticallyChecksForUpdates },
-                set: { model.updater.setAutomaticChecks($0) }
-              )
-            ).labelsHidden()
+      #if !MAS_CHANNEL
+        SettingsGroup(eyebrow: "UPDATES") {
+          SettingsRow(title: "App updates", detail: model.updater.statusText) {
+            Button("Check for Updates…") { model.updater.checkForUpdates() }
+              .disabled(!model.updater.canCheckForUpdates)
+          }
+          if model.updater.isAvailable {
+            SettingsRow(
+              title: "Check automatically", detail: "Downloading and installing always asks first."
+            ) {
+              Toggle(
+                "Check automatically",
+                isOn: Binding(
+                  get: { model.updater.automaticallyChecksForUpdates },
+                  set: { model.updater.setAutomaticChecks($0) }
+                )
+              ).labelsHidden()
+            }
           }
         }
-      }
+      #endif
     }
   }
   private var loginDescription: String {
@@ -714,15 +720,18 @@ struct PageIdentity: Hashable {
           Toggle("Allow automation links", isOn: $model.settings.urlAutomation).labelsHidden()
             .accessibilityHint("Allows dilated://awake, dilated://stop and dilated://toggle links.")
         }
-        SettingsRow(
-          title: "Command line tool",
-          detail: "Install into ~/.local/bin. Add that directory to your PATH if needed."
-        ) {
-          Button(
-            cliInstallation.isInstalled ? "Remove command line tool" : "Install command line tool",
-            action: changeCLIInstallation
-          ).id(cliRefresh)
-        }
+        #if !MAS_CHANNEL
+          SettingsRow(
+            title: "Command line tool",
+            detail: "Install into ~/.local/bin. Add that directory to your PATH if needed."
+          ) {
+            Button(
+              cliInstallation.isInstalled
+                ? "Remove command line tool" : "Install command line tool",
+              action: changeCLIInstallation
+            ).id(cliRefresh)
+          }
+        #endif
         if model.engine.automationPaused {
           SettingsRow(
             title: "Automation paused", detail: "CLI starts, links and agent renewals are blocked."
@@ -744,14 +753,16 @@ struct PageIdentity: Hashable {
       .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
   }
-  private func changeCLIInstallation() {
-    do {
-      model.message =
-        try cliInstallation.isInstalled
-        ? cliInstallation.remove() : cliInstallation.install()
-    } catch { model.message = error.localizedDescription }
-    cliRefresh += 1
-  }
+  #if !MAS_CHANNEL
+    private func changeCLIInstallation() {
+      do {
+        model.message =
+          try cliInstallation.isInstalled
+          ? cliInstallation.remove() : cliInstallation.install()
+      } catch { model.message = error.localizedDescription }
+      cliRefresh += 1
+    }
+  #endif
   private var advanced: some View {
     SettingsGroup(eyebrow: "DIAGNOSTICS") {
       SettingsRow(title: "Active power assertions") {

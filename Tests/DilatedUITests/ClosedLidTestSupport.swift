@@ -27,27 +27,32 @@ private struct NeverRunsScripts: PrivilegedScriptRunning {
       runner: NeverRunsScripts()))
 }
 
-@MainActor final class FakeHelperRegistration: HelperUnregistering {
-  var status: SMAppService.Status
-  var unregisterError: (any Error)?
-  var unregisterCalls = 0
-  /// Called when `unregister()` succeeds, so a test can flip the fake launchd state with it.
-  var onUnregister: (() -> Void)?
-  init(status: SMAppService.Status) { self.status = status }
-  func unregister() async throws {
-    unregisterCalls += 1
-    if let unregisterError { throw unregisterError }
-    status = .notRegistered
-    onUnregister?()
+#if MAS_CHANNEL
+  /// The Mac App Store build has no helper migration, so the injected value is always nil.
+  @MainActor func inertMigration(_ directory: URL) -> HelperMigrationInjection? { nil }
+#else
+  @MainActor final class FakeHelperRegistration: HelperUnregistering {
+    var status: SMAppService.Status
+    var unregisterError: (any Error)?
+    var unregisterCalls = 0
+    /// Called when `unregister()` succeeds, so a test can flip the fake launchd state with it.
+    var onUnregister: (() -> Void)?
+    init(status: SMAppService.Status) { self.status = status }
+    func unregister() async throws {
+      unregisterCalls += 1
+      if let unregisterError { throw unregisterError }
+      status = .notRegistered
+      onUnregister?()
+    }
   }
-}
 
-/// A migration that finds nothing to do, for tests that call `AppModel.begin()`.
-@MainActor func inertMigration(_ directory: URL) -> HelperMigration {
-  HelperMigration(
-    service: FakeHelperRegistration(status: .notRegistered), stateDirectory: directory,
-    jobState: { .absent }, revertSleep: { true })
-}
+  /// A migration that finds nothing to do, for tests that call `AppModel.begin()`.
+  @MainActor func inertMigration(_ directory: URL) -> HelperMigration {
+    HelperMigration(
+      service: FakeHelperRegistration(status: .notRegistered), stateDirectory: directory,
+      jobState: { .absent }, revertSleep: { true })
+  }
+#endif
 
 private actor IdleLidPower: ClosedLidPowerControlling {
   func setSleepDisabled(_ disabled: Bool) async throws -> ClosedLidReadback {

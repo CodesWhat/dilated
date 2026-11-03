@@ -55,10 +55,12 @@ enum AboutInfo {
           }
           Spacer(minLength: 0)
         }.padding(12)
-        SettingsRow(title: "App updates", detail: model.updater.statusText) {
-          Button("Check for Updates…") { model.updater.checkForUpdates() }
-            .disabled(!model.updater.canCheckForUpdates)
-        }
+        #if !MAS_CHANNEL
+          SettingsRow(title: "App updates", detail: model.updater.statusText) {
+            Button("Check for Updates…") { model.updater.checkForUpdates() }
+              .disabled(!model.updater.canCheckForUpdates)
+          }
+        #endif
       }
       SettingsGroup(eyebrow: "LINKS") {
         ForEach(AboutInfo.links, id: \.title) { link in
@@ -68,9 +70,11 @@ enum AboutInfo {
           }
         }
       }
-      Text(SupportLinks.credits).font(DesignFont.sans(11.5)).foregroundStyle(DesignPalette.ink2)
-        .multilineTextAlignment(.center).frame(maxWidth: .infinity)
-        .fixedSize(horizontal: false, vertical: true)
+      #if !MAS_CHANNEL
+        Text(SupportLinks.credits).font(DesignFont.sans(11.5)).foregroundStyle(DesignPalette.ink2)
+          .multilineTextAlignment(.center).frame(maxWidth: .infinity)
+          .fixedSize(horizontal: false, vertical: true)
+      #endif
     }
   }
 }

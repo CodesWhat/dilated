@@ -258,6 +258,14 @@ private enum TriggerKind: String, CaseIterable {
   case bluetooth = "Paired Bluetooth device"
   case cpu = "CPU load"
   case idle = "Idle time"
+  /// The kinds the picker lists. The Mac App Store build can't read the process list, so it offers neither process kind.
+  static var offered: [TriggerKind] {
+    #if MAS_CHANNEL
+      allCases.filter { $0 != .process && $0 != .processInstance }
+    #else
+      allCases
+    #endif
+  }
   var initial: TriggerCriterion {
     switch self {
     case .application: .application(bundleID: "", frontmostOnly: false)
@@ -287,7 +295,9 @@ private enum TriggerKind: String, CaseIterable {
     var didAppear: ((any View) -> Void)?
   #endif
   @Binding var criterion: TriggerCriterion
-  @State private var processes: [NativeProcess] = []
+  #if !MAS_CHANNEL
+    @State private var processes: [NativeProcess] = []
+  #endif
   @State private var audioOutputs: [NativeAudioOutput] = []
   @State private var usbDevices: [NativeUSBDevice] = []
   private var kind: TriggerKind {
@@ -315,7 +325,7 @@ private enum TriggerKind: String, CaseIterable {
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       Picker("Condition", selection: Binding(get: { kind }, set: { criterion = $0.initial })) {
-        ForEach(TriggerKind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+        ForEach(TriggerKind.offered, id: \.self) { Text($0.rawValue).tag($0) }
       }
       switch criterion {
       case .application(let bundleID, let frontmostOnly):
@@ -332,34 +342,41 @@ private enum TriggerKind: String, CaseIterable {
           isOn: Binding(
             get: { frontmostOnly },
             set: { criterion = .application(bundleID: bundleID, frontmostOnly: $0) }))
-      case .process(let name):
-        TextField(
-          "Executable name or full path",
-          text: Binding(get: { name }, set: { criterion = .process(name: $0) }))
-        Text(
-          "Exact name, such as make, or a full executable path. Ends when the last matching process exits."
-        )
-        .font(.caption).foregroundStyle(.secondary)
-      case .processInstance(let identity):
-        Picker(
-          "Process",
-          selection: Binding(get: { identity }, set: { criterion = .processInstance($0) })
-        ) {
-          if !processes.contains(where: { $0.identity == identity }) {
-            Text(identity.pid == 0 ? "Choose a process" : "PID \(identity.pid) (ended)").tag(
-              identity)
+      #if MAS_CHANNEL
+        case .process, .processInstance:
+          Text("Process conditions aren't available in the Mac App Store version.")
+            .font(.caption).foregroundStyle(.secondary)
+      #else
+        case .process(let name):
+          TextField(
+            "Executable name or full path",
+            text: Binding(get: { name }, set: { criterion = .process(name: $0) }))
+          Text(
+            "Exact name, such as make, or a full executable path. Ends when the last matching process exits."
+          )
+          .font(.caption).foregroundStyle(.secondary)
+        case .processInstance(let identity):
+          Picker(
+            "Process",
+            selection: Binding(get: { identity }, set: { criterion = .processInstance($0) })
+          ) {
+            if !processes.contains(where: { $0.identity == identity }) {
+              Text(identity.pid == 0 ? "Choose a process" : "PID \(identity.pid) (ended)").tag(
+                identity)
+            }
+            ForEach(processes) { process in
+              Text("\(process.name) (\(process.id))").tag(process.identity)
+            }
           }
-          ForEach(processes) { process in
-            Text("\(process.name) (\(process.id))").tag(process.identity)
+          Button("Refresh processes") {
+            processes = ProcessCatalog.pickerList()
           }
-        }
-        Button("Refresh processes") {
-          processes = ProcessCatalog.pickerList()
-        }
-        Text("Tracks this process instance. A future process with the same PID won't match.").font(
-          .caption
-        ).foregroundStyle(.secondary)
-          .onAppear { processes = ProcessCatalog.pickerList() }
+          Text("Tracks this process instance. A future process with the same PID won't match.")
+            .font(
+              .caption
+            ).foregroundStyle(.secondary)
+            .onAppear { processes = ProcessCatalog.pickerList() }
+      #endif
       case .mirrored(let mirrored):
         Toggle(
           "Displays are mirrored",
