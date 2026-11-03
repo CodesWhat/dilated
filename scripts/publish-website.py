@@ -104,17 +104,46 @@ def build_staging(root, source, assets, staging):
     return deploy
 
 
-def main(argv=None):
+def check_live_coverage(assets, live):
+    """Refuse a deploy that would drop a release the live site still references."""
+    latest, versions = live
+    have = public.release_directories(assets)
+    if len(have) == 1 and latest and latest not in have:
+        raise RuntimeError(
+            f'Single-release public dir: {assets} holds only {sorted(have)[0]} but the live site is at {latest}. '
+            'Deploying it would replace the whole site and drop every earlier release. '
+            'Use the retained build/public-release-assets from the main checkout.')
+    missing = sorted(versions - have)
+    if missing:
+        raise RuntimeError(f"Public dir is missing releases the live site references: {', '.join(missing)}")
+    if len(have) < len(versions):
+        raise RuntimeError(f'Public dir holds {len(have)} releases but the live site lists {len(versions)}')
+
+
+def main(argv=None, fetch=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--public-dir', required=True, type=Path)
+    parser.add_argument('--public-dir', type=Path,
+                        help='Default: build/public-release-assets in the main checkout')
     parser.add_argument('--production', action='store_true', help='Publish after validation; otherwise check only')
+    parser.add_argument('--allow-offline', action='store_true',
+                        help='Publish even if the live site cannot be fetched to compare releases')
     args = parser.parse_args(argv)
-    source, selected = validate(ROOT, args.public_dir.resolve())
+    public_dir = (args.public_dir or public.default_public_dir()).resolve()
+    source, selected = validate(ROOT, public_dir)
     if not args.production:
         print(f"Checked website {source} and release {selected['version']}; nothing published")
         return
+    try:
+        live = public.live_releases(fetch or public.fetch_live)
+    except Exception as error:
+        if not args.allow_offline:
+            raise RuntimeError(f'Cannot fetch the live site to compare releases ({error}); '
+                               'pass --allow-offline to publish anyway') from error
+        print(f'WARNING: live site unreachable ({error}); publishing without the release comparison')
+    else:
+        check_live_coverage(public_dir, live)
     with tempfile.TemporaryDirectory(prefix='dilated-website-publish-') as temporary:
-        deploy = build_staging(ROOT, source, args.public_dir.resolve(), Path(temporary))
+        deploy = build_staging(ROOT, source, public_dir, Path(temporary))
         result = run(['vercel', 'deploy', str(deploy), '--prod', '--yes', '--scope', 'codeswhat',
                       '--meta', f'sourceCommit={source}', '--meta', 'sourceRepository=CodesWhat/dilated'], timeout=600)
         print(result)

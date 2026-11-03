@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @MainActor struct DriveAliveSettingsView: View {
@@ -51,6 +52,12 @@ import SwiftUI
           Button("Refresh") { Task { await refresh() } }.disabled(refreshing)
         }
         if let issue { SettingsNote(text: issue, tone: DesignPalette.danger) }
+        if DownloadTargetRecord.isSandboxed {
+          SettingsNote(
+            text:
+              "macOS only lets Dilated write to a volume you grant. Turning a volume on asks you to choose its root folder."
+          )
+        }
         if mounted.isEmpty && issue == nil {
           SettingsNote(text: refreshing ? "Reading volumes…" : "No volumes available.")
         }
@@ -59,8 +66,13 @@ import SwiftUI
             title: drive.volume.name,
             detail: drive.volume.path + "\n" + status(for: drive)
           ) {
-            if selected(drive.volume.id) { modePicker(for: drive.volume) }
-            Toggle("Use \(drive.volume.name)", isOn: binding(for: drive.volume))
+            if selected(drive.volume.id) {
+              if needsGrant(drive.volume.id) {
+                Button("Grant access…") { grantAccess(to: drive) }
+              }
+              modePicker(for: drive.volume)
+            }
+            Toggle("Use \(drive.volume.name)", isOn: binding(for: drive))
               .labelsHidden().disabled(
                 (drive.readOnly || ambiguous(drive.volume.id)) && !selected(drive.volume.id))
           }
@@ -81,6 +93,41 @@ import SwiftUI
 
   private func selected(_ id: String) -> Bool {
     model.settings.driveAlive.volumes.contains { $0.id == id }
+  }
+  private func needsGrant(_ id: String) -> Bool {
+    model.settings.driveAlive.volumes.first { $0.id == id }?.needsGrant() ?? false
+  }
+  /// Turning a mounted volume on asks for its grant in the sandboxed build.
+  private func binding(for drive: MountedDrive) -> Binding<Bool> {
+    let plain = binding(for: drive.volume)
+    guard DownloadTargetRecord.isSandboxed else { return plain }
+    return Binding(
+      get: { plain.wrappedValue },
+      set: { enabled in
+        if enabled { grantAccess(to: drive) } else { plain.wrappedValue = false }
+      })
+  }
+  private func grantAccess(to drive: MountedDrive) {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.allowsMultipleSelection = false
+    panel.directoryURL = URL(fileURLWithPath: drive.volume.path, isDirectory: true)
+    panel.message = "Choose the root folder of \(drive.volume.name) to let Dilated write to it."
+    panel.prompt = "Grant access"
+    panel.begin { response in
+      guard response == .OK, let url = panel.url else { return }
+      do {
+        let existing = model.settings.driveAlive.volumes.first { $0.id == drive.volume.id }
+        let volume = try DriveAliveGrants().grant(
+          for: drive, chosen: url, mode: existing?.mode ?? .inherit)
+        var settings = model.settings.driveAlive
+        settings.volumes.removeAll { $0.id == volume.id }
+        settings.volumes.append(volume)
+        model.settings.driveAlive = settings
+        issue = nil
+      } catch { issue = error.localizedDescription }
+    }
   }
   private func binding(for volume: DriveAliveVolume) -> Binding<Bool> {
     Binding(
@@ -116,6 +163,7 @@ import SwiftUI
     guard let saved = model.settings.driveAlive.volumes.first(where: { $0.id == drive.volume.id }),
       model.settings.driveAlive.enabled
     else { return "Off" }
+    if saved.needsGrant() { return "Grant required. No writes." }
     if model.engine.automationPaused { return "Paused" }
     if !saved.eligible(
       awake: !model.engine.holds.isEmpty,

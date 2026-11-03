@@ -373,6 +373,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     self.updater.onChange = { [weak self] in self?.onChange?() }
     self.updater.activity = { [weak self] in self?.updateActivity ?? .starting }
+    driveAlive.grantRefreshed = { [weak self] id, data in
+      guard let self,
+        let index = self.settings.driveAlive.volumes.firstIndex(where: { $0.id == id })
+      else { return }
+      var value = self.settings
+      value.driveAlive.volumes[index].grant = data
+      self.settings = value
+    }
   }
 
   public func begin() {

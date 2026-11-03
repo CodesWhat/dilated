@@ -67,8 +67,14 @@ struct BookmarkResolution {
 
 struct SecurityScopedBookmarks: Sendable {
   let operations: any BookmarkFileOperations
+  var options = SecurityScopedBookmarks.creationOptions
 
   static let live = SecurityScopedBookmarks(operations: LiveBookmarkFileOperations())
+  /// For targets Dilated writes to (Drive Alive volumes). Needs `files.user-selected.read-write`.
+  static let liveReadWrite = SecurityScopedBookmarks(
+    operations: LiveBookmarkFileOperations(), options: readWriteCreationOptions)
+
+  static let readWriteCreationOptions: URL.BookmarkCreationOptions = [.withSecurityScope]
 
   /// The MAS entitlement is `files.user-selected.read-only`, so bookmarks are read-only scoped.
   static let creationOptions: URL.BookmarkCreationOptions = [
@@ -77,7 +83,7 @@ struct SecurityScopedBookmarks: Sendable {
 
   /// Bookmark data for a URL the user picked in an `NSOpenPanel`.
   func create(from url: URL) throws -> Data {
-    try operations.makeBookmark(for: url, options: Self.creationOptions)
+    try operations.makeBookmark(for: url, options: options)
   }
 
   /// Resolves stored data. A stale bookmark is re-created from the resolved URL.
@@ -110,7 +116,7 @@ struct SecurityScopedBookmarks: Sendable {
       guard resolved.isStale else { return .init(url: resolved.url, refreshed: nil) }
       return .init(
         url: resolved.url,
-        refreshed: try operations.makeBookmark(for: resolved.url, options: Self.creationOptions))
+        refreshed: try operations.makeBookmark(for: resolved.url, options: options))
     } catch {
       operations.stopAccessing(resolved.url)
       throw error
