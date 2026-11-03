@@ -51,18 +51,48 @@ private final class MutableClock: @unchecked Sendable {
   func advance(_ seconds: TimeInterval) { lock.withLock { current += seconds } }
 }
 
+/// A monotonic clock the test advances by hand.
+private final class ManualMonotonic: @unchecked Sendable {
+  private let lock = NSLock()
+  private var current = Duration.zero
+  var now: Duration { lock.withLock { current } }
+  func advance(_ duration: Duration) { lock.withLock { current += duration } }
+}
+
+/// Stands in for the poll timer: the test fires each poll itself, in lockstep with the clock
+/// and the heartbeat, so no real elapsed time decides anything.
+private final class ManualTicks: @unchecked Sendable {
+  private let lock = NSLock()
+  private var handler: (@Sendable () -> Void)?
+  var ticker: @Sendable (Duration, @escaping @Sendable () -> Void) -> @Sendable () -> Void {
+    { [self] _, handler in
+      lock.withLock { self.handler = handler }
+      return { [self] in lock.withLock { self.handler = nil } }
+    }
+  }
+  /// Waits (by yielding, not by time) until `run()` has registered its poll.
+  func waitUntilArmed() async {
+    while lock.withLock({ handler == nil }) { await Task.yield() }
+  }
+  func fire() { lock.withLock { handler }?() }
+}
+
 private func watchdog(
   _ generation: UUID, store: ClosedLidMarkerStore, power: FakePower, pid: Int32, start: Int64,
-  timeout: Duration = .milliseconds(300)
+  timeout: Duration = .milliseconds(300), pollInterval: Duration = .milliseconds(20),
+  monotonic: @escaping @Sendable () -> Duration = ClosedLidWatchdog.suspendingNow,
+  ticker: @escaping @Sendable (Duration, @escaping @Sendable () -> Void) -> @Sendable () -> Void =
+    ClosedLidWatchdog.timerTicker
 ) -> ClosedLidWatchdog {
   ClosedLidWatchdog(
-    generation: generation, pollInterval: .milliseconds(20),
+    generation: generation, pollInterval: pollInterval,
     readMarker: { store.read() },
     onExit: { handler in
       ProcessExit.register(pid: pid, startMicros: start, handler: handler)
     },
     power: power, clearMarker: { store.clear(generation: generation) },
-    readHeartbeat: { store.readHeartbeat() }, heartbeatTimeout: timeout)
+    readHeartbeat: { store.readHeartbeat() }, heartbeatTimeout: timeout,
+    monotonic: monotonic, ticker: ticker)
 }
 
 struct ClosedLidHeartbeatTests {
@@ -74,8 +104,18 @@ struct ClosedLidHeartbeatTests {
     try store.write(marker(generation, pid: getpid(), start: start))
     store.writeHeartbeat(generation: generation, count: 1, at: Date())
     let power = FakePower()
-    let dog = watchdog(generation, store: store, power: power, pid: getpid(), start: start)
-    #expect(await dog.run() == .reverted)
+    let clock = ManualMonotonic()
+    let ticks = ManualTicks()
+    let dog = watchdog(
+      generation, store: store, power: power, pid: getpid(), start: start,
+      monotonic: { clock.now }, ticker: ticks.ticker)
+    let outcome = Task { await dog.run() }
+    await ticks.waitUntilArmed()
+    clock.advance(.milliseconds(299))
+    ticks.fire()
+    clock.advance(.milliseconds(1))
+    ticks.fire()
+    #expect(await outcome.value == .reverted)
     #expect(await power.calls == [false])
     #expect(store.read() == nil)
   }
@@ -87,16 +127,23 @@ struct ClosedLidHeartbeatTests {
     try store.write(marker(generation, pid: getpid(), start: start))
     store.writeHeartbeat(generation: generation, count: 0, at: Date())
     let power = FakePower()
-    let dog = watchdog(generation, store: store, power: power, pid: getpid(), start: start)
+    let clock = ManualMonotonic()
+    let ticks = ManualTicks()
+    let dog = watchdog(
+      generation, store: store, power: power, pid: getpid(), start: start,
+      monotonic: { clock.now }, ticker: ticks.ticker)
     let outcome = Task { await dog.run() }
+    await ticks.waitUntilArmed()
     // Three times the timeout, wall-clock field frozen: only the count moves.
     let frozen = Date(timeIntervalSince1970: 1_800_000_000)
     for count in 1...45 {
       store.writeHeartbeat(generation: generation, count: UInt64(count), at: frozen)
-      try await Task.sleep(for: .milliseconds(20))
+      clock.advance(.milliseconds(20))
+      ticks.fire()
     }
     #expect(await power.calls.isEmpty)
     store.clear(generation: generation)
+    ticks.fire()
     #expect(await outcome.value == .markerGone)
     #expect(await power.calls.isEmpty)
   }
@@ -107,16 +154,23 @@ struct ClosedLidHeartbeatTests {
     let start = try #require(ProcessStartTime.micros(pid: getpid()))
     try store.write(marker(generation, pid: getpid(), start: start))
     let power = FakePower()
-    let dog = watchdog(generation, store: store, power: power, pid: getpid(), start: start)
+    let clock = ManualMonotonic()
+    let ticks = ManualTicks()
+    let dog = watchdog(
+      generation, store: store, power: power, pid: getpid(), start: start,
+      monotonic: { clock.now }, ticker: ticks.ticker)
     let outcome = Task { await dog.run() }
+    await ticks.waitUntilArmed()
     for count in 1...30 {
       store.writeHeartbeat(
         generation: generation, count: UInt64(count),
         at: Date(timeIntervalSinceNow: 86_400 * 365))
-      try await Task.sleep(for: .milliseconds(20))
+      clock.advance(.milliseconds(20))
+      ticks.fire()
     }
     #expect(await power.calls.isEmpty)
     store.clear(generation: generation)
+    ticks.fire()
     #expect(await outcome.value == .markerGone)
   }
 
@@ -221,9 +275,10 @@ struct ClosedLidHeartbeatTests {
     let power = FakePower()
     let dog = watchdog(
       generation, store: store, power: power, pid: pid, start: start,
-      timeout: .milliseconds(600))
+      timeout: .seconds(5), pollInterval: .milliseconds(100))
     let outcome = Task { await dog.run() }
-    try await Task.sleep(for: .milliseconds(1000))
+    // Well under the timeout, so a slow runner can't make the live loop look stalled.
+    try await Task.sleep(for: .seconds(2))
     #expect(await power.calls.isEmpty)
     kill(pid, SIGSTOP)
     #expect(await outcome.value == .reverted)

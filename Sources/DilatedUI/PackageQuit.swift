@@ -12,8 +12,10 @@ import AppKit
 
   func run() async {
     try? await Task.sleep(for: delay)
-    terminate()
+    // Armed first: with `.terminateLater` AppKit may run a modal loop inside terminate() and
+    // not return, so the fallback can't wait until after it.
     let forceExit = forceExit
     DispatchQueue.global().asyncAfter(deadline: .now() + grace) { forceExit() }
+    terminate()
   }
 }
