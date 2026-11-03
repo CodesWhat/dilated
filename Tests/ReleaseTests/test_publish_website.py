@@ -202,7 +202,7 @@ class PublishWebsiteTests(unittest.TestCase):
         publish.validate(self.repo, self.assets)
         for change in [{'build': '3'}, {'sha256': '0' * 64}, {'version': '0.9.0'},
                        {'downloadURL': './releases/other.dmg'}, {'released': False},
-                       {'prerelease': True}, {'unverified': ['helperCrashRecovery']}]:
+                       {'prerelease': True}, {'unverified': ['sudoRuleRevoked']}]:
             with self.subTest(change=change):
                 latest.write_text(json.dumps({**good, **change}))
                 with self.assertRaisesRegex(RuntimeError, 'latest.json'):

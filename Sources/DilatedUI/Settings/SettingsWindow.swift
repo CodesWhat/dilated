@@ -8,7 +8,7 @@ import SwiftUI
 @MainActor final class SettingsWindow: NSWindowController, NSWindowDelegate {
   private let model: AppModel
   private let hosting: NSHostingView<SettingsContent>
-  private let navigation = SettingsNavigation()
+  let navigation = SettingsNavigation()
   private var glass: NSGlassEffectView?
   private var solid: Bool?
   private var accessibilityObserver: NSObjectProtocol?
@@ -65,9 +65,21 @@ import SwiftUI
   }
   func dismissSheetForPackage(_ request: ControlRequest, response: ControlResponse) {
     guard response.ok, request.action == .prepareUpdate || request.action == .prepareUninstall,
-      let window, let sheet = window.attachedSheet
+      let window
     else { return }
+    navigation.dismissSheets()
+    // Tearing a sheet down this way skips its onDisappear, which is what normally clears this.
+    model.shortcutRecording = false
+    Self.endSheets(of: window, depth: 0)
+    if NSApp.modalWindow != nil { NSApp.abortModal() }
+  }
+  /// Ends the deepest sheet first, then forces it off screen if AppKit still lists it. Bounded by
+  /// depth and by one pass per sheet, so it can't loop.
+  private static func endSheets(of window: NSWindow, depth: Int) {
+    guard depth < 8, let sheet = window.attachedSheet else { return }
+    endSheets(of: sheet, depth: depth + 1)
     window.endSheet(sheet, returnCode: .cancel)
+    if window.attachedSheet === sheet { sheet.orderOut(nil) }
   }
 
   func present() {
@@ -158,9 +170,19 @@ enum SettingsPage: String, CaseIterable, Identifiable {
   }
 }
 
+/// A page's SwiftUI identity. Bumping `epoch` rebuilds the page, which drops every sheet it presented.
+struct PageIdentity: Hashable {
+  let page: SettingsPage?
+  let epoch: Int
+}
+
 /// Carries a requested Settings page to the view, so callers can open a page while the window is already showing.
 @MainActor @Observable final class SettingsNavigation {
   var requested: SettingsPage?
+  private(set) var sheetEpoch = 0
+  /// `NSWindow.endSheet` leaves the SwiftUI presentation state set, so SwiftUI puts the sheet back.
+  /// Rebuilding the page is what actually clears that state.
+  func dismissSheets() { sheetEpoch += 1 }
   func show(_ page: SettingsPage) { requested = page }
 }
 
@@ -265,7 +287,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         }
         .padding(.horizontal, 28).padding(.top, 12).padding(.bottom, 28)
         .frame(maxWidth: .infinity, alignment: .leading)
-      }.background(DesignPalette.bg).id(page)
+      }.background(DesignPalette.bg).id(PageIdentity(page: page, epoch: navigation.sheetEpoch))
     }
     .font(DesignFont.sans(13)).foregroundStyle(DesignPalette.ink).tint(SettingsTheme.control)
     .frame(minWidth: 860, minHeight: 600)
@@ -401,7 +423,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
       Text(
         model.closedLid.active
           ? "Closed-lid is armed. Your Mac will keep working with its lid shut."
-          : "Set up the helper in Closed Lid, then enable it for an awake reason."
+          : "Set up closed-lid permission in Closed Lid, then enable it for an awake reason."
       )
       .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }

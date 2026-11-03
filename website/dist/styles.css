@@ -87,3 +87,6 @@ footer p a{display:inline-block;padding-block:12px;margin-block:-12px}
 .field-title-row>p,.margin-note>span{font-size:12px}
 }
 @media(max-width:370px){.night-subline p{font-size:12px}}
+
+.availability>.support-note{margin-top:24px}
+.support-note a{text-decoration:underline;text-underline-offset:3px}

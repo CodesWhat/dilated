@@ -83,26 +83,25 @@ def main():
             if "--expect-no-helper" in sys.argv:
                 helper = subprocess.run(["launchctl", "print", "system/com.codeswhat.dilated.helper"],
                                         capture_output=True, timeout=5)
-                assert helper.returncode != 0, "This check requires an uninstalled helper"
-                helper_status = json.loads(command("helper", "status", "--json").stdout)
-                assert helper_status['helperInstallation'] in ('notRegistered', 'notFound')
-                setup = json.loads(command("helper", "setup", "--json", expected=1).stdout)
-                assert 'Applications' in setup['message']
-                if helper_status['helperInstallation'] == 'notRegistered':
-                    removed = json.loads(command("helper", "remove", "--json").stdout)
-                    assert removed['ok'] and removed['helperInstallation'] == 'notRegistered'
-                else:
-                    removed = json.loads(command("helper", "remove", "--json", expected=1).stdout)
-                    assert not removed['ok'] and removed['code'] == 'helperFailure'
-                print("PASS helper status, install-location validation and conservative removal")
-                rejected = command("on", "--for", "30s", "--lid", "--json", expected=1)
-                assert json.loads(rejected.stdout)["code"] == "helperFailure"
-                assert not status()["snapshot"]["holds"], "Failed closed-lid left an awake hold"
-                forbidden_lid = state / "closed-lid-command-must-not-start"
-                command("run", "--lid", "--", "/usr/bin/touch", str(forbidden_lid), expected=1)
-                assert not forbidden_lid.exists()
-                assert not status()["snapshot"]["holds"]
-                print("PASS unavailable helper rejects closed-lid without leaving holds or starting work")
+                assert helper.returncode != 0, "This check requires the old helper job to be gone"
+                permission = command("lid-permission", "status").stdout.strip()
+                assert permission in ("notInstalled", "needsRepair", "blocked", "ready", "notAdmin",
+                                      "allowedByOtherRule"), permission
+                # The helper subcommands stay one release as deprecated aliases. Status only: setup
+                # and remove would open an administrator prompt.
+                alias = json.loads(command("helper", "status", "--json").stdout)
+                assert alias["ok"] and alias["lidPermission"] == permission
+                assert "deprecated" in alias["message"]
+                print("PASS old helper job is gone and helper status is a deprecated lid-permission alias")
+                if permission == "notInstalled":
+                    rejected = command("on", "--for", "30s", "--lid", "--json", expected=1)
+                    assert json.loads(rejected.stdout)["code"] == "helperFailure"
+                    assert not status()["snapshot"]["holds"], "Failed closed-lid left an awake hold"
+                    forbidden_lid = state / "closed-lid-command-must-not-start"
+                    command("run", "--lid", "--", "/usr/bin/touch", str(forbidden_lid), expected=1)
+                    assert not forbidden_lid.exists()
+                    assert not status()["snapshot"]["holds"]
+                    print("PASS missing closed-lid permission rejects closed-lid without leaving holds or starting work")
 
             command("run", "--", "/bin/sh", "-c", "exit 7", expected=7)
             runner = subprocess.Popen([str(CLI), "run", "--label", "bounded runner", "--", sys.executable,

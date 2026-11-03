@@ -105,7 +105,7 @@ import DilatedCore
           }
         }
       }
-      lid.isEnabled = !model.closedLid.busy && !model.helperInstallation.busy
+      lid.isEnabled = !model.closedLid.busy && !model.closedLidPermission.busy
       menu.addItem(lid)
     }
     if model.closedLid.active || model.closedLid.state?.readback.effectiveDisabled == true {
@@ -119,8 +119,20 @@ import DilatedCore
       menu.addItem(updates)
     }
     menu.addItem(action("About Dilated", body: openAbout))
+    menu.addItem(supportItem())
     menu.addItem(action("Quit Dilated", key: "q") { NSApp.terminate(nil) })
     return menu
+  }
+
+  private static func supportItem() -> NSMenuItem {
+    let submenu = NSMenu(title: SupportLinks.menuTitle)
+    submenu.autoenablesItems = false
+    for destination in SupportLinks.all {
+      submenu.addItem(action(destination.title) { NSWorkspace.shared.open(destination.url) })
+    }
+    let item = NSMenuItem(title: SupportLinks.menuTitle, action: nil, keyEquivalent: "")
+    item.submenu = submenu
+    return item
   }
 
   static func refreshStatus(in menu: NSMenu, model: AppModel) {

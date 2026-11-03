@@ -111,14 +111,11 @@ private actor IdlePower: ClosedLidPowerControlling {
 }
 
 @MainActor private func makeAppModel(
-  permission: ClosedLidPermissionModel, local: Bool, directory: URL
+  permission: ClosedLidPermissionModel, directory: URL
 ) -> AppModel {
-  let controller =
-    local
-    ? ClosedLidController(
-      transport: LocalClosedLidTransport(power: IdlePower(), tickInterval: .seconds(3600)),
-      expectedBuild: { LocalClosedLidTransport.buildIdentity })
-    : ClosedLidController()
+  let controller = ClosedLidController(
+    transport: LocalClosedLidTransport(power: IdlePower(), tickInterval: .seconds(3600)),
+    expectedBuild: { LocalClosedLidTransport.buildIdentity })
   return AppModel(
     endpoint: .init(stateDirectory: directory), power: { .init() },
     closedLid: controller,
@@ -170,7 +167,7 @@ private func buttonTitles(_ view: some View) throws -> [String] {
     let directory = scratch()
     defer { try? FileManager.default.removeItem(at: directory) }
     let permission = makePermissionModel(makeWorld(state))
-    let model = makeAppModel(permission: permission, local: true, directory: directory)
+    let model = makeAppModel(permission: permission, directory: directory)
     defer { model.shutdown() }
     await permission.refresh()
     let view = ClosedLidSettings(model: model)
@@ -186,7 +183,7 @@ private func buttonTitles(_ view: some View) throws -> [String] {
     let directory = scratch()
     defer { try? FileManager.default.removeItem(at: directory) }
     let permission = makePermissionModel(makeWorld(.allowedByOtherRule))
-    let model = makeAppModel(permission: permission, local: true, directory: directory)
+    let model = makeAppModel(permission: permission, directory: directory)
     defer { model.shutdown() }
     await permission.refresh()
     #expect(permission.state == .allowedByOtherRule)
@@ -213,7 +210,7 @@ private func buttonTitles(_ view: some View) throws -> [String] {
           stat: { _ in world.snapshot().0 }, readFile: { _ in world.snapshot().1 },
           probe: { world.snapshot().2 }, isAdmin: { world.snapshot().3 }),
         runner: gate))
-    let model = makeAppModel(permission: permission, local: true, directory: directory)
+    let model = makeAppModel(permission: permission, directory: directory)
     defer { model.shutdown() }
     let install = Task { @MainActor in await model.control(.init(action: .lidPermissionInstall)) }
     await settle { permission.busy }
@@ -233,7 +230,7 @@ private func buttonTitles(_ view: some View) throws -> [String] {
       (ClosedLidPermissionState.notAdmin, "administrator"), (.blocked, "sudo isn't honoring"),
     ] {
       let permission = makePermissionModel(makeWorld(state))
-      let model = makeAppModel(permission: permission, local: true, directory: directory)
+      let model = makeAppModel(permission: permission, directory: directory)
       defer { model.shutdown() }
       await permission.refresh()
       #expect(try texts(ClosedLidSettings(model: model)).contains { $0.contains(phrase) })
@@ -245,7 +242,7 @@ private func buttonTitles(_ view: some View) throws -> [String] {
     defer { try? FileManager.default.removeItem(at: directory) }
     let world = makeWorld(.notInstalled)
     let permission = makePermissionModel(world)
-    let model = makeAppModel(permission: permission, local: true, directory: directory)
+    let model = makeAppModel(permission: permission, directory: directory)
     defer { model.shutdown() }
     await permission.refresh()
     let view = ClosedLidSettings(model: model)
@@ -265,7 +262,7 @@ private func buttonTitles(_ view: some View) throws -> [String] {
     let world = makeWorld(.notInstalled)
     world.queue(.cancelled)
     let permission = makePermissionModel(world)
-    let model = makeAppModel(permission: permission, local: true, directory: directory)
+    let model = makeAppModel(permission: permission, directory: directory)
     defer { model.shutdown() }
     await permission.refresh()
     try button(ClosedLidSettings(model: model), "Set Up").tap()
@@ -282,7 +279,7 @@ private func buttonTitles(_ view: some View) throws -> [String] {
     let world = makeWorld(.notInstalled)
     world.queue(.failed("visudo said no"))
     let permission = makePermissionModel(world)
-    let model = makeAppModel(permission: permission, local: true, directory: directory)
+    let model = makeAppModel(permission: permission, directory: directory)
     defer { model.shutdown() }
     await permission.refresh()
     try button(ClosedLidSettings(model: model), "Set Up").tap()
@@ -296,7 +293,7 @@ private func buttonTitles(_ view: some View) throws -> [String] {
     defer { try? FileManager.default.removeItem(at: directory) }
     let world = makeWorld(.ready)
     let permission = makePermissionModel(world)
-    let model = makeAppModel(permission: permission, local: true, directory: directory)
+    let model = makeAppModel(permission: permission, directory: directory)
     defer { model.shutdown() }
     await permission.refresh()
     let view = ClosedLidSettings(model: model)
@@ -314,7 +311,7 @@ private func buttonTitles(_ view: some View) throws -> [String] {
     let world = makeWorld(.ready)
     world.set(recovery: .foreignSleepDisabled)
     let permission = makePermissionModel(world)
-    let model = makeAppModel(permission: permission, local: true, directory: directory)
+    let model = makeAppModel(permission: permission, directory: directory)
     defer { model.shutdown() }
     await permission.refresh()
     let view = ClosedLidSettings(model: model)
@@ -328,7 +325,7 @@ private func buttonTitles(_ view: some View) throws -> [String] {
     let world = makeWorld(.ready)
     world.set(recovery: .failed("sudo said no"))
     let permission = makePermissionModel(world)
-    let model = makeAppModel(permission: permission, local: true, directory: directory)
+    let model = makeAppModel(permission: permission, directory: directory)
     defer { model.shutdown() }
     await permission.refresh()
     let view = ClosedLidSettings(model: model)
@@ -363,23 +360,19 @@ private func buttonTitles(_ view: some View) throws -> [String] {
     #expect(permission.recovery == .failed("sudo said no"))
   }
 
-  @Test func flagOffRendersTheOldHelperGroupUnchanged() async throws {
+  @Test func settingsAlwaysShowThePermissionGroupAndNeverTheHelperGroup() async throws {
     let directory = scratch()
     defer { try? FileManager.default.removeItem(at: directory) }
     let world = makeWorld(.ready)
     let permission = makePermissionModel(world)
-    let model = makeAppModel(permission: permission, local: false, directory: directory)
+    let model = makeAppModel(permission: permission, directory: directory)
     defer { model.shutdown() }
     let view = ClosedLidSettings(model: model)
     let shown = try texts(view)
-    #expect(shown.contains("HELPER"))
-    #expect(!shown.contains("PERMISSION"))
-    #expect(shown.contains("Check helper status"))
-    #expect(
-      shown.contains(
-        "Approve the signed background helper in Login Items. Regular awake holds work without it."
-      ))
-    #expect(!(try buttonTitles(view).contains("Remove")))
+    #expect(shown.contains("PERMISSION"))
+    #expect(!shown.contains("HELPER"))
+    #expect(!shown.contains("Check helper status"))
+    #expect(!shown.contains { $0.contains("Login Items") })
     #expect(world.scripts.isEmpty)
   }
 
@@ -388,7 +381,7 @@ private func buttonTitles(_ view: some View) throws -> [String] {
     defer { try? FileManager.default.removeItem(at: directory) }
     let world = makeWorld(.notInstalled)
     let permission = makePermissionModel(world)
-    let model = makeAppModel(permission: permission, local: true, directory: directory)
+    let model = makeAppModel(permission: permission, directory: directory)
     defer { model.shutdown() }
     var response = await model.control(.init(action: .lidPermissionStatus))
     #expect(response.ok && response.lidPermission == "notInstalled")
@@ -412,7 +405,7 @@ private func buttonTitles(_ view: some View) throws -> [String] {
     let directory = scratch()
     defer { try? FileManager.default.removeItem(at: directory) }
     let permission = makePermissionModel(makeWorld(.ready))
-    let model = makeAppModel(permission: permission, local: true, directory: directory)
+    let model = makeAppModel(permission: permission, directory: directory)
     defer { model.shutdown() }
     let response = await model.control(.init(action: .helperStatus))
     #expect(response.ok)
@@ -420,15 +413,22 @@ private func buttonTitles(_ view: some View) throws -> [String] {
     #expect(response.message?.contains("deprecated") == true)
   }
 
-  @Test func lidPermissionControlIsUnavailableWhenTheFlagIsOff() async {
+  @Test func helperSetupAndRemoveMapToInstallAndRemoveWithADeprecationNote() async {
     let directory = scratch()
     defer { try? FileManager.default.removeItem(at: directory) }
-    let world = makeWorld(.ready)
-    let model = makeAppModel(
-      permission: makePermissionModel(world), local: false, directory: directory)
+    let world = makeWorld(.notInstalled)
+    let model = makeAppModel(permission: makePermissionModel(world), directory: directory)
     defer { model.shutdown() }
-    let response = await model.control(.init(action: .lidPermissionInstall))
-    #expect(!response.ok && response.code == "unavailable")
-    #expect(world.scripts.isEmpty)
+    world.queue(.cancelled)
+    var response = await model.control(.init(action: .helperSetup))
+    #expect(response.ok && response.code == "cancelled")
+    #expect(response.message?.contains("dilated helper is deprecated") == true)
+    #expect(world.scripts.count == 1)
+    world.set(info: .some(PermissionWorld.good), content: .some(ClosedLidPermission.ruleContent))
+    world.set(info: .some(nil), content: .some(nil), probe: false)
+    response = await model.control(.init(action: .helperRemove))
+    #expect(response.ok && response.lidPermission == "notInstalled")
+    #expect(response.message?.contains("deprecated") == true)
+    #expect(world.scripts.count == 2)
   }
 }

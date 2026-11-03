@@ -72,7 +72,9 @@ import Testing
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let fixture = FeedbackFixture()
-    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      closedLid: inertClosedLid(), helperMigration: inertMigration(directory))
     model.feedback = fixture.controller()
     defer { model.shutdown() }
     model.settings.historyEnabled = false
@@ -92,7 +94,9 @@ import Testing
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let fixture = FeedbackFixture()
-    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      closedLid: inertClosedLid(), helperMigration: inertMigration(directory))
     model.feedback = fixture.controller()
     defer { model.shutdown() }
     model.settings.feedback.notifications = true

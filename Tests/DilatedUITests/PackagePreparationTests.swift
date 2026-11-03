@@ -1,7 +1,6 @@
 import DilatedControl
 import DilatedCore
 import Foundation
-import ServiceManagement
 import Testing
 
 @testable import DilatedUI
@@ -74,51 +73,145 @@ import Testing
     }
   }
 
-  @Test func packageUpdateSucceedsWhenMacOSCannotFindTheHelper() async throws {
+  @Test func packageRemovalLeavesTheSudoRuleAloneUnlessAsked() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let helper = NotFoundPackageHelper()
-    let model = AppModel(
-      endpoint: .init(stateDirectory: directory), power: { .init() },
-      helperInstallation: HelperInstallation(
-        service: helper,
-        readPower: {
-          .init(effectiveDisabled: false, storedDisabled: false)
-        }, verifyHelperAbsent: {}))
+    let world = RuleWorld(outcome: .succeeded)
+    let model = makeModel(directory, permission: world.model())
     defer { model.shutdown() }
+    #expect(
+      await model.prepareForPackage(
+        .uninstall, app: app, removeLoginItem: {}, removeCommandLine: {}))
+    #expect(world.scripts.isEmpty && world.installed)
+    #expect(model.message?.contains("--remove-lid-permission") == true)
+  }
+
+  @Test func packageRemovalNamesEveryWayToRemoveTheRuleWhileItIsInstalled() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let world = RuleWorld(outcome: .succeeded)
+    let permission = world.model()
+    await permission.refresh()
+    let model = makeModel(directory, permission: permission)
+    defer { model.shutdown() }
+    #expect(
+      await model.prepareForPackage(
+        .uninstall, app: app, removeLoginItem: {}, removeCommandLine: {}))
+    #expect(model.message?.contains("dilated lid-permission remove") == true)
+    #expect(model.message?.contains("Settings") == true)
+  }
+
+  @Test func packageRemovalWithTheFlagRemovesTheRuleThroughTheAdminPrompt() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let world = RuleWorld(outcome: .succeeded)
+    let model = makeModel(directory, permission: world.model())
+    defer { model.shutdown() }
+    let response = await model.control(.init(action: .prepareUninstall, removeLidPermission: true))
+    #expect(response.ok)
+    #expect(world.scripts.count == 1 && !world.installed)
+  }
+
+  @Test(arguments: [PrivilegedScriptOutcome.cancelled, .failed("sudoers is read-only")])
+  func aCancelledOrFailedRuleRemovalLeavesTheAppOpenAndUnprepared(
+    outcome: PrivilegedScriptOutcome
+  ) async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let world = RuleWorld(outcome: outcome)
+    let model = makeModel(directory, permission: world.model())
+    defer { model.shutdown() }
+    model.start(duration: 120)
+    #expect(
+      !(await model.prepareForPackage(
+        .uninstall, app: app, removeLidPermission: true, removeLoginItem: {},
+        removeCommandLine: {})))
+    #expect(model.engine.holds.count == 1 && world.installed)
+    #expect(throws: (any Error).self) {
+      try PackageHandoffStore(directory: directory).requirePrepared(app: app)
+    }
+  }
+
+  @Test func updatePreparationTurnsAnActiveClosedLidSessionOffThroughTheSudoPath() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let power = SessionPower()
+    let controller = ClosedLidController(
+      transport: LocalClosedLidTransport(
+        power: power,
+        // Fixed readings: CI runners have no battery or thermal data, which the real reader
+        // reports as unavailable and the governor refuses.
+        environment: {
+          ClosedLidEnvironment(powerSource: .ac, thermal: .nominal, lidClosed: false)
+        },
+        tickInterval: .seconds(3600)))
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() }, closedLid: controller,
+      helperMigration: inertMigration(directory))
+    defer { model.shutdown() }
+    model.start(duration: 120)
+    try await model.setClosedLid(id: model.engine.holds[0].id, enabled: true)
+    #expect(await power.disabled)
+    #expect(!(await model.prepareForPackage(.update, app: app)))
+    try await model.setClosedLid(id: model.engine.holds[0].id, enabled: false)
     #expect(await model.prepareForPackage(.update, app: app))
-    #expect(!helper.unregisterCalled)
-    let handoff = try PackageHandoffStore(directory: directory).requirePrepared(app: app)
-    #expect(handoff.intent == .update)
-    #expect(!handoff.helperWasApproved)
+    #expect(!(await power.disabled))
   }
 
   private var app: URL { URL(fileURLWithPath: "/Applications/Dilated.app") }
-  private func makeModel(_ directory: URL) -> AppModel {
+  private func makeModel(
+    _ directory: URL, permission: ClosedLidPermissionModel? = nil
+  ) -> AppModel {
     AppModel(
       endpoint: .init(stateDirectory: directory), power: { .init() },
-      helperInstallation: HelperInstallation(
-        service: NoPackageHelper(),
-        readPower: {
-          .init(effectiveDisabled: false, storedDisabled: false)
-        }))
+      closedLid: inertClosedLid(), helperMigration: inertMigration(directory),
+      closedLidPermission: permission)
   }
 }
 
-@MainActor private final class NoPackageHelper: HelperInstalling {
-  var status: SMAppService.Status { .notRegistered }
-  func register() throws {}
-  func unregister() async throws {}
-  func openApproval() {}
+private actor SessionPower: ClosedLidPowerControlling {
+  private(set) var disabled = false
+  func setSleepDisabled(_ value: Bool) async throws -> ClosedLidReadback {
+    disabled = value
+    return ClosedLidReadback(effectiveDisabled: value, storedDisabled: value)
+  }
+  func readback() async -> ClosedLidReadback {
+    ClosedLidReadback(effectiveDisabled: disabled, storedDisabled: disabled)
+  }
+  func sleep() async throws {}
 }
 
-@MainActor private final class NotFoundPackageHelper: HelperInstalling {
-  var unregisterCalled = false
-  var status: SMAppService.Status { .notFound }
-  func register() throws {}
-  func unregister() async throws {
-    unregisterCalled = true
-    throw NSError(domain: NSPOSIXErrorDomain, code: Int(POSIXErrorCode.EPERM.rawValue))
+/// A sudo rule that is installed until the (fake) admin prompt removes it.
+private final class RuleWorld: @unchecked Sendable {
+  private let lock = NSLock()
+  private var present = true
+  private var ran: [String] = []
+  private let outcome: PrivilegedScriptOutcome
+  init(outcome: PrivilegedScriptOutcome) { self.outcome = outcome }
+  var installed: Bool { lock.withLock { present } }
+  var scripts: [String] { lock.withLock { ran } }
+
+  private struct Runner: PrivilegedScriptRunning {
+    let world: RuleWorld
+    func run(script: String) async -> PrivilegedScriptOutcome {
+      world.lock.withLock {
+        world.ran.append(script)
+        if world.outcome == .succeeded { world.present = false }
+      }
+      return world.outcome
+    }
   }
-  func openApproval() {}
+
+  @MainActor func model() -> ClosedLidPermissionModel {
+    ClosedLidPermissionModel(
+      permission: ClosedLidPermission(
+        seams: .init(
+          stat: { [self] _ in
+            installed
+              ? ClosedLidFileInfo(isRegularFile: true, owner: 0, group: 0, mode: 0o440) : nil
+          },
+          readFile: { [self] _ in installed ? ClosedLidPermission.ruleContent : nil },
+          probe: { [self] in installed }, isAdmin: { true }),
+        runner: Runner(world: self)))
+  }
 }

@@ -23,12 +23,14 @@ DISTRIBUTION_CHECKS = (
     'dmgSignatureVerified', 'dmgStapleVerified', 'dmgGatekeeperAccepted', 'updatesEnabled',
 )
 PRERELEASE_VERSION = re.compile(r'-(?:alpha|beta|rc)\.[1-9]\d*$')
-PRERELEASE_REQUIRED_CHECKS = ('macOS26ClosedLid', 'heartbeatExpiry', 'stopResume')
+PRERELEASE_REQUIRED_CHECKS = ('appCrashRecovery', 'heartbeatExpiry', 'stopResume')
+# A prerelease needs a passed closed-lid check on at least one supported macOS.
+PRERELEASE_ONE_OF_CHECKS = (('macOS26ClosedLid', 'macOS27ClosedLid'),)
 ACCEPTANCE_STATUSES = ('passed', 'failed', 'notRun')
 ACCEPTANCE_CHECKS = (
-    'macOS26ClosedLid', 'macOS27ClosedLid', 'helperCrashRecovery', 'appCrashRecovery',
-    'heartbeatExpiry', 'stopResume', 'guardTransitions', 'rebootRecovery', 'approvalDenied',
-    'helperUpgrade', 'sparkleUpgrade', 'uninstallNormalSleep', 'nativeUI',
+    'macOS26ClosedLid', 'macOS27ClosedLid', 'sudoRuleRevoked', 'appCrashRecovery',
+    'heartbeatExpiry', 'stopResume', 'guardTransitions', 'rebootRecovery', 'adminPromptCancelled',
+    'helperMigration', 'sudoRuleIntegrity', 'sparkleUpgrade', 'uninstallNormalSleep', 'nativeUI',
 )
 
 
@@ -89,6 +91,9 @@ def validate_acceptance(record, manifest):
     for key in PRERELEASE_REQUIRED_CHECKS:
         if checks[key]['status'] != 'passed':
             raise RuntimeError(f'Required acceptance check has not passed: {key}')
+    for group in PRERELEASE_ONE_OF_CHECKS:
+        if not any(checks[key]['status'] == 'passed' for key in group):
+            raise RuntimeError(f'Required acceptance check has not passed: one of {", ".join(group)}')
     lid26 = checks['macOS26ClosedLid']
     if lid26['status'] == 'passed' and not lid26['macOS'].startswith('26.'):
         raise RuntimeError('The lid check must run on macOS 26')
@@ -199,6 +204,8 @@ def cask_text(manifest, acceptance=None):
   uninstall_preflight_steps do
     run "Dilated.app/Contents/MacOS/dilated", base: :appdir, args: ["package-check"]
   end
+
+  zap delete: "/private/etc/sudoers.d/dilated"
 
   caveats <<~EOS
 {caveats}    Before upgrading, run dilated prepare-update, then brew upgrade --cask dilated.

@@ -25,6 +25,11 @@ public struct PackageHandoffStore {
     try JSONEncoder().encode(handoff).write(to: file, options: .atomic)
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
   }
+  /// The saved handoff without the app-path and age checks, for the launch after an upgrade.
+  public func peek() -> PackageHandoff? {
+    guard let data = try? Data(contentsOf: file), data.count <= 16384 else { return nil }
+    return try? JSONDecoder().decode(PackageHandoff.self, from: data)
+  }
   public func clear() throws {
     do { try FileManager.default.removeItem(at: file) } catch let error as CocoaError
       where error.code == .fileNoSuchFile

@@ -11,7 +11,7 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 </div>
 
 <p align="center">
-  <a href="https://dilated.codeswhat.com/download/file"><img src="https://img.shields.io/badge/version-1.0.0--beta.8-2ea44f" alt="Version 1.0.0-beta.8"></a>
+  <a href="https://dilated.codeswhat.com/download/file"><img src="https://img.shields.io/badge/version-1.0.0--beta.9-2ea44f" alt="Version 1.0.0-beta.9"></a>
   <a href="https://dilated.codeswhat.com/"><img src="https://img.shields.io/badge/macOS-26%2B-000000?logo=apple&amp;logoColor=white" alt="macOS 26 or later"></a>
   <a href="https://dilated.codeswhat.com/"><img src="https://img.shields.io/badge/Apple_Silicon-arm64-000000?logo=apple&amp;logoColor=white" alt="Apple Silicon"></a>
   <a href="https://github.com/CodesWhat/dilated/releases"><img src="https://img.shields.io/github/v/release/CodesWhat/dilated?include_prereleases" alt="Latest release"></a>
@@ -22,7 +22,7 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 <hr>
 
 > [!IMPORTANT]
-> **1.0.0-beta.8 is a public beta.** Closed-lid mode is experimental. Crash, reboot and update recovery haven't been verified on hardware yet, so don't rely on closed-lid mode for anything you can't afford to interrupt. Report problems on [GitHub](https://github.com/CodesWhat/dilated/issues).
+> **1.0.0-beta.9 is a public beta.** Closed-lid mode is experimental. Crash, reboot and update recovery haven't been verified on hardware yet, so don't rely on closed-lid mode for anything you can't afford to interrupt. Report problems on [GitHub](https://github.com/CodesWhat/dilated/issues).
 
 <h2 align="center">Contents</h2>
 
@@ -33,6 +33,7 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 - [Privacy and Permissions](#privacy-and-permissions)
 - [Roadmap](#roadmap)
 - [Build and Contribute](#build-and-contribute)
+- [Support](#support)
 - [Community and Support](#community-and-support)
 - [Star History](#star-history)
 - [CodesWhat Ecosystem](#codeswhat-ecosystem)
@@ -57,7 +58,7 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 
 <h2 align="center" id="quick-start">Quick Start</h2>
 
-Dilated needs **macOS 26 or later on Apple Silicon**. The current release is 1.0.0-beta.8, a public beta.
+Dilated needs **macOS 26 or later on Apple Silicon**. The current release is 1.0.0-beta.9, a public beta.
 
 1. Download the signed, notarized DMG from [dilated.codeswhat.com](https://dilated.codeswhat.com/download/file).
 2. Open the DMG, drag Dilated to Applications and open it.
@@ -65,7 +66,7 @@ Dilated needs **macOS 26 or later on Apple Silicon**. The current release is 1.0
 
 Prefer Homebrew? `brew install --cask codeswhat/tap/dilated` installs the same build.
 
-Closed-lid mode needs a privileged helper and your approval in macOS. The [installation guide](docs/INSTALLATION.md) covers helper setup, updates and removal.
+Closed-lid mode needs a narrow sudo rule that you install once with an administrator password. The [installation guide](docs/INSTALLATION.md) covers setup, crash recovery, updates and removal.
 
 <hr>
 
@@ -88,7 +89,7 @@ Battery floor and Low Power Mode guards can end a hold before it drains your bat
 | **Triggers** | Named rules that keep the Mac awake while all their conditions match. Conditions: running or frontmost apps, processes, schedules, power, displays, network identity, Wi-Fi SSIDs, mounted volumes, USB and paired Bluetooth devices, selected audio output, CPU load and idle time. Dwell and grace delays. |
 | **Automation** | URL scheme, AppleScript, four Shortcuts actions and a `dilated` CLI. The CLI covers `on`, `off`, `status`, `run -- <command>` and renewable agent holds (`hold`, `release`). Configurable global shortcuts. |
 | **Drive Alive** | Opt-in. Writes a small hidden file to selected volumes at an interval you choose (30 to 3600 seconds) so they don't idle. It doesn't wake a sleeping Mac. |
-| **Closed-lid mode** | Keeps the Mac running with the lid closed, through a privileged helper you approve. Experimental. A closed-lid trigger has to be armed each app run. |
+| **Closed-lid mode** | Keeps the Mac running with the lid closed, through a sudo rule that lets Dilated run only `pmset -a disablesleep 0` and `1`. Admin accounts only. Experimental. A closed-lid trigger has to be armed each app run. |
 | **Feedback** | Optional notification banners and sounds, both off by default. Local history and statistics. |
 
 The [automation reference](docs/AUTOMATION.md) has every command, trigger condition and safety rule.
@@ -99,7 +100,7 @@ The [automation reference](docs/AUTOMATION.md) has every command, trigger condit
 
 - **Location** is requested only to match the Wi-Fi network names you choose for triggers. Dilated doesn't request or record your geographic location.
 - **Bluetooth** is used only to match paired devices you choose for triggers. It doesn't scan for nearby devices or change their connections.
-- **Closed-lid mode** needs the privileged helper, which you approve in macOS.
+- **Closed-lid mode** needs the sudo rule at `/private/etc/sudoers.d/dilated`. Remove it any time with `dilated lid-permission remove` or `sudo rm /private/etc/sudoers.d/dilated`. If Dilated crashes, a watchdog restores sleep within seconds. A reboot without relaunching Dilated can leave sleep disabled until it next opens.
 - **Notifications** are requested only when you enable banners.
 - **Files** are accessed only through your selection, for example a download watch or a Drive Alive volume.
 
@@ -109,7 +110,7 @@ History and statistics stay on your Mac. The only network use in the app code is
 
 <h2 align="center" id="roadmap">Roadmap</h2>
 
-1.0.0 GA is gated on the hardware recovery checks listed in the [installation guide](docs/INSTALLATION.md#release-acceptance): helper and app crash recovery, reboot recovery, helper upgrade and the closed-lid transitions. Automatic agent setup is later work.
+1.0.0 GA is gated on the hardware recovery checks listed in the [installation guide](docs/INSTALLATION.md#release-acceptance): sudo rule revocation and integrity, app crash recovery, reboot recovery, helper migration and the closed-lid transitions. Automatic agent setup is later work.
 
 <hr>
 
@@ -128,6 +129,12 @@ brew install lefthook gitleaks && lefthook install
 Run the checks with `bash scripts/verify.sh`. You need Xcode, XcodeGen, Python 3, Ruby and Node.js 24. It runs Swift tests, release packaging checks (including an isolated app build and launch), website tests, and formatting and syntax checks. CI uses the same entry point. After building the bundle, `python3 scripts/smoke-test.py` runs the bounded app and CLI integration check with disposable state.
 
 The package app product and internal executable are named `DilatedApp` so they don't collide with the `dilated` CLI on case-insensitive macOS filesystems. The app users see is Dilated.
+
+<hr>
+
+<h2 align="center" id="support">Support</h2>
+
+Dilated is free and open source. If it saves you time, you can support it on [GitHub Sponsors](https://github.com/sponsors/CodesWhat) or [donate directly](https://codeswhat.com/support).
 
 <hr>
 

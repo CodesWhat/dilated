@@ -30,10 +30,13 @@ unexpired timed holds are restored; agent leases and runner IDs aren't replayed
 as work after a crash. Explicit Quit clears saved holds. Broken state is reported
 and automation starts paused. Settings decode missing keys with safe defaults.
 
-`DilatedHelper` is a signed SMAppService LaunchDaemon. The app and helper apply
-OS code-signing requirements to their XPC peers. The app also checks protocol
-version and the running helper's code-directory hash against the helper packaged
-in its own bundle. A helper generation change invalidates the old lease.
+There is no privileged helper. Closed-lid power changes run inside the app
+through `sudo -n /usr/bin/pmset -a disablesleep 0|1`, allowed by a fixed sudoers
+rule at `/private/etc/sudoers.d/dilated` (root:wheel, 0440, `%admin` only, those
+two commands only). `ClosedLidPermission` installs, detects and removes it with
+one admin prompt, and reports `notInstalled`, `needsRepair`, `blocked`, `ready`,
+`notAdmin` or `allowedByOtherRule`. Non-admin accounts can't use closed-lid. The
+sudo call runs with an empty environment under a bounded timeout.
 
 Stored power settings are read through CFPreferences, synchronized before each
 read. Reading the plist directly can return an old disk snapshot after macOS has
@@ -42,20 +45,34 @@ both readings must match, and missing or non-boolean values stay unknown.
 
 Closed-lid mode uses fixed-argument `pmset` operations through a serialized,
 bounded driver. Both stored and effective sleep-disable readings must confirm the
-requested state. The daemon resets the flag before becoming ready and retries a
-failed reset. Its independent watchdog checks a continuous-clock lease, battery,
-power source, thermal state and Low Power Mode. Main-actor heartbeats renew a
+requested state. The closed-lid service runs in the app, off the main thread, and resets the flag
+before it starts. It checks a continuous-clock lease, battery, power source,
+thermal state and Low Power Mode every second. Main-actor heartbeats renew a
 lease of at most 90 seconds; an app hang cannot renew it through a detached task.
-Clearing sleep-disable precedes an explicit Sleep request. These mechanisms are
-implemented, but real lid, crash, reboot and power-transition acceptance remains
-open. Unit tests do not establish hardware recovery.
+Clearing sleep-disable precedes an explicit Sleep request.
+
+Crash recovery has three layers. Before enabling, the app writes a session marker
+(pid and generation) to its state directory and starts a detached watchdog
+process, which restores sleep within seconds of the app exiting and then clears
+the marker. At launch, a leftover marker triggers a revert. Sleep that is
+disabled with no marker is treated as someone else's (Amphetamine, a manual
+`pmset`) and left alone with a notice. A reboot with no relaunch can leave sleep
+disabled, because the setting persists, until Dilated next launches. A failed
+disable keeps retrying and blocks quit and update until sleep is confirmed
+normal. These mechanisms are implemented, but real lid, crash, reboot and
+power-transition acceptance remains open. Unit tests do not establish hardware
+recovery.
+
+On first launch after upgrading from a helper build, `HelperMigration`
+unregisters the old LaunchDaemon, checks that its launchd job is gone and
+reverts sleep if needed. The old plist stays in the bundle for now so
+unregistering can work.
 
 `AppUpdater` isolates the pinned Sparkle driver. Checks and installation defer
-while closed-lid protection, helper replacement or recovery is in progress.
+while closed-lid protection or recovery is in progress.
 Before a planned update, the app confirms closed-lid is off and saves only
 unexpired timed holds with their original deadlines. Intentional Quit clears all
-app holds instead. Helper replacement disables protection and awaits service
-unregistration before re-registering. Closed-lid is never restored from saved
+app holds instead. Closed-lid is never restored from saved
 timers. Local candidate builds disable updates; release builds require the
 configured HTTPS feed, EdDSA public key, signed feed and pre-extraction validation.
 
@@ -113,7 +130,7 @@ five-second coalesced poll also runs for enabled, unpaused SSID rules with acces
 covering name changes that don't alter IP configuration. Permission loss removes
 SSID polling and blocks reads; no cached SSID can match afterward. Generation
 checks ignore queued permission callbacks after teardown. Only the app receives
-the Location entitlement; the CLI and privileged helper don't. The documented
+the Location entitlement; the CLI doesn't. The documented
 CoreWLAN event entitlement causes launch termination on the tested Mac with both
 ad-hoc and Developer ID signing, so it is excluded and the app does not register
 for CoreWLAN events. No geographic location updates or nearby scans are started.
@@ -211,7 +228,7 @@ descriptors and attempt removal of only the file created by this pulse. A crash
 or failed filesystem cleanup can leave that tiny app-created file; no wildcard
 cleanup touches other files. Failures remain visible in Settings and retry only
 at the configured interval, never in a rapid loop. Settings remain mode 0600 locally.
-The helper and its privileges aren't involved.
+Closed-lid and its sudo rule aren't involved.
 
 Native checks use an owned writable HFS+ disk image and the same image remounted
 read-only, checking the actual catalog/write path and preservation of a user-file
@@ -246,7 +263,7 @@ Reminders use monotonic deadlines checked by the existing active-hold timer.
 There are no future OS notification triggers or an additional reminder timer.
 An overdue reminder produces one current notice, then moves its deadline forward;
 it doesn't replay missed intervals after a hang. Final hold removal ends it.
-Notifications and sounds cannot alter the hold engine, automation pause or helper.
+Notifications and sounds cannot alter the hold engine, automation pause or closed-lid.
 
 Three original short WAV cues are generated deterministically by
 `design/sounds/generate.py`. Custom files are read with a 2 MB bound, decoded by
@@ -255,7 +272,7 @@ sounds directory using UUID filenames and mode 0600. Settings retain an ID/name,
 never an arbitrary playback path. Import rolls back the new file if saving the
 setting fails; replacing a custom choice removes the previous file only when
 no other cue references it. Audio stays local, and no microphone permission or
-helper privilege is used. Decoder checks don't establish audible output.
+sudo rule is used. Decoder checks don't establish audible output.
 
 Injected tests cover permission denial, late authorization/send/explicit-permission
 results, history-disabled delivery, source filtering, failed starts, guard reasons,
@@ -321,20 +338,20 @@ do not change holds, deadlines, pause state or closed-lid behavior.
 A rule persists its closed-lid preference, defaulting to off for older files.
 The core evaluator exposes rule-to-hold IDs but never sets a closed-lid request
 from a saved preference. The UI model owns an explicit, non-persisted set of
-armed rules. Arming checks current helper readiness and the battery warning.
+armed rules. Arming checks the current closed-lid permission state and the battery warning.
 Eligible matching holds pass through the same acknowledged enable/heartbeat,
 policy, persistence and pending-request validation as manual/automation requests.
 One finite task handles a snapshot of eligible holds serially, with no polling
-or retries. New matching holds schedule work from existing commits. Helper busy
+or retries. New matching holds schedule work from existing commits. Permission
 work finishes before queued trigger work proceeds; all requests share one lease.
 
-Stop, quit/update preparation, helper maintenance, policy changes and helper
+Stop, quit/update preparation, permission changes, policy changes and
 safety/lost-lease events revoke arming. Ordinary battery/Low Power Mode hold
 stops also revoke trigger arming, independently of history preferences. Rule edits
 revoke that rule's permission only after the configuration is saved. Disarming
 a rule or turning off its active hold's closed-lid option preserves base awake
 holds and other requests. Conditions may end/restart requests during the same
 armed run; crash/relaunch never restore arming. Pending replies cannot restore
-permission after Stop/Resume, disarm or edit. Helper failures remain visible and
-require a new explicit arm. The native helper and installed UI acceptance gates
+permission after Stop/Resume, disarm or edit. Closed-lid failures remain visible and
+require a new explicit arm. The native closed-lid and installed UI acceptance gates
 remain separate from injected tests and offscreen rendering.

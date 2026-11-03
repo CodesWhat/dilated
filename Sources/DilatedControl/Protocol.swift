@@ -16,11 +16,13 @@ public struct ControlRequest: Codable, Sendable {
   public var displayAwake: Bool
   public var lowPowerOverride: Bool
   public var closedLid: Bool
+  /// Only read for `prepareUninstall`: also remove the sudo rule, which asks for an admin password.
+  public var removeLidPermission: Bool
   public init(
     action: ControlAction, id: UUID? = nil, label: String = "Command line",
     duration: TimeInterval? = nil,
     until: String? = nil, displayAwake: Bool = false, lowPowerOverride: Bool = false,
-    closedLid: Bool = false
+    closedLid: Bool = false, removeLidPermission: Bool = false
   ) {
     self.action = action
     self.id = id
@@ -30,6 +32,7 @@ public struct ControlRequest: Codable, Sendable {
     self.displayAwake = displayAwake
     self.lowPowerOverride = lowPowerOverride
     self.closedLid = closedLid
+    self.removeLidPermission = removeLidPermission
   }
   public init(from decoder: any Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -41,7 +44,9 @@ public struct ControlRequest: Codable, Sendable {
       until: try values.decodeIfPresent(String.self, forKey: .until),
       displayAwake: try values.decodeIfPresent(Bool.self, forKey: .displayAwake) ?? false,
       lowPowerOverride: try values.decodeIfPresent(Bool.self, forKey: .lowPowerOverride) ?? false,
-      closedLid: try values.decodeIfPresent(Bool.self, forKey: .closedLid) ?? false)
+      closedLid: try values.decodeIfPresent(Bool.self, forKey: .closedLid) ?? false,
+      removeLidPermission: try values.decodeIfPresent(Bool.self, forKey: .removeLidPermission)
+        ?? false)
   }
 
 }
@@ -90,13 +95,13 @@ public enum ControlRouter {
   {
     do {
       guard !request.closedLid else {
-        throw InputError("Closed-lid requests require the app's approved helper.")
+        throw InputError("Closed-lid requests require the Dilated app.")
       }
       engine.tick(now: now)
       var id: UUID?
       switch request.action {
       case .helperStatus, .helperSetup, .helperRemove, .prepareUpdate, .prepareUninstall:
-        throw InputError("Helper management requires the Dilated app.")
+        throw InputError("Package preparation requires the Dilated app.")
       case .lidPermissionStatus, .lidPermissionInstall, .lidPermissionRemove:
         throw InputError("Closed-lid permission requires the Dilated app.")
       case .status: break
@@ -163,12 +168,20 @@ public struct CLIInput {
       return CLIInput(packageCheck: true)
     }
     if ["prepare-update", "prepare-uninstall"].contains(verb) {
-      guard arguments.count == 1 || (arguments.count == 2 && arguments[1] == "--json") else {
-        throw InputError("Use dilated prepare-update|prepare-uninstall [--json].")
+      let flags = Array(arguments.dropFirst())
+      let allowed: Set<String> =
+        verb == "prepare-uninstall" ? ["--json", "--remove-lid-permission"] : ["--json"]
+      guard Set(flags).count == flags.count, flags.allSatisfy(allowed.contains) else {
+        throw InputError(
+          verb == "prepare-uninstall"
+            ? "Use dilated prepare-uninstall [--remove-lid-permission] [--json]."
+            : "Use dilated prepare-update [--json].")
       }
       return CLIInput(
-        request: .init(action: verb == "prepare-update" ? .prepareUpdate : .prepareUninstall),
-        json: arguments.count == 2)
+        request: .init(
+          action: verb == "prepare-update" ? .prepareUpdate : .prepareUninstall,
+          removeLidPermission: flags.contains("--remove-lid-permission")),
+        json: flags.contains("--json"))
     }
     if verb == "lid-permission" {
       let actions: [String: ControlAction] = [
@@ -186,7 +199,11 @@ public struct CLIInput {
       ]
       guard arguments.count >= 2, let action = actions[arguments[1]],
         arguments.count == 2 || (arguments.count == 3 && arguments[2] == "--json")
-      else { throw InputError("Use dilated helper status|setup|remove [--json].") }
+      else {
+        throw InputError(
+          "dilated helper is deprecated. Use dilated lid-permission status|install|remove [--json]."
+        )
+      }
       return CLIInput(request: .init(action: action), json: arguments.count == 3)
     }
     let actions: [String: ControlAction] = [

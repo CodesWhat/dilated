@@ -11,7 +11,7 @@ const releaseJson = {
   minimumMacOS: '26.0',
   architecture: 'arm64',
   prerelease: true,
-  unverified: ['macOS27ClosedLid', 'helperCrashRecovery', 'sparkleUpgrade'],
+  unverified: ['macOS27ClosedLid', 'sudoRuleRevoked', 'sparkleUpgrade'],
 };
 
 const releases = {
@@ -282,7 +282,7 @@ test.describe('release metadata', () => {
     await expect(page.locator('#availability [data-release-label]')).toHaveText('Download beta for Mac');
     await expect(page.locator('[data-release-version]')).toHaveText('Version 1.2.3-beta.4 · Build 42');
     const caveat = page.locator('[data-release-caveat]');
-    await expect(caveat).toContainText('closed-lid mode on macOS 27, recovery after a helper crash, and in-app updates');
+    await expect(caveat).toContainText('closed-lid mode on macOS 27, recovery after the sudo rule is revoked, and in-app updates');
     expect((await caveat.textContent()).replaceAll('macOS', '')).not.toMatch(/[a-z][A-Z]/);
     await page.locator('.release-details summary').click();
     await expect(page.locator('[data-release-checksum]')).toHaveText(releaseJson.sha256.toLowerCase());
@@ -344,6 +344,35 @@ test.describe('readability and usability', () => {
       expect(overflow).toBeLessThanOrEqual(0);
     }
   });
+
+  test('footer carries one SUPPORT link and the availability section a single support sentence', async ({ page, open }) => {
+    await open('/');
+    const link = page.locator('footer a', { hasText: 'SUPPORT' });
+    await expect(link).toHaveCount(1);
+    await expect(link).toHaveAttribute('href', 'https://codeswhat.com/support');
+    await expect(page.locator('footer a[href*="sponsors"]')).toHaveCount(0);
+    const note = page.locator('#availability .support-note');
+    await expect(note).toHaveCount(1);
+    await expect(note.locator('a')).toHaveCount(2);
+    await expect(note.locator('a').nth(0)).toHaveAttribute('href', 'https://github.com/sponsors/CodesWhat');
+    await expect(note.locator('a').nth(1)).toHaveAttribute('href', 'https://codeswhat.com/support');
+  });
+
+  for (const width of [390, 320]) {
+    test(`footer SUPPORT link is a tall target and does not overflow at ${width}px`, async ({ page, open }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await open('/');
+      await page.evaluate(() => document.fonts.ready);
+      const box = await page.locator('footer a', { hasText: 'SUPPORT' }).evaluate(el => {
+        const r = el.getBoundingClientRect();
+        return { w: r.width, h: r.height, right: r.right };
+      });
+      expect(box.h).toBeGreaterThanOrEqual(44);
+      expect(box.right).toBeLessThanOrEqual(width);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+    });
+  }
 
   test('listed controls are at least 44px at 390px', async ({ page, open }) => {
     await page.setViewportSize({ width: 390, height: 844 });

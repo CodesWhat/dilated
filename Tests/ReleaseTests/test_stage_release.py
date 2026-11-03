@@ -96,10 +96,10 @@ class PublicationGuardsTests(unittest.TestCase):
     def beta_acceptance(self):
         record = self.acceptance()
         for key, check in record['checks'].items():
-            if key not in stage.PRERELEASE_REQUIRED_CHECKS:
+            if key not in stage.PRERELEASE_REQUIRED_CHECKS and key != 'macOS26ClosedLid':
                 check['status'] = 'notRun'
                 check['evidence'] = 'Not run for this beta.'
-        record['checks']['helperCrashRecovery']['status'] = 'failed'
+        record['checks']['sudoRuleRevoked']['status'] = 'failed'
         return record
 
     def use_ga_version(self):
@@ -108,12 +108,12 @@ class PublicationGuardsTests(unittest.TestCase):
 
     def test_a_prerelease_accepts_the_required_checks_and_names_the_rest(self):
         summary = stage.validate_acceptance(self.beta_acceptance(), self.manifest)
-        required = list(stage.PRERELEASE_REQUIRED_CHECKS)
+        required = list(stage.PRERELEASE_REQUIRED_CHECKS) + ['macOS26ClosedLid']
         self.assertTrue(summary['prerelease'])
         self.assertEqual(summary['passed'], [key for key in stage.ACCEPTANCE_CHECKS if key in required])
-        self.assertEqual(summary['failed'], ['helperCrashRecovery'])
+        self.assertEqual(summary['failed'], ['sudoRuleRevoked'])
         self.assertEqual(summary['notRun'], [
-            key for key in stage.ACCEPTANCE_CHECKS if key not in required and key != 'helperCrashRecovery'])
+            key for key in stage.ACCEPTANCE_CHECKS if key not in required and key != 'sudoRuleRevoked'])
         full = stage.validate_acceptance(self.acceptance(), self.manifest)
         self.assertEqual(full, {'prerelease': True, 'passed': list(stage.ACCEPTANCE_CHECKS), 'failed': [], 'notRun': []})
 
@@ -157,6 +157,21 @@ class PublicationGuardsTests(unittest.TestCase):
         record['checks']['macOS27ClosedLid']['macOS'] = '26.6.2'
         stage.validate_acceptance(record, self.manifest)
 
+    def test_a_prerelease_needs_a_closed_lid_pass_on_either_macos_and_names_the_other(self):
+        record = self.beta_acceptance()
+        record['checks']['macOS26ClosedLid']['status'] = 'notRun'
+        with self.assertRaisesRegex(RuntimeError, 'one of macOS26ClosedLid, macOS27ClosedLid'):
+            stage.validate_acceptance(record, self.manifest)
+        record['checks']['macOS27ClosedLid'] = {
+            'status': 'passed', 'machine': 'primary-mac', 'macOS': '27.0', 'evidence': 'Fixture.'}
+        summary = stage.validate_acceptance(record, self.manifest)
+        self.assertIn('macOS27ClosedLid', summary['passed'])
+        self.assertIn('macOS26ClosedLid', summary['notRun'])
+        self.assertFalse(stage.acceptance_verified(summary))
+        latest = stage.latest_metadata(self.manifest, summary)
+        self.assertIn('macOS26ClosedLid', latest['unverified'])
+        self.assertNotIn('macOS27ClosedLid', latest['unverified'])
+
     def test_the_macos_26_lid_check_must_run_on_macos_26(self):
         record = self.beta_acceptance()
         record['checks']['macOS26ClosedLid']['macOS'] = '27.0'
@@ -191,7 +206,7 @@ class PublicationGuardsTests(unittest.TestCase):
         latest = stage.latest_metadata(self.manifest, summary)
         self.assertTrue(latest['prerelease'])
         self.assertEqual(latest['unverified'], summary['failed'] + summary['notRun'])
-        self.assertIn('helperCrashRecovery', latest['unverified'])
+        self.assertIn('sudoRuleRevoked', latest['unverified'])
         self.use_ga_version()
         ga = stage.latest_metadata(self.manifest, stage.validate_acceptance(self.acceptance(), self.manifest))
         self.assertFalse(ga['prerelease'])

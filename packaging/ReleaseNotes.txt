@@ -1,3 +1,4 @@
-Settings has an About page with the version, license and project links.
-Sparkle, the update framework, is now 2.10.1.
-Closed-lid mode remains experimental. Crash, reboot and update recovery remain unverified on hardware.
+Closed-lid mode now uses a one-time administrator approval instead of a background helper. Set it up in Settings, Closed Lid. The old helper is removed on first launch.
+If Dilated quits unexpectedly or stops responding during a closed-lid session, normal sleep comes back on its own.
+New Support Dilated menu with sponsor and donate links.
+Closed-lid mode remains experimental.

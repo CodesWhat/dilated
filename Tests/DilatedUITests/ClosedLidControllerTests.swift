@@ -1,7 +1,6 @@
 import DilatedControl
 import DilatedCore
 import Foundation
-import ServiceManagement
 import Testing
 import os
 
@@ -10,13 +9,12 @@ import os
 @MainActor struct ClosedLidControllerTests {
   @Test func triggerClosedLidRequiresArmingAfterReconstructionAndStop() async throws {
     let fixture = await ControllerFixture()
-    let service = InstallationFixture(power: fixture.power)
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let endpoint = SocketEndpoint(stateDirectory: directory)
     let model = AppModel(
       endpoint: endpoint, power: { .init() }, assertions: ControllerAssertions(),
-      closedLid: fixture.controller(), helperInstallation: HelperInstallation(service: service))
+      closedLid: fixture.controller(), closedLidPermission: readyPermissionModel())
     defer { model.shutdown() }
     var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
     rule.closedLid = true
@@ -37,7 +35,7 @@ import os
     let enables = fixture.transport.actions.filter { $0 == .enable }.count
     let restored = AppModel(
       endpoint: endpoint, power: { .init() }, assertions: ControllerAssertions(),
-      closedLid: fixture.controller(), helperInstallation: HelperInstallation(service: service))
+      closedLid: fixture.controller(), closedLidPermission: readyPermissionModel())
     defer { restored.shutdown() }
     restored.reconcileTriggers(input)
     #expect(restored.triggerRules == [rule] && restored.engine.holds.count == 1)
@@ -53,7 +51,7 @@ import os
       endpoint: .init(stateDirectory: directory), power: { .init() },
       assertions: ControllerAssertions(),
       closedLid: fixture.controller(),
-      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+      closedLidPermission: readyPermissionModel())
     defer { model.shutdown() }
     var build = TriggerRule(name: "Build", criteria: [.process(name: "make")])
     build.closedLid = true
@@ -92,7 +90,7 @@ import os
       endpoint: .init(stateDirectory: directory), power: { .init() },
       assertions: ControllerAssertions(),
       closedLid: fixture.controller(),
-      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+      closedLidPermission: readyPermissionModel())
     defer { model.shutdown() }
     var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
     rule.closedLid = true
@@ -123,7 +121,7 @@ import os
       endpoint: .init(stateDirectory: directory), power: { .init() },
       assertions: ControllerAssertions(),
       closedLid: fixture.controller(),
-      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+      closedLidPermission: readyPermissionModel())
     defer { model.shutdown() }
     var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
     rule.closedLid = true
@@ -156,7 +154,7 @@ import os
       endpoint: .init(stateDirectory: directory), power: { power },
       assertions: ControllerAssertions(),
       closedLid: fixture.controller(),
-      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+      closedLidPermission: readyPermissionModel())
     defer { model.shutdown() }
     model.settings.batteryFloor = 50
     model.settings.historyEnabled = false
@@ -187,7 +185,7 @@ import os
       endpoint: .init(stateDirectory: directory), power: { .init() },
       assertions: ControllerAssertions(),
       closedLid: fixture.controller(),
-      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+      closedLidPermission: readyPermissionModel())
     defer { model.shutdown() }
     var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
     rule.closedLid = true
@@ -216,7 +214,7 @@ import os
       endpoint: .init(stateDirectory: directory), power: { .init() },
       assertions: ControllerAssertions(),
       closedLid: fixture.controller(),
-      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+      closedLidPermission: readyPermissionModel())
     defer { model.shutdown() }
     var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
     rule.closedLid = true
@@ -242,12 +240,14 @@ import os
       endpoint: .init(stateDirectory: directory), power: { .init() },
       assertions: ControllerAssertions(),
       closedLid: fixture.controller(),
-      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+      closedLidPermission: readyPermissionModel())
     defer { model.shutdown() }
     var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
     rule.closedLid = true
     try model.saveTrigger(rule)
     try await model.armClosedLidTrigger(id: rule.id)
+    model.start(duration: 120)
+    try await model.setClosedLid(id: model.engine.holds[0].id, enabled: true)
     await fixture.power.denyReset()
     #expect(await model.prepareToQuit() == false)
     #expect(model.armedClosedLidTriggers.isEmpty)
@@ -263,7 +263,7 @@ import os
       endpoint: .init(stateDirectory: directory), power: { .init() },
       assertions: ControllerAssertions(),
       closedLid: fixture.controller(),
-      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+      closedLidPermission: readyPermissionModel())
     defer { model.shutdown() }
     var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
     rule.closedLid = true
@@ -298,7 +298,7 @@ import os
       endpoint: .init(stateDirectory: directory), power: { .init() },
       assertions: ControllerAssertions(),
       closedLid: fixture.controller(),
-      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+      closedLidPermission: readyPermissionModel())
     defer { model.shutdown() }
     var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
     rule.closedLid = true
@@ -324,7 +324,7 @@ import os
       endpoint: .init(stateDirectory: directory), power: { .init() },
       assertions: ControllerAssertions(),
       closedLid: fixture.controller(),
-      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+      closedLidPermission: readyPermissionModel())
     defer { model.shutdown() }
     var build = TriggerRule(name: "Build", criteria: [.process(name: "make")])
     build.closedLid = true
@@ -352,416 +352,6 @@ import os
       try await Task.sleep(for: .milliseconds(5))
     }
     #expect(condition())
-  }
-
-  @Test func appControlCanRepairAnUnreachableOffHelperWithoutChangingManualWorkOrPause()
-    async throws
-  {
-    let fixture = await ControllerFixture()
-    fixture.transport.failures = [.disconnected]
-    fixture.transport.disconnectBeforeFailure = true
-    let service = InstallationFixture(power: fixture.power)
-    service.registrationStatus = .enabled
-    let installation = HelperInstallation(
-      service: service,
-      readPower: {
-        .init(effectiveDisabled: false, storedDisabled: false)
-      })
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let model = AppModel(
-      endpoint: .init(stateDirectory: directory), power: { .init() },
-      closedLid: fixture.controller(), helperInstallation: installation)
-    defer { model.shutdown() }
-    model.stopAll()
-    model.start(duration: 60)
-    let manual = try #require(model.engine.holds.first)
-    let response = await model.control(.init(action: .helperSetup))
-    #expect(response.ok && response.helper?.ready == true)
-    #expect(
-      response.snapshot?.automationPaused == true
-        && response.snapshot?.holds.map(\.id) == [manual.id])
-    #expect(service.operations == ["reset-confirmed", "unregister-completed", "register"])
-  }
-
-  @Test func anUnreachableOffHelperCanBeRepairedWithoutItsAcknowledgement() async throws {
-    let fixture = await ControllerFixture()
-    fixture.transport.failures = [.disconnected]
-    let controller = fixture.controller()
-    defer { controller.invalidate() }
-    let service = InstallationFixture(power: fixture.power)
-    service.registrationStatus = .enabled
-    let installation = HelperInstallation(
-      service: service,
-      readPower: {
-        .init(effectiveDisabled: false, storedDisabled: false)
-      })
-    await installation.nextStep(controller: controller)
-    #expect(installation.lastError == nil)
-    #expect(service.operations == ["reset-confirmed", "unregister-completed", "register"])
-    #expect(controller.state?.ready == true && !controller.hasLease)
-  }
-
-  @Test func anUnreachableOffHelperCanBeRemovedWithIndependentReadbackChecks() async throws {
-    let fixture = await ControllerFixture()
-    fixture.transport.failures = [.timedOut]
-    let controller = fixture.controller()
-    let service = InstallationFixture(power: fixture.power)
-    var reads = 0
-    let installation = HelperInstallation(
-      service: service,
-      readPower: {
-        reads += 1
-        return .init(effectiveDisabled: false, storedDisabled: false)
-      })
-    try await installation.remove(controller: controller)
-    #expect(service.status == .notRegistered && reads == 3)
-    #expect(service.operations == ["reset-confirmed", "unregister-completed"])
-  }
-
-  @Test func offRecoveryRejectsUnsafeReadbacksAndErrorsOtherThanLostTransport() async throws {
-    let cases: [(HelperClientError, ClosedLidReadback)] = [
-      (.disconnected, .init(effectiveDisabled: true, storedDisabled: false)),
-      (.disconnected, .init(effectiveDisabled: false, storedDisabled: true)),
-      (.timedOut, .init(effectiveDisabled: nil, storedDisabled: false)),
-      (.timedOut, .init(effectiveDisabled: false, storedDisabled: nil)),
-      (.invalidReply, .init(effectiveDisabled: false, storedDisabled: false)),
-      (.rejected("Reset failed"), .init(effectiveDisabled: false, storedDisabled: false)),
-    ]
-    for (error, reading) in cases {
-      let fixture = await ControllerFixture()
-      fixture.transport.failures = [error]
-      fixture.transport.disconnectBeforeFailure = true
-      let service = InstallationFixture(power: fixture.power)
-      let installation = HelperInstallation(service: service, readPower: { reading })
-      await installation.nextStep(controller: fixture.controller())
-      #expect(installation.lastError != nil && service.operations.isEmpty)
-    }
-  }
-
-  @Test func aLeaseActiveBeforeMaintenanceCannotUseOffRecoveryAfterLosingTransport() async throws {
-    let fixture = await ControllerFixture()
-    let controller = fixture.controller()
-    defer { controller.invalidate() }
-    try await controller.enable(policy: .init())
-    fixture.transport.failures = [.disconnected]
-    let service = InstallationFixture(power: fixture.power)
-    let installation = HelperInstallation(
-      service: service,
-      readPower: {
-        .init(effectiveDisabled: false, storedDisabled: false)
-      })
-    await installation.nextStep(controller: controller)
-    #expect(installation.lastError != nil && service.operations.isEmpty)
-  }
-
-  @Test func offRecoveryRechecksBeforeAndAfterUnregisterAndRejectsUnknownPower() async throws {
-    for unknownAt in [2, 3] {
-      let fixture = await ControllerFixture()
-      fixture.transport.failures = [.disconnected]
-      let service = InstallationFixture(power: fixture.power)
-      var reads = 0
-      let installation = HelperInstallation(
-        service: service,
-        readPower: {
-          reads += 1
-          return .init(effectiveDisabled: reads >= unknownAt ? nil : false, storedDisabled: false)
-        })
-      await installation.nextStep(controller: fixture.controller())
-      #expect(installation.lastError != nil)
-      if unknownAt == 2 {
-        #expect(service.status == .enabled && service.operations.isEmpty)
-      } else {
-        #expect(service.status == .notRegistered)
-        #expect(service.operations == ["reset-confirmed", "unregister-completed"])
-      }
-    }
-  }
-
-  @Test func pendingEnableBeforeMaintenanceCannotUseOffRecovery() async throws {
-    let fixture = await ControllerFixture()
-    let controller = fixture.controller()
-    defer { controller.invalidate() }
-    fixture.transport.delayEnableReply = true
-    let enable = Task { try await controller.enable(policy: .init()) }
-    await fixture.transport.waitForEnableReply()
-    #expect(controller.pendingEnable)
-    fixture.transport.failures = [.timedOut]
-    let service = InstallationFixture(power: fixture.power)
-    let installation = HelperInstallation(
-      service: service,
-      readPower: {
-        .init(effectiveDisabled: false, storedDisabled: false)
-      })
-    await installation.nextStep(controller: controller)
-    #expect(installation.lastError != nil && service.operations.isEmpty)
-    fixture.transport.releaseReply()
-    await #expect(throws: (any Error).self) { try await enable.value }
-  }
-
-  @Test func cancelledMaintenanceCannotUseTheOffRecoveryPath() async throws {
-    let fixture = await ControllerFixture()
-    fixture.transport.failures = [.disconnected]
-    fixture.transport.disconnectBeforeFailure = true
-    let service = InstallationFixture(power: fixture.power)
-    let installation = HelperInstallation(
-      service: service,
-      readPower: {
-        .init(effectiveDisabled: false, storedDisabled: false)
-      })
-    let operation = Task { await installation.nextStep(controller: fixture.controller()) }
-    operation.cancel()
-    await operation.value
-    #expect(installation.lastError != nil && service.operations.isEmpty)
-  }
-
-  @Test func pendingApprovalCanBeRemovedWithoutConnectingToAnUnapprovedDaemon() async throws {
-    let fixture = await ControllerFixture()
-    let service = InstallationFixture(power: fixture.power)
-    service.status = .requiresApproval
-    let installation = HelperInstallation(
-      service: service,
-      readPower: {
-        .init(effectiveDisabled: false, storedDisabled: false)
-      })
-    try await installation.remove(controller: fixture.controller())
-    #expect(service.status == .notRegistered)
-    #expect(fixture.transport.actions.isEmpty)
-  }
-
-  @Test func pendingApprovalCannotBeRemovedWithUnknownOrEnabledPowerState() async throws {
-    let fixture = await ControllerFixture()
-    let service = InstallationFixture(power: fixture.power)
-    service.status = .requiresApproval
-    let installation = HelperInstallation(
-      service: service,
-      readPower: {
-        .init(effectiveDisabled: true, storedDisabled: true)
-      })
-    await #expect(throws: (any Error).self) {
-      try await installation.remove(controller: fixture.controller())
-    }
-    #expect(service.operations.isEmpty)
-    #expect(fixture.transport.actions.isEmpty)
-  }
-
-  @Test func notFoundHelperIsRemovedWithoutCallingUnregister() async throws {
-    let fixture = await ControllerFixture()
-    let service = InstallationFixture(power: fixture.power)
-    service.status = .notFound
-    let installation = HelperInstallation(
-      service: service,
-      readPower: {
-        .init(effectiveDisabled: false, storedDisabled: false)
-      }, verifyHelperAbsent: {})
-    let controller = fixture.controller()
-    defer { controller.invalidate() }
-    try await controller.enable(policy: .init())
-    #expect(controller.hasLease)
-    try await installation.remove(controller: controller)
-    #expect(service.operations.isEmpty)
-    #expect(!controller.hasLease)
-  }
-
-  @Test func notFoundHelperCannotBeRemovedWithUnknownOrEnabledPowerState() async throws {
-    for power in [
-      ClosedLidReadback(effectiveDisabled: true, storedDisabled: true),
-      ClosedLidReadback(effectiveDisabled: nil, storedDisabled: nil),
-    ] {
-      let fixture = await ControllerFixture()
-      let service = InstallationFixture(power: fixture.power)
-      service.status = .notFound
-      let installation = HelperInstallation(
-        service: service, readPower: { power }, verifyHelperAbsent: {})
-      await #expect(throws: (any Error).self) {
-        try await installation.remove(controller: fixture.controller())
-      }
-      #expect(service.operations.isEmpty)
-      #expect(fixture.transport.actions.isEmpty)
-    }
-  }
-
-  @Test func notFoundHelperThatIsStillLoadedCannotBeRemoved() async throws {
-    let fixture = await ControllerFixture()
-    let service = InstallationFixture(power: fixture.power)
-    service.status = .notFound
-    let installation = HelperInstallation(
-      service: service,
-      readPower: {
-        .init(effectiveDisabled: false, storedDisabled: false)
-      }, verifyHelperAbsent: { throw NSError(domain: "test", code: 1) })
-    let controller = fixture.controller()
-    defer { controller.invalidate() }
-    try await controller.enable(policy: .init())
-    await #expect(throws: (any Error).self) {
-      try await installation.remove(controller: controller)
-    }
-    #expect(service.operations.isEmpty)
-    #expect(controller.hasLease)
-  }
-
-  @Test func notFoundHelperCannotBeRemovedWhenSleepChangesDuringAbsenceCheck() async throws {
-    let fixture = await ControllerFixture()
-    let service = InstallationFixture(power: fixture.power)
-    service.status = .notFound
-    let reads = OSAllocatedUnfairLock(initialState: 0)
-    let installation = HelperInstallation(
-      service: service,
-      readPower: {
-        let count = reads.withLock { state -> Int in
-          state += 1
-          return state
-        }
-        return count == 1
-          ? .init(effectiveDisabled: false, storedDisabled: false)
-          : .init(effectiveDisabled: true, storedDisabled: true)
-      }, verifyHelperAbsent: {})
-    let controller = fixture.controller()
-    defer { controller.invalidate() }
-    try await controller.enable(policy: .init())
-    await #expect(throws: (any Error).self) {
-      try await installation.remove(controller: controller)
-    }
-    #expect(service.operations.isEmpty)
-    #expect(controller.hasLease)
-  }
-
-  @Test func packageUpdateDoesNotRestoreAnApprovalRevokedSinceLaunch() async throws {
-    let fixture = await ControllerFixture()
-    let service = InstallationFixture(power: fixture.power)
-    let installation = HelperInstallation(
-      service: service,
-      readPower: {
-        .init(effectiveDisabled: false, storedDisabled: false)
-      })
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let model = AppModel(
-      endpoint: .init(stateDirectory: directory), power: { .init() },
-      closedLid: fixture.controller(), helperInstallation: installation)
-    defer { model.shutdown() }
-    service.status = .requiresApproval
-    #expect(await model.prepareForPackage(.update))
-    let handoff = try PackageHandoffStore(directory: directory).requirePrepared(
-      app: Bundle.main.bundleURL)
-    #expect(!handoff.helperWasApproved)
-  }
-  @Test func packageUpdateRestoresOnlyAPreviouslyApprovedHelperOnNextLaunch() async throws {
-    let fixture = await ControllerFixture()
-    let service = InstallationFixture(power: fixture.power)
-    service.registrationStatus = .enabled
-    let installation = HelperInstallation(
-      service: service,
-      readPower: {
-        .init(effectiveDisabled: false, storedDisabled: false)
-      })
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let model = AppModel(
-      endpoint: .init(stateDirectory: directory), power: { .init() },
-      closedLid: fixture.controller(), helperInstallation: installation)
-    defer { model.shutdown() }
-    #expect(await model.prepareForPackage(.update))
-    #expect(service.status == .notRegistered)
-    let restored = AppModel(
-      endpoint: .init(stateDirectory: directory), power: { .init() },
-      closedLid: fixture.controller(), helperInstallation: installation)
-    defer { restored.shutdown() }
-    restored.begin()
-    let deadline = ContinuousClock.now.advanced(by: .seconds(30))
-    while service.status != .enabled && ContinuousClock.now < deadline {
-      try await Task.sleep(for: .milliseconds(10))
-    }
-    #expect(service.status == .enabled)
-    #expect(!restored.closedLid.active)
-    #expect(!restored.engine.desiredState.closedLid)
-  }
-  @Test(arguments: [false, true])
-  func successfulHelperRemovalClearsAttentionAndPreservesManualWork(control: Bool) async throws {
-    let fixture = await ControllerFixture()
-    let service = InstallationFixture(power: fixture.power)
-    service.status = .notRegistered
-    let installation = HelperInstallation(
-      service: service,
-      readPower: { .init(effectiveDisabled: false, storedDisabled: false) })
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let model = AppModel(
-      endpoint: .init(stateDirectory: directory), power: { .init() },
-      closedLid: fixture.controller(), helperInstallation: installation)
-    defer { model.shutdown() }
-    model.stopAll()
-    model.start(duration: 60)
-    let manual = try #require(model.engine.holds.first)
-    model.message = "An earlier helper error"
-    if control {
-      let response = await model.control(.init(action: .helperRemove))
-      #expect(response.ok && response.helperInstallation == "notRegistered")
-      #expect(response.message == "Closed-lid is off and the helper has been removed.")
-    } else {
-      #expect(await model.removeHelper())
-    }
-    #expect(model.attention == nil)
-    #expect(model.engine.automationPaused && model.engine.holds.map(\.id) == [manual.id])
-    #expect(!model.closedLid.active && !model.engine.desiredState.closedLid)
-    #expect(service.operations.isEmpty)
-  }
-
-  @Test func failedRemovalNeverReturnsSuccessfulControlAcknowledgement() async throws {
-    let fixture = await ControllerFixture()
-    let service = InstallationFixture(power: fixture.power)
-    service.status = .notRegistered
-    let installation = HelperInstallation(
-      service: service,
-      readPower: {
-        .init(effectiveDisabled: true, storedDisabled: true)
-      })
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let model = AppModel(
-      endpoint: .init(stateDirectory: directory), power: { .init() },
-      closedLid: fixture.controller(), helperInstallation: installation)
-    defer { model.shutdown() }
-    let response = await model.control(.init(action: .helperRemove))
-    #expect(!response.ok)
-    #expect(response.message?.contains("normal sleep") == true)
-    #expect(model.attention == response.message)
-    #expect(service.operations.isEmpty)
-  }
-
-  @Test func removingAnUnusedHelperNeedsConfirmedNormalSleep() async throws {
-    let fixture = await ControllerFixture()
-    let controller = fixture.controller()
-    defer { controller.invalidate() }
-    let service = InstallationFixture(power: fixture.power)
-    service.status = .notRegistered
-    let installation = HelperInstallation(
-      service: service,
-      readPower: {
-        .init(effectiveDisabled: false, storedDisabled: false)
-      })
-    try await installation.remove(controller: controller)
-    #expect(service.operations.isEmpty)
-    let unsafe = HelperInstallation(
-      service: service,
-      readPower: {
-        .init(effectiveDisabled: true, storedDisabled: true)
-      })
-    await #expect(throws: (any Error).self) { try await unsafe.remove(controller: controller) }
-    #expect(service.operations.isEmpty)
-  }
-
-  @Test func relaunchRepairsAnApprovedHelperOnlyWhenItsBuildChanged() async throws {
-    let fixture = await ControllerFixture()
-    let controller = ClosedLidController(
-      transport: fixture.transport, expectedBuild: { "updated-build" })
-    defer { controller.invalidate() }
-    let service = InstallationFixture(power: fixture.power)
-    let installation = HelperInstallation(service: service)
-    await installation.reconcileAfterLaunch(controller: controller)
-    #expect(service.operations == ["reset-confirmed", "unregister-completed", "register"])
-    #expect(installation.status == .requiresApproval)
-    #expect(!controller.hasLease)
   }
 
   @Test func anUpdateCannotEndAnActiveClosedLidSession() async throws {
@@ -835,39 +425,6 @@ import os
     #expect(state.confirmedDisabled)
   }
 
-  @Test func anUnreachableXPCServiceFailsWithinTheRequestDeadline() async {
-    let transport = HelperTransport(
-      serviceName: "com.codeswhat.dilated.missing.\(UUID().uuidString)")
-    defer { transport.invalidate() }
-    let started = ContinuousClock.now
-    await #expect(throws: (any Error).self) { try await transport.send(.init(action: .status)) }
-    // The request deadline is 8s. The generous margin absorbs a stalled main actor on a loaded runner, and a hang still fails.
-    #expect(started.duration(to: .now) < .seconds(30))
-  }
-
-  @Test func anUnavailableHelperReportsTheConnectionFailureInsteadOfCancellation() async {
-    for disable in [false, true] {
-      let transport = HelperTransport(
-        serviceName: "com.codeswhat.dilated.missing.\(UUID().uuidString)")
-      let controller = ClosedLidController(transport: transport, expectedBuild: { "unused" })
-      defer { controller.invalidate() }
-      do {
-        if disable {
-          try await controller.disable()
-        } else {
-          try await controller.enable(policy: .init())
-        }
-        Issue.record("An unavailable helper completed a lid operation.")
-      } catch let failure as HelperClientError {
-        switch failure {
-        case .disconnected, .timedOut: break
-        default: Issue.record("Lost transport changed error classification: \(failure)")
-        }
-      } catch { Issue.record("Unexpected helper failure: \(error)") }
-      #expect(!controller.active && !controller.pendingEnable)
-    }
-  }
-
   @Test func modelMergesLidRequestsAndStopClearsThePowerFlag() async throws {
     let fixture = await ControllerFixture()
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -930,139 +487,6 @@ import os
     #expect(model.engine.holds.isEmpty)
     let state = await fixture.power.readback()
     #expect(state.confirmedDisabled)
-  }
-
-  @Test func repairWaitsForVerifiedResetAndCompletedUnregister() async throws {
-    let fixture = await ControllerFixture()
-    let controller = fixture.controller()
-    defer { controller.invalidate() }
-    try await controller.enable(policy: .init())
-    let service = InstallationFixture(power: fixture.power)
-    let installation = HelperInstallation(service: service)
-    await installation.nextStep(controller: controller)
-    #expect(installation.lastError == nil)
-    #expect(service.operations == ["reset-confirmed", "unregister-completed", "register"])
-    #expect(service.openedApproval)
-    #expect(installation.status == .requiresApproval)
-  }
-
-  @Test func replacementRecoversFromTheServiceRegistrationRace() async throws {
-    let fixture = await ControllerFixture()
-    let controller = fixture.controller()
-    defer { controller.invalidate() }
-    let service = InstallationFixture(power: fixture.power)
-    service.registerErrors = [NSError(domain: SMAppServiceErrorDomain, code: 1)]
-    let installation = HelperInstallation(service: service)
-    await installation.nextStep(controller: controller)
-    #expect(installation.lastError == nil)
-    #expect(installation.status == .requiresApproval)
-    #expect(service.openedApproval)
-    #expect(
-      service.operations == ["reset-confirmed", "unregister-completed", "register", "register"])
-    #expect(!controller.hasLease)
-    #expect(!installation.busy)
-  }
-
-  @Test func persistentReplacementRegistrationFailureIsBoundedAndVisible() async throws {
-    let fixture = await ControllerFixture()
-    let controller = fixture.controller()
-    defer { controller.invalidate() }
-    let service = InstallationFixture(power: fixture.power)
-    service.registerErrors = Array(
-      repeating: NSError(domain: SMAppServiceErrorDomain, code: 1), count: 10)
-    let installation = HelperInstallation(service: service)
-    await installation.nextStep(controller: controller)
-    #expect(installation.lastError != nil)
-    #expect(installation.status == .notRegistered)
-    #expect(service.operations.filter { $0 == "register" }.count == 5)
-    #expect(!service.openedApproval)
-    #expect(!installation.busy)
-    #expect(!controller.hasLease)
-    #expect(await fixture.power.readback().confirmedDisabled)
-  }
-
-  @Test func initialSetupAndOtherRegistrationFailuresAreNotRetried() async throws {
-    for (initialStatus, error) in [
-      (SMAppService.Status.notRegistered, NSError(domain: SMAppServiceErrorDomain, code: 1)),
-      (.enabled, NSError(domain: SMAppServiceErrorDomain, code: 4)),
-      (.enabled, NSError(domain: NSPOSIXErrorDomain, code: 1)),
-    ] {
-      let fixture = await ControllerFixture()
-      let controller = fixture.controller()
-      defer { controller.invalidate() }
-      let service = InstallationFixture(power: fixture.power)
-      service.status = initialStatus
-      service.registerErrors = [error]
-      let installation = HelperInstallation(service: service)
-      await installation.nextStep(controller: controller)
-      #expect(installation.lastError != nil)
-      #expect(service.operations.filter { $0 == "register" }.count == 1)
-      #expect(!service.openedApproval)
-      #expect(!installation.busy)
-    }
-  }
-
-  @Test func setupWaitsUntilTheRegisteredHelperCompletesItsStartupReset() async throws {
-    let fixture = await ControllerFixture(start: false)
-    let controller = fixture.controller()
-    defer {
-      controller.onChange = nil
-      controller.invalidate()
-    }
-    let service = InstallationFixture(power: fixture.power)
-    service.status = .notRegistered
-    service.registrationStatus = .enabled
-    let installation = HelperInstallation(service: service, startupResetTimeout: .seconds(60))
-    let firstStatus = AsyncStream<Void>.makeStream()
-    controller.onChange = {
-      if controller.state?.phase == .starting {
-        firstStatus.continuation.yield(())
-        firstStatus.continuation.finish()
-      }
-    }
-    let setup = Task { await installation.nextStep(controller: controller) }
-    for await _ in firstStatus.stream { break }
-    #expect(installation.busy)
-    #expect(controller.state?.ready == false)
-    await fixture.service.start()
-    await setup.value
-    #expect(installation.lastError == nil)
-    #expect(installation.status == .enabled)
-    #expect(controller.state?.ready == true)
-    #expect(controller.state?.readback.confirmedDisabled == true)
-    #expect(!controller.hasLease)
-  }
-
-  @Test func aRegisteredHelperThatFailsStartupIsReportedAsAnError() async throws {
-    let fixture = await ControllerFixture(start: false)
-    await fixture.power.denyReset()
-    await fixture.service.start()
-    let controller = fixture.controller()
-    defer { controller.invalidate() }
-    let service = InstallationFixture(power: fixture.power)
-    service.status = .notRegistered
-    service.registrationStatus = .enabled
-    let installation = HelperInstallation(service: service)
-    await installation.nextStep(controller: controller)
-    #expect(installation.lastError != nil)
-    #expect(controller.state?.ready == false)
-    #expect(!installation.busy)
-    #expect(!controller.hasLease)
-  }
-
-  @Test func setupReportsAnUnfinishedStartupResetAfterItsDeadline() async throws {
-    let fixture = await ControllerFixture(start: false)
-    let controller = fixture.controller()
-    defer { controller.invalidate() }
-    let service = InstallationFixture(power: fixture.power)
-    service.status = .notRegistered
-    service.registrationStatus = .enabled
-    let installation = HelperInstallation(service: service, startupResetTimeout: .milliseconds(300))
-    await installation.nextStep(controller: controller)
-    #expect(installation.lastError?.contains("startup reset") == true)
-    #expect(!installation.busy)
-    #expect(!controller.hasLease)
-    #expect(controller.state?.ready == false)
   }
 
   @Test func failedResetKeepsQuitBlockedAndStopCannotClaimSuccess() async throws {
@@ -1145,7 +569,7 @@ import os
     let model = AppModel(
       endpoint: .init(stateDirectory: directory), power: { .init() },
       assertions: ControllerAssertions(), closedLid: fixture.controller(),
-      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+      closedLidPermission: readyPermissionModel())
     defer { model.shutdown() }
     let service = AutomationService()
     service.bind(model)
@@ -1174,7 +598,7 @@ import os
     let model = AppModel(
       endpoint: .init(stateDirectory: directory), power: { .init() },
       assertions: ControllerAssertions(), closedLid: fixture.controller(),
-      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+      closedLidPermission: readyPermissionModel())
     defer { model.shutdown() }
     let service = AutomationService()
     service.bind(model)
@@ -1197,7 +621,7 @@ import os
     let model = AppModel(
       endpoint: .init(stateDirectory: directory), power: { .init() },
       assertions: ControllerAssertions(), closedLid: fixture.controller(),
-      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+      closedLidPermission: readyPermissionModel())
     defer { model.shutdown() }
     let service = AutomationService()
     service.bind(model)
@@ -1212,17 +636,16 @@ import os
     #expect(await fixture.power.readback().confirmedDisabled)
   }
 
-  @Test func automationNeverPromptsForUnreviewedBatteryWarningOrHelperApproval() async throws {
+  @Test func automationNeverPromptsForUnreviewedBatteryWarningOrPermissionSetup() async throws {
     let fixture = await ControllerFixture()
     fixture.inputs.battery(percent: 25)
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let installation = InstallationFixture(power: fixture.power)
     let model = AppModel(
       endpoint: .init(stateDirectory: directory),
       power: { .init(onBattery: true, batteryPercent: 25) },
       assertions: ControllerAssertions(), closedLid: fixture.controller(),
-      helperInstallation: HelperInstallation(service: installation))
+      closedLidPermission: missingPermissionModel())
     defer { model.shutdown() }
     let service = AutomationService()
     service.bind(model)
@@ -1238,11 +661,9 @@ import os
     #expect(prompts == 0)
     #expect(!fixture.transport.actions.contains(.enable))
     model.settings.closedLidBatteryWarningAccepted = true
-    installation.status = .requiresApproval
     await #expect(throws: (any Error).self) {
       try await service.setClosedLid(id: id, enabled: true)
     }
-    #expect(!installation.openedApproval)
     #expect(!fixture.transport.actions.contains(.enable))
   }
 
@@ -1254,7 +675,7 @@ import os
     let model = AppModel(
       endpoint: .init(stateDirectory: directory), power: { .init() },
       assertions: ControllerAssertions(), closedLid: fixture.controller(),
-      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+      closedLidPermission: readyPermissionModel())
     defer { model.shutdown() }
     let service = AutomationService()
     service.bind(model)
@@ -1275,7 +696,7 @@ import os
       }
     }
     await fixture.transport.waitForEnableReply()
-    #expect(try await service.status().contains("Helper state: changing"))
+    #expect(try await service.status().contains("Closed-lid permission state: changing"))
     await #expect(throws: (any Error).self) { try await service.script(.closedLidEnabled) }
     model.refreshPower()
     #expect(!fixture.transport.actions.contains(.disable))
@@ -1293,7 +714,7 @@ import os
     let model = AppModel(
       endpoint: .init(stateDirectory: directory), power: { .init() },
       assertions: ControllerAssertions(), closedLid: fixture.controller(),
-      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+      closedLidPermission: readyPermissionModel())
     defer { model.shutdown() }
     let service = AutomationService()
     service.bind(model)
@@ -1316,7 +737,7 @@ import os
     let model = AppModel(
       endpoint: .init(stateDirectory: directory), power: { .init() },
       assertions: ControllerAssertions(), closedLid: fixture.controller(),
-      helperInstallation: HelperInstallation(service: InstallationFixture(power: fixture.power)))
+      closedLidPermission: readyPermissionModel())
     defer { model.shutdown() }
     let service = AutomationService()
     service.bind(model)
@@ -1452,29 +873,4 @@ private actor ControllerPower: ClosedLidPowerControlling {
   func sleep() {}
   func denyReset() { resetDenied = true }
   func allowReset() { resetDenied = false }
-}
-
-@MainActor private final class InstallationFixture: HelperInstalling {
-  var status = SMAppService.Status.enabled
-  var operations: [String] = []
-  var openedApproval = false
-  var registerErrors: [NSError] = []
-  var registrationStatus = SMAppService.Status.requiresApproval
-  private let power: ControllerPower
-  init(power: ControllerPower) { self.power = power }
-  func register() throws {
-    #expect(status == .notRegistered)
-    operations.append("register")
-    if !registerErrors.isEmpty { throw registerErrors.removeFirst() }
-    status = registrationStatus
-  }
-  func unregister() async throws {
-    let state = await power.readback()
-    #expect(state.confirmedDisabled)
-    operations.append("reset-confirmed")
-    await Task.yield()
-    status = .notRegistered
-    operations.append("unregister-completed")
-  }
-  func openApproval() { openedApproval = true }
 }

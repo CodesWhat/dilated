@@ -1,41 +1,11 @@
 import DilatedCore
-import ServiceManagement
 import SwiftUI
 
 @MainActor struct ClosedLidSettings: View {
   @Bindable var model: AppModel
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
-      if model.closedLid.usesLocalTransport {
-        permissionGroup
-      } else {
-        SettingsGroup(eyebrow: "HELPER") {
-          SettingsRow(
-            title: model.closedLid.active
-              ? "Closed-lid armed" : model.helperInstallation.statusText,
-            detail: model.helperInstallation.lastError ?? model.closedLid.lastError
-              ?? model.closedLid.state?.message
-              ?? "Approve the signed background helper in Login Items. Regular awake holds work without it."
-          ) {
-            Button(model.helperInstallation.buttonTitle) { Task { await model.setupHelper() } }
-              .disabled(model.helperInstallation.busy || model.closedLid.busy)
-          }
-          SettingsRow(title: "Check helper status") {
-            Button("Refresh") { model.refreshHelperStatus() }
-              .disabled(model.helperInstallation.busy || model.closedLid.busy)
-          }
-          if let state = model.closedLid.state {
-            SettingsRow(title: "Power setting", detail: state.stopReason?.localizedDescription) {
-              Text(
-                state.readback.confirmedDisabled
-                  ? "Off, confirmed" : state.enabled ? "On, confirmed" : "Needs attention")
-            }
-            SettingsRow(title: "Lid") {
-              Text(state.environment.lidClosed.map { $0 ? "Closed" : "Open" } ?? "Unavailable")
-            }
-          }
-        }
-      }
+      permissionGroup
       SettingsGroup(eyebrow: "LIMITS") {
         SettingsRow(
           title: "Closed-lid battery floor",
@@ -99,16 +69,14 @@ import SwiftUI
                 )
               ).labelsHidden().accessibilityHint("Keep working with the lid closed")
                 .disabled(
-                  model.closedLid.busy || model.helperInstallation.busy
-                    || model.closedLidPermission.busy)
+                  model.closedLid.busy || model.closedLidPermission.busy)
             }
           }
         }
       }
       SettingsNote(
-        text: model.closedLid.usesLocalTransport
-          ? "Keep your Mac ventilated. Don't put it in a bag while it works. Dilated checks battery, temperature and its 90-second lease on its own. If Dilated quits or crashes, it restores normal sleep the next time it opens."
-          : "Keep your Mac ventilated. Don't put it in a bag while it works. The helper checks battery, temperature and its 90-second app lease independently. A crash, reboot or safety stop requires enabling closed-lid again."
+        text:
+          "Keep your Mac ventilated. Don't put it in a bag while it works. Dilated checks battery, temperature and its 90-second lease on its own. If Dilated quits or crashes, it restores normal sleep the next time it opens."
       )
       SettingsGroup(eyebrow: "AUTOMATION") {
         SettingsRow(
@@ -121,10 +89,6 @@ import SwiftUI
               "Allows lid=closed in dilated:// links. Any website can open these links. Stop still pauses all automation."
             )
         }
-      }
-      if !model.closedLid.usesLocalTransport, model.helperInstallation.status == .enabled {
-        Button("Turn off and remove helper") { Task { await model.removeHelper() } }
-          .disabled(model.closedLid.busy || model.helperInstallation.busy)
       }
     }
   }
@@ -157,6 +121,20 @@ import SwiftUI
           if permission.canRestoreNormalSleep {
             Button("Restore normal sleep") { Task { await model.restoreNormalSleep() } }
               .disabled(permission.busy || model.closedLid.busy)
+          }
+        }
+      }
+      if let record = model.helperMigration.record {
+        SettingsRow(
+          title: record.needsAttention ? "Old helper needs attention" : "Old helper removed",
+          detail: record.message
+        ) {
+          HStack {
+            if record.outcome == .needsRestore {
+              Button("Restore normal sleep") { Task { await model.restoreNormalSleep() } }
+                .disabled(permission.busy || model.closedLid.busy)
+            }
+            Button("Dismiss") { model.helperMigration.dismiss() }
           }
         }
       }

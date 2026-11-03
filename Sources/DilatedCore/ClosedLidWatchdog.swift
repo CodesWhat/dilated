@@ -12,7 +12,7 @@ public struct ClosedLidWatchdog: Sendable {
     case markerGone
   }
 
-  private enum Event: Sendable { case exited, markerGone }
+  private enum Event: Sendable { case exited, markerGone, heartbeatStalled }
 
   /// First retry delay after a failed revert. It doubles up to `maxRevertBackoff`.
   public static let initialRevertBackoff = Duration.seconds(5)
@@ -34,10 +34,41 @@ public struct ClosedLidWatchdog: Sendable {
   private let clearMarker: @Sendable () -> Void
   private let acquireLock: @Sendable () async -> (@Sendable () -> Void)?
   private let sleep: @Sendable (Duration) async throws -> Void
+  private let readHeartbeat: @Sendable () -> String?
+  private let heartbeatTimeout: Duration?
+  private let monotonic: @Sendable () -> Duration
+  private let ticker: @Sendable (Duration, @escaping @Sendable () -> Void) -> @Sendable () -> Void
+
+  /// How long the heartbeat may sit unchanged before the app counts as hung: the governor's
+  /// lease plus a margin for a slow tick or a briefly busy machine.
+  public static let heartbeatTimeout = Duration.seconds(ClosedLidGovernor.leaseSeconds + 30)
+
+  /// Time since an arbitrary origin on a clock that stops while the Mac sleeps.
+  public static let suspendingNow: @Sendable () -> Duration = {
+    suspendingOrigin.duration(to: SuspendingClock.now)
+  }
+  private static let suspendingOrigin = SuspendingClock.now
+
+  /// Calls `handler` every `interval` on a serial queue until the returned closure is called.
+  public static let timerTicker:
+    @Sendable (Duration, @escaping @Sendable () -> Void) ->
+      @Sendable () -> Void = { pollInterval, handler in
+        let timer = DispatchSource.makeTimerSource(
+          queue: DispatchQueue(label: "dilated.closed-lid-watchdog.poll"))
+        let interval = pollInterval.components
+        let nanos = max(
+          Int(interval.seconds) * 1_000_000_000 + Int(interval.attoseconds / 1_000_000_000),
+          1_000_000)
+        timer.setEventHandler(handler: handler)
+        timer.schedule(deadline: .now() + .nanoseconds(nanos), repeating: .nanoseconds(nanos))
+        timer.resume()
+        return { timer.cancel() }
+      }
 
   /// `onExit` registers a handler called once when the app exits (possibly at once, possibly
   /// from any thread) and returns a cancel closure. `acquireLock` returns a release closure, or
-  /// nil when the lock couldn't be taken in time.
+  /// nil when the lock couldn't be taken in time. `monotonic` and `ticker` default to the
+  /// suspending clock and a real timer; tests inject a manual clock and drive each poll by hand.
   public init(
     generation: UUID, pollInterval: Duration = .seconds(10),
     readMarker: @escaping @Sendable () -> ClosedLidSessionMarker?,
@@ -45,8 +76,17 @@ public struct ClosedLidWatchdog: Sendable {
     power: any ClosedLidPowerControlling,
     clearMarker: @escaping @Sendable () -> Void,
     acquireLock: @escaping @Sendable () async -> (@Sendable () -> Void)? = { {} },
-    sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+    readHeartbeat: @escaping @Sendable () -> String? = { nil },
+    heartbeatTimeout: Duration? = nil,
+    monotonic: @escaping @Sendable () -> Duration = ClosedLidWatchdog.suspendingNow,
+    ticker: @escaping @Sendable (Duration, @escaping @Sendable () -> Void) -> @Sendable () -> Void =
+      ClosedLidWatchdog.timerTicker
   ) {
+    self.monotonic = monotonic
+    self.ticker = ticker
+    self.readHeartbeat = readHeartbeat
+    self.heartbeatTimeout = heartbeatTimeout
     self.generation = generation
     self.pollInterval = pollInterval
     self.readMarker = readMarker
@@ -72,16 +112,15 @@ public struct ClosedLidWatchdog: Sendable {
     // swift_task_dealloc when a spawned task awaits here (CI crash reports, 2026-11-02).
     let (stream, events) = AsyncStream.makeStream(of: Event.self)
     let cancelExit = onExit { events.yield(.exited) }
-    let timer = DispatchSource.makeTimerSource(
-      queue: DispatchQueue(label: "dilated.closed-lid-watchdog.poll"))
-    timer.setEventHandler {
-      if !markerIsOurs { events.yield(.markerGone) }
+    let stall = HeartbeatStallTracker(timeout: heartbeatTimeout, now: monotonic)
+    _ = stall.isStalled(readHeartbeat())
+    let cancelTimer = ticker(pollInterval) {
+      if !markerIsOurs {
+        events.yield(.markerGone)
+      } else if stall.isStalled(readHeartbeat()) {
+        events.yield(.heartbeatStalled)
+      }
     }
-    let interval = pollInterval.components
-    let nanos = max(
-      Int(interval.seconds) * 1_000_000_000 + Int(interval.attoseconds / 1_000_000_000), 1_000_000)
-    timer.schedule(deadline: .now() + .nanoseconds(nanos), repeating: .nanoseconds(nanos))
-    timer.resume()
     let event: Event? = await withTaskCancellationHandler {
       var first: Event?
       for await next in stream {
@@ -92,12 +131,12 @@ public struct ClosedLidWatchdog: Sendable {
     } onCancel: {
       events.finish()
     }
-    timer.cancel()
+    cancelTimer()
     cancelExit()
     events.finish()
     switch event {
     case .markerGone, nil: return .markerGone
-    case .exited: return await revert()
+    case .exited, .heartbeatStalled: return await revert()
     }
   }
 
@@ -118,6 +157,33 @@ public struct ClosedLidWatchdog: Sendable {
       do { try await sleep(Self.revertBackoff(attempt: attempt)) } catch { return .revertFailed }
       attempt += 1
     }
+  }
+}
+
+/// Remembers the last heartbeat value and when the watchdog first saw it, on a clock that stops
+/// while the Mac sleeps. Only the value changing counts as life, so a wall clock that jumps
+/// can't cause or hide a stall. Called from the poll timer's serial queue only.
+private final class HeartbeatStallTracker: @unchecked Sendable {
+  private let timeout: Duration?
+  private var lastValue: String?
+  private let now: @Sendable () -> Duration
+  private var changedAt: Duration
+
+  init(timeout: Duration?, now: @escaping @Sendable () -> Duration) {
+    self.timeout = timeout
+    self.now = now
+    changedAt = now()
+  }
+
+  func isStalled(_ value: String?) -> Bool {
+    guard let timeout else { return false }
+    let current = now()
+    if value != lastValue {
+      lastValue = value
+      changedAt = current
+      return false
+    }
+    return current - changedAt >= timeout
   }
 }
 
@@ -281,7 +347,9 @@ public enum ClosedLidWatchdogCommand {
       acquireLock: {
         guard let lock = try? await store.acquireLock() else { return nil }
         return { lock.release() }
-      })
+      },
+      readHeartbeat: { store.readHeartbeat() },
+      heartbeatTimeout: ClosedLidWatchdog.heartbeatTimeout)
     return await watchdog.run() == .revertFailed ? 1 : 0
   }
 }

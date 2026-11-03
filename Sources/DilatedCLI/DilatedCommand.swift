@@ -37,7 +37,8 @@ import Foundation
           .requirePrepared(app: app)
         guard NativeClosedLidPower.readback().confirmedDisabled else {
           throw InputError(
-            "macOS hasn't confirmed sleep-disable is off. Repair the helper before continuing.")
+            "macOS hasn't confirmed sleep-disable is off. Run dilated lid-permission status, then restore normal sleep from Dilated's Settings."
+          )
         }
         print("Package preparation verified.")
         return
@@ -69,7 +70,7 @@ import Foundation
           .contains(
             request.action)
         {
-          print(response.message ?? "Helper operation completed.")
+          print(response.message ?? "Done.")
         } else if let id = response.id {
           print(id.uuidString)
         } else if let snapshot = response.snapshot {
@@ -189,7 +190,7 @@ import Foundation
       managedID = response.id
     } else {
       if options.closedLid {
-        throw InputError("Closed-lid run requires the app and its approved helper.")
+        throw InputError("Closed-lid run requires the app and closed-lid permission.")
       }
       if try store.load().automationPaused { throw WakeError.automationPaused }
     }
@@ -272,21 +273,22 @@ import Foundation
            dilated release --id ID
            dilated run [--label NAME] [--lid] -- command arguments
            dilated lid-permission status|install|remove [--json]
-           dilated helper status|setup|remove [--json]
-           dilated prepare-update|prepare-uninstall [--json]
+           dilated helper status|setup|remove [--json]   (deprecated, use lid-permission)
+           dilated prepare-update [--json]
+           dilated prepare-uninstall [--remove-lid-permission] [--json]
            dilated package-check
 
     Starts allow display sleep unless --display-awake is supplied.
     --override-low-power explicitly allows a new hold in Low Power Mode.
-    --lid requires the app's approved helper and its closed-lid safety limits.
+    --lid requires closed-lid permission (see lid-permission) and the app's safety limits.
     lid-permission status prints notInstalled, needsRepair, blocked, ready, notAdmin or
     allowedByOtherRule (another app's sudo rule already covers closed-lid).
     lid-permission install and remove ask for your administrator password in the app.
-    With closed-lid permission turned on, the helper commands map to it and are deprecated.
-    helper setup opens macOS approval when needed. Move the app to Applications first.
-    helper remove verifies sleep-disable is off before unregistering the helper.
-    prepare-update removes the helper and quits while preserving only unexpired timers.
-    prepare-uninstall removes the helper, login item and owned CLI link, then discards holds and quits.
+    The helper commands are deprecated aliases of lid-permission and go away in a later release.
+    prepare-update turns closed-lid off and quits while preserving only unexpired timers.
+    prepare-uninstall turns closed-lid off, removes the login item and owned CLI link, then
+    discards holds and quits. It leaves the sudo rule alone unless you pass --remove-lid-permission,
+    which asks for your administrator password.
     Reopen Dilated after upgrading. Package preparation expires after ten minutes.
     Renewals preserve an active lid request but can't re-enable a stopped one.
     A new hold prints its unique ID. Pass it to hold --id to renew, or release.

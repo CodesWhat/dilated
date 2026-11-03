@@ -98,7 +98,8 @@ import UniformTypeIdentifiers
   var body: some View {
     SettingsRow(
       title: armed ? "Closed-lid armed for this run" : "Closed-lid automation off",
-      detail: "Set up the helper in Closed Lid first. Arming is never saved across relaunch."
+      detail:
+        "Set up closed-lid permission in Closed Lid first. Arming is never saved across relaunch."
     ) {
       Button(armed ? "Disarm closed-lid" : "Arm closed-lid") {
         let disarm = armed
@@ -119,7 +120,7 @@ import UniformTypeIdentifiers
         !armed
           && (!rule.enabled || !model.settings.triggersEnabled
             || model.engine.automationPaused || model.armingClosedLidTrigger != nil
-            || model.closedLid.busy || model.helperInstallation.busy)
+            || model.closedLid.busy || model.closedLidPermission.busy)
       )
     }
   }

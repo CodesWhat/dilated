@@ -44,9 +44,11 @@ A JSON file tied to the exact artifacts:
 }
 ```
 
-`checks` needs an entry for every name in `ACCEPTANCE_CHECKS` in `scripts/stage-public-release.py`: `macOS26ClosedLid`, `macOS27ClosedLid`, `helperCrashRecovery`, `appCrashRecovery`, `heartbeatExpiry`, `stopResume`, `guardTransitions`, `rebootRecovery`, `approvalDenied`, `helperUpgrade`, `sparkleUpgrade`, `uninstallNormalSleep` and `nativeUI`. Each has `status`, `machine`, `macOS` and `evidence`.
+`checks` needs an entry for every name in `ACCEPTANCE_CHECKS` in `scripts/stage-public-release.py`: `macOS26ClosedLid`, `macOS27ClosedLid`, `sudoRuleRevoked`, `appCrashRecovery`, `heartbeatExpiry`, `stopResume`, `guardTransitions`, `rebootRecovery`, `adminPromptCancelled`, `helperMigration`, `sudoRuleIntegrity`, `sparkleUpgrade`, `uninstallNormalSleep` and `nativeUI`. Each has `status`, `machine`, `macOS` and `evidence`.
 
-For GA releases, every check in `ACCEPTANCE_CHECKS` must be `passed`. For an alpha, beta or rc, `macOS26ClosedLid`, `heartbeatExpiry` and `stopResume` must be `passed`. The others can be `failed` or `notRun`, with evidence saying why. Staging lists those as unverified in the manifest, `latest.json` and the cask caveats. Fixtures and mock runs aren't hardware evidence.
+For GA releases, every check in `ACCEPTANCE_CHECKS` must be `passed`. For an alpha, beta or rc, `appCrashRecovery`, `heartbeatExpiry` and `stopResume` must be `passed`, and so must at least one of `macOS26ClosedLid` or `macOS27ClosedLid`, on any supported macOS. The others can be `failed` or `notRun`, with evidence saying why. Staging lists those, including whichever closed-lid check wasn't passed, as unverified in the manifest, `latest.json` and the cask caveats. Fixtures and mock runs aren't hardware evidence.
+
+The generated cask removes the closed-lid sudo rule (`/private/etc/sudoers.d/dilated`) with a `zap` stanza only. It is never in `uninstall`, because Homebrew runs uninstall during an upgrade and that would strip the rule from every upgraded install.
 
 ## 5. Stage the public release
 

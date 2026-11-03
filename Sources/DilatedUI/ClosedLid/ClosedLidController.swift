@@ -16,17 +16,17 @@ import Observation
   @ObservationIgnored private var monitoring: Task<Void, Never>?
   @ObservationIgnored private var operation = UUID()
   @ObservationIgnored private var operationFailure: (any Error)?
-  var usesLocalTransport: Bool { transport is LocalClosedLidTransport }
   var localTransport: LocalClosedLidTransport? { transport as? LocalClosedLidTransport }
   public var active: Bool { leaseID != nil && state?.enabled == true }
   public var hasLease: Bool { leaseID != nil }
 
+  /// Starts the in-process service at launch so a dead session's sleep-disable is reverted
+  /// without waiting for the first closed-lid request.
+  public func startService() { localTransport?.startTicking() }
+
   public init(
-    transport: any HelperTransporting = HelperTransport(),
-    expectedBuild: @escaping () throws -> String = {
-      try HelperCodeIdentity.executable(
-        at: Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/dilated-helper"))
-    }
+    transport: any HelperTransporting,
+    expectedBuild: @escaping () throws -> String = { LocalClosedLidTransport.buildIdentity }
   ) {
     self.transport = transport
     self.expectedBuild = expectedBuild

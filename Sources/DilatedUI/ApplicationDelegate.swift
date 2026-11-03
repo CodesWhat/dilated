@@ -25,6 +25,9 @@ import IOKit.ps
       server = try LocalSocketServer(endpoint: model.endpoint) { [weak self] request in
         let response = await model.control(request)
         await self?.settings?.dismissSheetForPackage(request, response: response)
+        if response.ok, request.action == .prepareUpdate || request.action == .prepareUninstall {
+          Task { await PackageQuit().run() }
+        }
         return response
       }
     } catch {
@@ -91,7 +94,7 @@ import IOKit.ps
     observe(.NSSystemClockDidChange, center: .default) { model.tick() }
     observe(.NSSystemTimeZoneDidChange, center: .default) { model.tick() }
     observe(NSApplication.didBecomeActiveNotification, center: .default) {
-      model.refreshHelperStatus()
+      model.refreshClosedLidPermission()
     }
     observe(NSWorkspace.willSleepNotification, center: NSWorkspace.shared.notificationCenter) {
       model.handleSystemTransition(.sleep)
