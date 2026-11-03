@@ -168,7 +168,14 @@ public struct AgentLifecycle {
         guard let record = load(command) else {
           return ControlResponse(ok: true, message: "No active hold for this run.")
         }
-        let released = try await transport(ControlRequest(action: .release, id: record.holdID))
+        let released: ControlResponse
+        do {
+          released = try await transport(ControlRequest(action: .release, id: record.holdID))
+        } catch is AppConnectionUnavailable {
+          // A closed app holds nothing: relaunch drops lease holds, so the record is stale.
+          clear(command)
+          return ControlResponse(ok: true, message: "Released.")
+        }
         guard released.ok || released.code == WakeError.holdNotFound.rawValue else {
           return released
         }
