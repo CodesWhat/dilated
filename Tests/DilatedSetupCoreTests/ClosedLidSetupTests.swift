@@ -435,6 +435,16 @@ struct ClosedLidSetupAssetTests {
     #expect(plist.contains(ClosedLidSetupPaths.agentLabel))
   }
 
+  @Test func verificationJSONReportsTheBundledAssets() {
+    #expect(
+      ClosedLidSetupAssets.bundled().verificationJSON
+        == #"{"plistValid":true,"scriptMatches":true,"scriptSHA256":"\#(ClosedLidSetupAssets.expectedScriptSHA256)"}"#
+    )
+    let broken = ClosedLidSetupAssets(script: Data("x".utf8), plistTemplate: "")
+    #expect(broken.verificationJSON.contains(#""scriptMatches":false"#))
+    #expect(broken.verificationJSON.contains(#""plistValid":false"#))
+  }
+
   @Test func pathsMatchWhatTheMacAppStoreBuildAndTheCheckScriptsUse() {
     let paths = ClosedLidSetupPaths(home: "/Users/a", uid: 7)
     #expect(

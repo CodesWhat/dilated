@@ -102,3 +102,13 @@ python3 -I scripts/check-mas-bundle.py /absolute/path/to/mas-output/Dilated.app
 `--adhoc` signs with `DILATED_SIGN_IDENTITY=-` and skips the `.pkg`, so it needs no certificates. For a store build, drop `--adhoc` and set `DILATED_SIGN_IDENTITY` (Apple Distribution), `DILATED_INSTALLER_IDENTITY` (Mac Installer Distribution), `DILATED_MAS_PROFILE` (the Mac App Store provisioning profile) and `DILATED_TEAM_ID`. The script embeds the profile, adds the application and team identifiers to the signing entitlements, and runs `productbuild` to write `Dilated.pkg`.
 
 The checker exits 1 on a key containing `temporary-exception`, an entitlement outside the allowlist, any embedded executable besides `DilatedApp`, Sparkle or `SU*` keys, a daemon or LaunchAgent plist, a non-arm64 slice, a missing `LSApplicationCategoryType` or a wrong bundle ID. Run it on every MAS build before upload. Upload itself isn't scripted.
+
+### Closed-lid setup companion
+
+The MAS build installs nothing privileged, so `Dilated Closed-Lid Setup.app` (`com.codeswhat.dilated.closed-lid-setup`, target `DilatedSetup`) is a separate notarized Developer ID download. Package it from a clean tree:
+
+```sh
+python3 scripts/package-setup.py --output-dir /absolute/path/to/setup-output --candidate
+```
+
+Drop `--candidate` to build from the exact release tag. It builds arm64, signs inside-out with the hardened runtime and a timestamp (no entitlements, no sandbox), notarizes with the same App Store Connect key or `--notary-profile` as `package-release.py`, staples, and zips with `ditto`. Before zipping it runs the packaged app's hidden `--assets --json` and `--status --json` modes, which fail unless the bundled `dilated-power` script and LaunchAgent template resolve and the script matches `expectedScriptSHA256`. Output is the ZIP, its `.sha256` and `setup-manifest.json` (version, SHA-256, source revision). Nothing here stages or publishes it: use a separate output directory, never `build/public-release-assets`. Website links wait for the MAS app.

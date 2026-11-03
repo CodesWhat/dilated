@@ -66,6 +66,17 @@ public struct ClosedLidSetupAssets: Sendable {
     return ClosedLidSetupAssets(script: script ?? Data(), plistTemplate: plist ?? "")
   }
 
+  /// What the packaged app reports for `--assets --json`: whether the bundled files resolved and match.
+  public var verificationJSON: String {
+    let report: [String: Any] = [
+      "scriptSHA256": ClosedLidSetup.sha256(script),
+      "scriptMatches": ClosedLidSetup.sha256(script) == expectedScriptSHA256,
+      "plistValid": plistTemplate.contains("__HOME__"),
+    ]
+    let data = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
+    return data.map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+  }
+
   public func renderedPlist(home: String) -> Data {
     Data(plistTemplate.replacingOccurrences(of: "__HOME__", with: home).utf8)
   }

@@ -2,7 +2,7 @@ import DilatedSetupCore
 import Foundation
 
 enum HeadlessCommand: Equatable {
-  case install, remove, status
+  case install, remove, status, assets
 
   /// Nil when the arguments aren't one of the hidden modes, so the window opens instead.
   /// `--install` and `--remove` need `--yes`; `--status` needs `--json`.
@@ -12,6 +12,7 @@ enum HeadlessCommand: Equatable {
     if flags == ["--install", "--yes"] { return .install }
     if flags == ["--remove", "--yes"] { return .remove }
     if flags == ["--status", "--json"] { return .status }
+    if flags == ["--assets", "--json"] { return .assets }
     return nil
   }
 
@@ -21,6 +22,10 @@ enum HeadlessCommand: Equatable {
     case .status:
       print(await setup.status().jsonString)
       return 0
+    case .assets:
+      let assets = ClosedLidSetupAssets.bundled()
+      print(assets.verificationJSON)
+      return assets.script.isEmpty ? 1 : 0
     case .install:
       return report(await setup.install())
     case .remove:
