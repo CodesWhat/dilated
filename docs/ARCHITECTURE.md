@@ -376,6 +376,20 @@ The script runs unsandboxed as the user and the sudoers rule does the elevation.
 Closed-Lid Setup, installs the script and the rule; the app never installs either. The source is
 `packaging/mas/dilated-power`.
 
+The companion is the `DilatedSetup` target (SwiftUI window; logic in `DilatedSetupCore`, every side effect behind a protocol). It
+runs unsandboxed. Install order: the sudoers rule (skipped with no prompt when `ClosedLidPermission` already reads `ready` or
+`allowedByOtherRule`, otherwise `ClosedLidPermission.install`, one admin prompt), then `dilated-power` into
+`~/Library/Application Scripts/com.codeswhat.dilated.appstore/` (0755, temp file and rename, SHA-256 checked against
+`ClosedLidSetupAssets.expectedScriptSHA256` before anything is written; a test fails if the script changes without it), then
+the rendered LaunchAgent plist and `launchctl bootstrap gui/<uid>` after a `bootout`, so reinstall is idempotent. Remove order:
+`dilated-power off` if a session file exists, boot out the agent and delete the plist, delete the script and its empty folder,
+then the rule only if the companion created it. That fact is a 0600 record under `~/Library/Application Support/Dilated
+Closed-Lid Setup/`, set only when the rule file was absent at install. The rule is the direct build's (same path and content),
+so the two builds share it: the direct build's "remove" also removes the rule the Mac App Store build relies on, and the
+companion never removes a rule it didn't create (Amphetamine's, or one the direct build installed first). Hidden headless mode
+for `scripts/closed-lid-setup-check.sh`: `DilatedSetup --install --yes`, `--remove --yes`, `--status --json`; it never shows an
+admin prompt.
+
 The script takes one verb: `on <pid>` (exactly one argument, all digits, at most 10), or `beat`, `off`, `check`, `repair`,
 `probe` with no argument. Anything else prints `usage` to stderr and exits 64. It uses absolute paths, runs
 `/usr/bin/env -i /usr/bin/sudo -n`, and reads only `HOME`. `probe` runs `sudo -n -l` for both `pmset -a disablesleep`

@@ -20,6 +20,7 @@ let package = Package(
     .library(name: "DilatedControl", targets: ["DilatedControl"]),
     .executable(name: "DilatedApp", targets: ["Dilated"]),
     .executable(name: "dilated", targets: ["DilatedCLI"]),
+    .executable(name: "DilatedSetup", targets: ["DilatedSetup"]),
   ],
   dependencies: [
     .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
@@ -42,6 +43,15 @@ let package = Package(
       ]),
     .executableTarget(name: "Dilated", dependencies: ["DilatedUI"]),
     .executableTarget(name: "DilatedCLI", dependencies: ["DilatedCore", "DilatedControl"]),
+    // Dilated Closed-Lid Setup: the unsandboxed Developer ID companion for the Mac App Store build.
+    .target(
+      name: "DilatedSetupCore", dependencies: ["DilatedCore"],
+      resources: [
+        .copy("Resources/dilated-power"),
+        .copy("Resources/com.codeswhat.dilated.closed-lid-repair.plist"),
+      ]),
+    .executableTarget(name: "DilatedSetup", dependencies: ["DilatedSetupCore"]),
+    .testTarget(name: "DilatedSetupCoreTests", dependencies: ["DilatedSetupCore", "DilatedCore"]),
     .testTarget(
       name: "DilatedCoreTests", dependencies: ["DilatedCore"], swiftSettings: channelSettings),
     .testTarget(
