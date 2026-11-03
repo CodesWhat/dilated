@@ -231,6 +231,26 @@ Configuration survives app restarts, but matching holds are rebuilt from current
 conditions. A saved process/app hold is never treated as evidence the work is
 still running.
 
+## Agent lifecycle commands
+
+`dilated agent` wraps the renewable hold API so any hook can call one contract.
+`--agent` is 1-32 and `--run` 1-64 letters, digits, `-` or `_`, because they become
+file names. Each run keeps its hold ID and last renew time in
+`agents/AGENT.RUN.json` under the app's state directory, written atomically and
+guarded by a per-run lock so concurrent hooks can't race. The lease is 10 minutes.
+No command makes a model or network call. `--json` prints the usual response.
+
+| Command | Behavior |
+|---|---|
+| `dilated agent begin --agent NAME --run ID` | Start a 10-minute hold for the run and print its hold ID. A repeat for the same run renews and prints the same ID. If the saved hold already ended, starts a fresh one, unless automation is paused |
+| `dilated agent renew --agent NAME --run ID` | Renew the run's hold for another 10 minutes. Never creates one: with no saved hold, an ended hold or paused automation it fails and creates nothing |
+| `dilated agent end --agent NAME --run ID` | Release only this run's hold and delete its record. Safe to repeat, and a run with no record succeeds |
+
+Exit status is 0 on success, 4 when automation is paused and 1 for an ended hold or
+any other error. An ended-ID reply deletes the run's record, so later renewals fail the
+same way. Only an explicit `begin` starts a new hold after that. If the app isn't
+running, `begin` and `renew` launch it like `hold` does, while `end` doesn't.
+
 ## Manual agent hook pattern
 
 Automatic hook installation is deferred. Configure your workflow to capture the

@@ -43,6 +43,7 @@ import Foundation
         print("Package preparation verified.")
         return
       }
+      if let agent = input.agent { exit(try await runAgent(agent)) }
       if !input.command.isEmpty { exit(try await run(input)) }
       guard let request = input.request else { throw InputError("Missing command.") }
       let endpoint = SocketEndpoint.current
@@ -145,6 +146,31 @@ import Foundation
       try await Task.sleep(for: .milliseconds(100))
     }
     throw InputError("Dilated launched but its control connection isn't ready.")
+  }
+
+  @MainActor private static func runAgent(_ command: AgentCommand) async throws -> Int32 {
+    let endpoint = SocketEndpoint.current
+    var launched = false
+    let lifecycle = AgentLifecycle(stateDirectory: endpoint.stateDirectory) { request in
+      do {
+        return try LocalSocketClient.send(request, to: endpoint)
+      } catch let error as AppConnectionUnavailable {
+        // begin and renew launch the app like hold does; end never wakes a closed app.
+        guard command.verb != .end, !launched else { throw error }
+        launched = true
+        try await launchApp(endpoint: endpoint)
+        return try LocalSocketClient.send(request, to: endpoint)
+      }
+    }
+    let response = try await lifecycle.run(command)
+    if command.json {
+      print(String(decoding: try WireJSON.encode(response), as: UTF8.self))
+    } else if response.ok {
+      print(response.id?.uuidString ?? response.message ?? "Done.")
+    } else {
+      writeError(response.message ?? "Dilated rejected the request.")
+    }
+    return response.ok ? 0 : response.code == "automationPaused" ? 4 : 1
   }
 
   @MainActor private static func run(_ input: CLIInput) async throws -> Int32 {
@@ -271,6 +297,7 @@ import Foundation
            dilated off [--id ID | --label NAME]
            dilated hold --ttl 10m [--label NAME] [--id ID | --lid]
            dilated release --id ID
+           dilated agent begin|renew|end --agent NAME --run ID [--json]
            dilated run [--label NAME] [--lid] -- command arguments
            dilated lid-permission status|install|remove [--json]
            dilated helper status|setup|remove [--json]   (deprecated, use lid-permission)
@@ -293,6 +320,8 @@ import Foundation
     Renewals preserve an active lid request but can't re-enable a stopped one.
     A new hold prints its unique ID. Pass it to hold --id to renew, or release.
     Stop pauses CLI/URL starts and renewals until Resume automation in the app.
+    agent keeps one 10-minute hold per run ID: begin is idempotent, renew never recreates an
+    ended hold, and end releases only that run's hold. NAME and ID use letters, digits, - and _.
     run works without the app. Ending its awake hold never terminates the command.
     """
 }
