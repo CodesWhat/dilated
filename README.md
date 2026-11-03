@@ -89,7 +89,7 @@ Battery floor and Low Power Mode guards can end a hold before it drains your bat
 | **Triggers** | Named rules that keep the Mac awake while all their conditions match. Conditions: running or frontmost apps, processes, schedules, power, displays, network identity, Wi-Fi SSIDs, mounted volumes, USB and paired Bluetooth devices, selected audio output, CPU load and idle time. Dwell and grace delays. |
 | **Automation** | URL scheme, AppleScript, four Shortcuts actions and a `dilated` CLI. The CLI covers `on`, `off`, `status`, `run -- <command>` and renewable agent holds (`hold`, `release`). Configurable global shortcuts. |
 | **Drive Alive** | Opt-in. Writes a small hidden file to selected volumes at an interval you choose (30 to 3600 seconds) so they don't idle. It doesn't wake a sleeping Mac. |
-| **Closed-lid mode** | Keeps the Mac running with the lid closed, through a sudo rule that lets Dilated run only `pmset -a disablesleep 0|1`. Admin accounts only. Experimental. A closed-lid trigger has to be armed each app run. |
+| **Closed-lid mode** | Keeps the Mac running with the lid closed, through a sudo rule that lets Dilated run only `pmset -a disablesleep 0` and `1`. Admin accounts only. Experimental. A closed-lid trigger has to be armed each app run. |
 | **Feedback** | Optional notification banners and sounds, both off by default. Local history and statistics. |
 
 The [automation reference](docs/AUTOMATION.md) has every command, trigger condition and safety rule.

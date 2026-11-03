@@ -93,7 +93,7 @@ import Testing
     var power = PowerState(onBattery: false, batteryPercent: 50)
     let model = AppModel(
       endpoint: .init(stateDirectory: directory), power: { power }, assertions: PowerAssertions(),
-      closedLid: inertClosedLid())
+      closedLid: inertClosedLid(), helperMigration: inertMigration(directory))
     defer { model.shutdown() }
     model.settings.batteryFloor = 30
     model.settings.batteryFloorIgnoresAC = false
