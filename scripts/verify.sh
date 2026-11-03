@@ -27,7 +27,9 @@ bash -n scripts/build-mas.sh
 python3 -m unittest Tests/ReleaseTests/test_check_mas_bundle.py
 plutil -lint packaging/mas/Info-MAS.plist
 plutil -lint packaging/mas/Dilated-MAS.entitlements
+bash -n scripts/mas-check-lib.sh
 bash -n scripts/mas-repair-agent-check.sh
+bash -n scripts/mas-crash-revert-check.sh
 plutil -lint packaging/mas/com.codeswhat.dilated.closed-lid-repair.plist
 python3 -c 'import ast; from pathlib import Path; [ast.parse(file.read_text(), filename=str(file)) for file in Path("scripts").rglob("*.py")]'
 plutil -lint packaging/Info.plist
