@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 
-const CANONICAL = 'https://dilated.codeswhat.com/';
+const CANONICAL = 'https://dilated.app/';
 const read = name => readFile(new URL(`../dist/${name}`, import.meta.url), 'utf8');
 const html = await read('index.html');
 
@@ -40,7 +40,7 @@ test('social meta uses absolute URLs and a card image', () => {
   const metas = [...html.matchAll(/<meta (?:property|name)="((?:og|twitter):[^"]+)" content="([^"]*)"/g)];
   const byName = Object.fromEntries(metas.map(([, name, content]) => [name, content]));
   for (const key of ['og:url', 'og:image', 'twitter:image']) {
-    assert.match(byName[key], /^https:\/\/dilated\.codeswhat\.com\//, `${key} must be absolute`);
+    assert.match(byName[key], /^https:\/\/dilated\.app\//, `${key} must be absolute`);
   }
   assert.equal(byName['og:url'], CANONICAL);
   assert.equal(byName['og:site_name'], 'Dilated');

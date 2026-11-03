@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://dilated.codeswhat.com/sitemap.xml
+Sitemap: https://dilated.app/sitemap.xml

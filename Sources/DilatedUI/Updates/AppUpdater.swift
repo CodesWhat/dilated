@@ -5,7 +5,7 @@ import Observation
 enum UpdateActivity { case starting, idle, closedLid, helperChange, recovering }
 
 enum UpdateLaunchPolicy {
-  static let feedURL = "https://dilated.codeswhat.com/updates/appcast.xml"
+  static let feedURL = "https://dilated.app/updates/appcast.xml"
   static func allows(arguments: [String], bundleURL: URL, info: [String: Any]) -> Bool {
     arguments.count == 1 && bundleURL.pathExtension == "app"
       && info["SUFeedURL"] as? String == feedURL

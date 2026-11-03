@@ -97,7 +97,7 @@ class ReleaseGuardsTests(unittest.TestCase):
         self.assertTrue((framework / 'Versions/B/Sparkle').is_file())
         self.assertTrue((app / 'Contents/Resources/Sparkle-LICENSE').is_file())
         self.assertEqual(info['SUPublicEDKey'], 'ehOxBirzN5y9MqUzYKsrYwgn4MAle82Z3rQIvYpZlhY=')
-        self.assertEqual(info['SUFeedURL'], 'https://dilated.codeswhat.com/updates/appcast.xml')
+        self.assertEqual(info['SUFeedURL'], 'https://dilated.app/updates/appcast.xml')
         self.assertTrue(info['SURequireSignedFeed'])
         self.assertTrue(info['SUVerifyUpdateBeforeExtraction'])
         self.assertTrue(info['DilatedUpdatesEnabled'])

@@ -6,14 +6,14 @@ Dilated is distributed as a notarized Developer ID build outside the Mac App Sto
 
 ## Get it
 
-- [Download the latest build](https://dilated.codeswhat.com/download/file): signed, notarized DMG for Apple Silicon
+- [Download the latest build](https://dilated.app/download/file): signed, notarized DMG for Apple Silicon
 - [Installation and removal](https://github.com/CodesWhat/dilated/blob/main/docs/INSTALLATION.md): Homebrew and DMG install, checksums, uninstall
 - [Releases](https://github.com/CodesWhat/dilated/releases): release notes, DMG, ZIP, source archive and checksums
 
 ## Use it
 
 - [Automation](https://github.com/CodesWhat/dilated/blob/main/docs/AUTOMATION.md): command line, URL scheme and AppleScript
-- [Product page](https://dilated.codeswhat.com/): what it does, with an interactive menu preview
+- [Product page](https://dilated.app/): what it does, with an interactive menu preview
 
 ## Source
 

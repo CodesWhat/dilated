@@ -2,7 +2,7 @@
 
 Dilated targets macOS 26 or later on Apple Silicon. 1.0.0-beta.10 (build 15) is
 public as a beta. Download the signed, notarized DMG from
-https://dilated.codeswhat.com/download/file, or run
+https://dilated.app/download/file, or run
 `brew install --cask codeswhat/tap/dilated`. The fully qualified name trusts that
 cask. Running `brew info` or `brew fetch` on the bare tap may ask for
 `brew trust --cask codeswhat/tap/dilated`. The GitHub release at
@@ -123,7 +123,7 @@ under System Settings → General → Login Items & Extensions.
 
 Local candidates do not contact a production update feed. Release builds,
 including the beta, carry the Sparkle feed at
-https://dilated.codeswhat.com/updates/appcast.xml with updates enabled. The feed
+https://dilated.app/updates/appcast.xml with updates enabled. The feed
 and update archives are signed. Updates wait until
 closed-lid mode is off.
 
