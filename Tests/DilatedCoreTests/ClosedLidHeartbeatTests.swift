@@ -197,6 +197,35 @@ struct ClosedLidHeartbeatTests {
     #expect(store.readHeartbeat() == nil)
   }
 
+  @Test func theScriptBeatFiresOncePerIntervalAndOnlyWhileASessionIsActive() async throws {
+    let clock = MutableClock()
+    let beats = Tally()
+    let guardian = ClosedLidSessionGuard(
+      power: FakePower(), store: makeStore(), now: { clock.now },
+      heartbeatInterval: ClosedLidSessionGuard.scriptHeartbeatInterval,
+      scriptBeat: { beats.add() })
+    #expect(ClosedLidSessionGuard.scriptHeartbeatInterval == 20)
+    await guardian.beat()
+    #expect(beats.count == 0)
+    _ = try await guardian.setSleepDisabled(true)
+    #expect(beats.count == 1)
+    for _ in 0..<19 {
+      clock.advance(1)
+      await guardian.beat()
+    }
+    #expect(beats.count == 1)
+    clock.advance(1)
+    await guardian.beat()
+    #expect(beats.count == 2)
+    clock.advance(40)
+    await guardian.beat()
+    #expect(beats.count == 3)
+    _ = try await guardian.setSleepDisabled(false)
+    clock.advance(60)
+    await guardian.beat()
+    #expect(beats.count == 3)
+  }
+
   @Test func theServiceBeatsOnItsTickOnlyWhileTheLeaseIsActive() async throws {
     let beats = Tally()
     let service = ClosedLidService(
