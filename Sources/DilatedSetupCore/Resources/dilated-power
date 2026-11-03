@@ -1,1 +1,281 @@
-../../../packaging/mas/dilated-power
+#!/bin/bash
+# Runs the two pmset commands Dilated needs for closed-lid mode, through the sudoers rule that
+# Dilated Closed-Lid Setup installs, and owns the session record that lets a LaunchAgent revert
+# them when the app is gone. The Mac App Store build can't spawn sudo, so it runs this script from
+# ~/Library/Application Scripts/<bundle id>/ through NSUserUnixTask.
+#
+# Usage: dilated-power on <pid> | beat | off | check | repair | probe
+# Output: one word on stdout, then the exit status.
+#   ok        0   the command ran (or, for probe, sudo allows both commands)
+#   reverted  4   (on) the agent already reverted this pid's session; enable again to continue
+#   norule    3   sudo needs a password, doesn't allow the command, or the user may not run sudo
+#   failed    N   anything else; N is the failing command's status, or 1
+#   none      0   (beat, check) there is no session
+#   live | dead | stale | reverted   (check) what `repair` would see; nothing is changed
+# Anything but a valid verb with its exact arguments prints usage to stderr and exits 64.
+#
+# Session record: $HOME/Library/Application Support/dilated-power/session holds
+# `<pid> <ps lstart>`; its mtime is the heartbeat. `repair` (run every 30s by the
+# com.codeswhat.dilated.closed-lid-repair LaunchAgent) reverts when the pid is gone, its start time
+# differs, or the heartbeat is older than 120s while kern.waketime is too (a hung app, not a sleeping Mac).
+set -euo pipefail
+
+usage() {
+  echo "usage: dilated-power on <pid>|beat|off|check|repair|probe" >&2
+  exit 64
+}
+
+verb=${1:-}
+pid=""
+case "$verb" in
+  on)
+    [ "$#" -eq 2 ] || usage
+    pid=$2
+    case "$pid" in
+      '' | *[!0-9]*) usage ;;
+    esac
+    [ "${#pid}" -le 10 ] || usage
+    pid=$((10#$pid))
+    [ "$pid" -gt 0 ] || usage
+    ;;
+  beat | off | check | repair | probe) [ "$#" -eq 1 ] || usage ;;
+  *) usage ;;
+esac
+
+# Test hooks. They are honored only when this file runs from a repo checkout
+# (<repo>/packaging/mas next to Package.swift), never from the installed copy, so the environment
+# of a NSUserUnixTask or a local shell can't redirect sudo or the wake time.
+test_sudo=""
+test_wake=""
+self=${BASH_SOURCE[0]}
+case "$self" in
+  */*) self_dir=${self%/*} ;;
+  *) self_dir=. ;;
+esac
+if self_dir=$(cd "$self_dir" 2>/dev/null && pwd -P); then
+  case "$self_dir" in
+    */packaging/mas)
+      if [ -f "$self_dir/../../Package.swift" ]; then
+        test_sudo=${DILATED_POWER_TEST_SUDO:-}
+        test_wake=${DILATED_POWER_TEST_WAKE:-}
+      fi
+      ;;
+  esac
+fi
+
+stale_after=120
+
+# Mirrors SudoPowerRunner.lacksPermission: status 1 plus one of the three sudo messages.
+report() {
+  local status=$1 detail=$2
+  if [ "$status" -eq 1 ]; then
+    case "$detail" in
+      *"a password is required"* | *"not allowed"* | *"may not run sudo"*)
+        echo norule
+        exit 3
+        ;;
+    esac
+  fi
+  echo failed
+  exit "$status"
+}
+
+# Runs sudo with an empty environment. Arguments are fixed strings from this file.
+run_sudo() {
+  if [ -n "$test_sudo" ]; then
+    "$test_sudo" "$@" 2>&1
+    return
+  fi
+  /usr/bin/env -i /usr/bin/sudo -n "$@" 2>&1
+}
+
+home=${HOME:-}
+case "$home" in
+  /*) ;;
+  *)
+    echo failed
+    exit 1
+    ;;
+esac
+session_dir="$home/Library/Application Support/dilated-power"
+session_file="$session_dir/session"
+tombstone_file="$session_dir/tombstone"
+lock_dir="$session_dir/lock.d"
+
+ensure_dir() {
+  (umask 077 && /bin/mkdir -p "$session_dir") && /bin/chmod 700 "$session_dir"
+}
+
+# Writes a 0600 file atomically: temp file in the same directory, then mv.
+write_atomic() {
+  local target=$1 content=$2 temp="$session_dir/.tmp.$$"
+  (umask 077 && printf '%s\n' "$content" >"$temp") && /bin/mv -f "$temp" "$target"
+}
+
+have_lock=0
+# shellcheck disable=SC2329  # runs from the EXIT trap
+release_lock() {
+  if [ "$have_lock" -eq 1 ]; then
+    /bin/rmdir "$lock_dir" 2>/dev/null || true
+    have_lock=0
+  fi
+}
+trap release_lock EXIT
+
+# Serializes the app's verbs and the agent's repair. A lock older than a minute is a crashed holder's.
+take_lock() {
+  local tries=0 modified now
+  ensure_dir
+  while ! (umask 077 && /bin/mkdir "$lock_dir" 2>/dev/null); do
+    modified=$(/usr/bin/stat -f %m "$lock_dir" 2>/dev/null || echo 0)
+    now=$(/bin/date +%s)
+    if [ $((now - modified)) -gt 60 ]; then
+      /bin/rmdir "$lock_dir" 2>/dev/null || true
+      continue
+    fi
+    tries=$((tries + 1))
+    [ "$tries" -le 50 ] || return 1
+    /bin/sleep 0.1
+  done
+  have_lock=1
+}
+
+# Start time of a live pid, empty when it's gone.
+start_of() {
+  { /bin/ps -o lstart= -p "$1" 2>/dev/null || true; } | /usr/bin/sed 's/^ *//; s/ *$//'
+}
+
+# Seconds since the last wake, or empty when it can't be read.
+wake_age() {
+  local raw wake
+  if [ -n "$test_wake" ]; then
+    raw="sec = $test_wake,"
+  else
+    raw=$(/usr/sbin/sysctl -n kern.waketime 2>/dev/null || true)
+  fi
+  if [[ $raw =~ sec[[:space:]]*=[[:space:]]*([0-9]+) ]]; then
+    wake=${BASH_REMATCH[1]}
+    echo $(($(/bin/date +%s) - wake))
+  fi
+}
+
+# live | dead | stale | reverted | none. Reads only.
+classify() {
+  local record recorded_pid recorded_start modified age
+  if [ ! -f "$session_file" ]; then
+    if [ -f "$tombstone_file" ]; then echo reverted; else echo none; fi
+    return
+  fi
+  record=$(<"$session_file") || record=""
+  recorded_pid=${record%% *}
+  recorded_start=${record#* }
+  case "$recorded_pid" in
+    '' | *[!0-9]*)
+      echo dead
+      return
+      ;;
+  esac
+  if [ -z "$recorded_start" ] || [ "$(start_of "$recorded_pid")" != "$recorded_start" ]; then
+    echo dead
+    return
+  fi
+  modified=$(/usr/bin/stat -f %m "$session_file" 2>/dev/null || echo 0)
+  if [ $(($(/bin/date +%s) - modified)) -gt "$stale_after" ]; then
+    age=$(wake_age)
+    if [ -n "$age" ] && [ "$age" -gt "$stale_after" ]; then
+      echo stale
+      return
+    fi
+  fi
+  echo live
+}
+
+run_pmset() {
+  local status=0 detail
+  detail=$(run_sudo /usr/bin/pmset -a disablesleep "$1") || status=$?
+  [ "$status" -eq 0 ] || report "$status" "$detail"
+}
+
+status=0
+detail=""
+case "$verb" in
+  on)
+    take_lock || {
+      echo failed
+      exit 1
+    }
+    if [ -f "$tombstone_file" ] && [ "$(<"$tombstone_file")" = "reverted $pid" ]; then
+      /bin/rm -f "$tombstone_file"
+      echo reverted
+      exit 4
+    fi
+    start=$(start_of "$pid")
+    if [ -z "$start" ]; then
+      echo failed
+      exit 1
+    fi
+    # The record goes down before sleep is disabled, so a crash in between leaves the agent a
+    # session to revert. A failed enable removes it again.
+    /bin/rm -f "$tombstone_file"
+    write_atomic "$session_file" "$pid $start"
+    detail=$(run_sudo /usr/bin/pmset -a disablesleep 1) || status=$?
+    if [ "$status" -ne 0 ]; then
+      /bin/rm -f "$session_file"
+      report "$status" "$detail"
+    fi
+    echo ok
+    exit 0
+    ;;
+  beat)
+    if [ -f "$session_file" ]; then
+      /usr/bin/touch "$session_file" 2>/dev/null || true
+      echo ok
+    else
+      echo none
+    fi
+    exit 0
+    ;;
+  off)
+    take_lock || {
+      echo failed
+      exit 1
+    }
+    run_pmset 0
+    /bin/rm -f "$session_file" "$tombstone_file"
+    echo ok
+    exit 0
+    ;;
+  check)
+    classify
+    exit 0
+    ;;
+  repair)
+    [ -f "$session_file" ] || exit 0
+    take_lock || exit 0
+    # Look again under the lock: the app may have ended or replaced the session meanwhile.
+    state=$(classify)
+    case "$state" in
+      dead | stale)
+        record=$(<"$session_file") || record=""
+        run_pmset 0
+        /bin/rm -f "$session_file"
+        write_atomic "$tombstone_file" "reverted ${record%% *}"
+        echo reverted
+        ;;
+    esac
+    exit 0
+    ;;
+  probe)
+    # One `sudo -n -l` per command, mirroring ClosedLidPermission.probeArgumentSets.
+    for value in 1 0; do
+      detail=$(run_sudo -l /usr/bin/pmset -a disablesleep "$value") || status=$?
+      [ "$status" -eq 0 ] || break
+    done
+    ;;
+esac
+
+if [ "$status" -eq 0 ]; then
+  echo ok
+  exit 0
+fi
+report "$status" "$detail"
