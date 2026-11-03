@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleName</key><string>Dilated</string>
+<key>CFBundleDisplayName</key><string>Dilated</string>
+<key>CFBundleExecutable</key><string>DilatedApp</string>
+<key>CFBundleIdentifier</key><string>com.codeswhat.dilated.appstore</string>
+<key>CFBundleIconFile</key><string>Dilated</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
+<key>LSMinimumSystemVersion</key><string>26.0</string>
+<key>LSUIElement</key><true/>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSHumanReadableCopyright</key><string>Copyright © CodesWhat. Licensed under MIT.</string>
+<key>NSLocationUsageDescription</key><string>Dilated needs Location access to match the Wi-Fi network names you choose for triggers. It doesn't request or record your geographic location.</string>
+<key>NSBluetoothAlwaysUsageDescription</key><string>Dilated uses Bluetooth to match the paired devices you choose for triggers while they are connected. It doesn't scan for nearby devices or change their connections.</string>
+<key>ITSAppUsesNonExemptEncryption</key><false/>
+<key>NSAppleScriptEnabled</key><true/>
+<key>OSAScriptingDefinition</key><string>Dilated.sdef</string>
+<key>DilatedUpdatesEnabled</key><false/>
+<key>CFBundleURLTypes</key><array><dict>
+<key>CFBundleURLName</key><string>Dilated automation</string>
+<key>CFBundleURLSchemes</key><array><string>dilated</string></array>
+</dict></array>
+</dict></plist>

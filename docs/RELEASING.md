@@ -89,3 +89,16 @@ Check the downloaded DMG with `codesign`, `stapler validate` and `spctl`. A 200 
 ## Signing
 
 The Sparkle signing key lives in the Keychain under account `com.codeswhat.dilated`. Never export it into source, deployment files or logs.
+
+## Building the MAS variant
+
+The Mac App Store build is a separate sandboxed bundle (`com.codeswhat.dilated.appstore`, `DILATED_CHANNEL=mas`) with no Sparkle, CLI or helper. It uses `packaging/mas/Info-MAS.plist` and `packaging/mas/Dilated-MAS.entitlements`.
+
+```sh
+bash scripts/build-mas.sh --adhoc --output-dir /absolute/path/to/mas-output
+python3 -I scripts/check-mas-bundle.py /absolute/path/to/mas-output/Dilated.app
+```
+
+`--adhoc` signs with `DILATED_SIGN_IDENTITY=-` and skips the `.pkg`, so it needs no certificates. For a store build, drop `--adhoc` and set `DILATED_SIGN_IDENTITY` (Apple Distribution), `DILATED_INSTALLER_IDENTITY` (Mac Installer Distribution), `DILATED_MAS_PROFILE` (the Mac App Store provisioning profile) and `DILATED_TEAM_ID`. The script embeds the profile, adds the application and team identifiers to the signing entitlements, and runs `productbuild` to write `Dilated.pkg`.
+
+The checker exits 1 on a key containing `temporary-exception`, an entitlement outside the allowlist, any embedded executable besides `DilatedApp`, Sparkle or `SU*` keys, a daemon or LaunchAgent plist, a non-arm64 slice, a missing `LSApplicationCategoryType` or a wrong bundle ID. Run it on every MAS build before upload. Upload itself isn't scripted.
