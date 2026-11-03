@@ -925,6 +925,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     response.snapshot = engine.snapshot
     response.helper = closedLid.state
+    if request.action == .status { response.appPID = ProcessInfo.processInfo.processIdentifier }
     if response.ok, request.action == .status, settingsRecoveryIssue != nil {
       response.message = attention
     }
