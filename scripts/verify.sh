@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swift build --arch arm64 --jobs 4
 # Mounted views render synchronously on the main actor; keep deadline tests in a separate run.
-mounted_suites='Settings(ContentInteraction|GroupLayout|Render|Scroll)Tests|MountedSettingsTests|TriggerEditorInteractionTests'
+mounted_suites='Settings(ContentInteraction|GroupLayout|Render|Scroll)Tests|MountedSettingsTests|TriggerEditorInteractionTests|PackageSheetDismissalTests'
 # DILATED_COVERAGE=1 (set by CI) instruments both runs and exports Sources/ coverage to .build/coverage/lcov.info.
 coverage_args=()
 if [ -n "${DILATED_COVERAGE:-}" ]; then

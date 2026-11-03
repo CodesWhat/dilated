@@ -6,6 +6,11 @@ import SwiftUI
   @Bindable var model: AppModel
   @State private var editing: ShortcutAction?
 
+  init(model: AppModel, editing: ShortcutAction? = nil) {
+    self.model = model
+    _editing = State(initialValue: editing)
+  }
+
   static func accessibilityValue(for shortcut: AwakeShortcut?) -> String {
     shortcut?.displayName ?? "Not assigned"
   }
