@@ -92,16 +92,55 @@ The Sparkle signing key lives in the Keychain under account `com.codeswhat.dilat
 
 ## Building the MAS variant
 
-The Mac App Store build is a separate sandboxed bundle (`com.codeswhat.dilated.appstore`, `DILATED_CHANNEL=mas`) with no Sparkle, CLI or helper. It uses `packaging/mas/Info-MAS.plist` and `packaging/mas/Dilated-MAS.entitlements`.
+The Mac App Store build is a separate sandboxed bundle (`com.codeswhat.dilated.appstore`, `DILATED_CHANNEL=mas`) with no Sparkle, CLI or helper. It uses `packaging/mas/Info-MAS.plist` and `packaging/mas/Dilated-MAS.entitlements`. The App Store Connect record is "Dilated" (app ID 6830346021, SKU `dilated-appstore`).
+
+### Versions
+
+The MAS build reads the same `packaging/Version.plist` as the direct build, so `DilatedDisplayVersion` and `CFBundleShortVersionString` are the same on both channels. A MAS build is only cut from a tag the direct build already shipped.
+
+`CFBundleVersion` is one global counter shared with the direct build, not a second MAS-only series. App Store Connect rejects an upload whose build number isn't higher than every earlier upload, and a direct hotfix bumps the number too, so a single counter can't fall behind in either channel. Gaps are fine. A number that App Store Connect has already processed is spent even if the build is rejected: bump `CFBundleVersion` and rebuild instead of re-uploading.
+
+The store can't carry a beta. Ship prereleases through TestFlight only, and submit to the store from GA onward.
+
+### Build
+
+The signing identities and profile live in the login Keychain and `~/Library/MobileDevice/Provisioning Profiles/`. Look the profile up by name, not by UUID:
 
 ```sh
-bash scripts/build-mas.sh --adhoc --output-dir /absolute/path/to/mas-output
+for f in "$HOME/Library/MobileDevice/Provisioning Profiles/"*.provisionprofile; do
+  [ "$(security cms -D -i "$f" | plutil -extract Name raw -o - -)" = "Dilated App Store" ] && DILATED_MAS_PROFILE="$f"
+done
+export DILATED_MAS_PROFILE
+export DILATED_SIGN_IDENTITY="Apple Distribution: Scott Benson (3524374A2S)"
+export DILATED_INSTALLER_IDENTITY="3rd Party Mac Developer Installer: Scott Benson (3524374A2S)"
+export DILATED_TEAM_ID=3524374A2S
+bash scripts/build-mas.sh --output-dir /absolute/path/to/mas-output
 python3 -I scripts/check-mas-bundle.py /absolute/path/to/mas-output/Dilated.app
 ```
 
-`--adhoc` signs with `DILATED_SIGN_IDENTITY=-` and skips the `.pkg`, so it needs no certificates. For a store build, drop `--adhoc` and set `DILATED_SIGN_IDENTITY` (Apple Distribution), `DILATED_INSTALLER_IDENTITY` (Mac Installer Distribution), `DILATED_MAS_PROFILE` (the Mac App Store provisioning profile) and `DILATED_TEAM_ID`. The script embeds the profile, adds the application and team identifiers to the signing entitlements, and runs `productbuild` to write `Dilated.pkg`.
+The script embeds the profile, adds the application and team identifiers to the signing entitlements, and runs `productbuild` to write `Dilated.pkg`. For a certificate-free check, `bash scripts/build-mas.sh --adhoc --output-dir ...` signs with `DILATED_SIGN_IDENTITY=-` and skips the `.pkg`. CI runs that and the checker on every push.
 
-The checker exits 1 on a key containing `temporary-exception`, an entitlement outside the allowlist, any embedded executable besides `DilatedApp`, Sparkle or `SU*` keys, a daemon or LaunchAgent plist, a non-arm64 slice, a missing `LSApplicationCategoryType` or a wrong bundle ID. Run it on every MAS build before upload. Upload itself isn't scripted.
+The checker exits 1 on a key containing `temporary-exception`, an entitlement outside the allowlist, any embedded executable besides `DilatedApp`, Sparkle or `SU*` keys, a daemon or LaunchAgent plist, a non-arm64 slice, a missing `LSApplicationCategoryType` or a wrong bundle ID. Run it on the real build before upload, not only the ad-hoc one.
+
+### Validate and upload
+
+Validation and upload use the same App Store Connect key as notarization, read from `~/.appstoreconnect/config.env` (`ASC_KEY_ID`, `ASC_ISSUER_ID`) with `private_keys/AuthKey_<ASC_KEY_ID>.p8`. `altool` finds the `.p8` there on its own. Source the file without echoing it.
+
+```sh
+. ~/.appstoreconnect/config.env
+xcrun altool --validate-app -f /absolute/path/to/mas-output/Dilated.pkg -t macos --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID"
+xcrun altool --upload-app -f /absolute/path/to/mas-output/Dilated.pkg -t macos --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID"
+```
+
+Don't upload if validation fails. `--upload-app -f` is the form that mirrors `--validate-app` for a macOS `.pkg`. `--upload-package` is the variant that also needs the app's Apple ID and bundle metadata on the command line, so skip it. The build shows up in App Store Connect after processing, which takes a few minutes.
+
+### TestFlight, then the store
+
+Every build goes to TestFlight internal testing first. Install it from TestFlight on a Mac, run the closed-lid companion path, and confirm the sandboxed app launches, shows no direct-only surfaces and quits cleanly. Only then attach that same build to the store version and submit for review. Don't rebuild between TestFlight and submission, because a rebuild is a different binary with a new `CFBundleVersion`.
+
+### MAS lags direct
+
+Hotfixes ship direct first (see sections 1 to 8). The MAS build follows, subject to Apple review, which typically takes a day or two. There is no Sparkle in the MAS bundle, so the store is its only update channel, and the MAS app's update UI is compiled out. The Homebrew cask, appcast and GitHub release DMG don't change when a MAS build ships.
 
 ### Closed-lid setup companion
 
@@ -111,4 +150,4 @@ The MAS build installs nothing privileged, so `Dilated Closed-Lid Setup.app` (`c
 python3 scripts/package-setup.py --output-dir /absolute/path/to/setup-output --candidate
 ```
 
-Drop `--candidate` to build from the exact release tag. It builds arm64, signs inside-out with the hardened runtime and a timestamp (no entitlements, no sandbox), notarizes with the same App Store Connect key or `--notary-profile` as `package-release.py`, staples, and zips with `ditto`. Before zipping it runs the packaged app's hidden `--assets --json` and `--status --json` modes, which fail unless the bundled `dilated-power` script and LaunchAgent template resolve and the script matches `expectedScriptSHA256`. Output is the ZIP, its `.sha256` and `setup-manifest.json` (version, SHA-256, source revision). Nothing here stages or publishes it: use a separate output directory, never `build/public-release-assets`. Website links wait for the MAS app.
+Drop `--candidate` to build from the exact release tag. It builds arm64, signs inside-out with the hardened runtime and a timestamp (no entitlements, no sandbox), notarizes with the same App Store Connect key or `--notary-profile` as `package-release.py`, staples, and zips with `ditto`. Before zipping it runs the packaged app's hidden `--assets --json` and `--status --json` modes, which fail unless the bundled `dilated-power` script and LaunchAgent template resolve and the script matches `expectedScriptSHA256`. Output is the ZIP, its `.sha256` and `setup-manifest.json` (version, SHA-256, source revision). Nothing here stages or publishes it: use a separate output directory, never `build/public-release-assets`. Publish it only alongside a MAS release, since the MAS app is the only thing that points users at it, and never on a direct-only release.

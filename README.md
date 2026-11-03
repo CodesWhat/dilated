@@ -66,6 +66,8 @@ Dilated needs **macOS 26 or later on Apple Silicon**. The current release is 1.0
 
 Prefer Homebrew? `brew install --cask codeswhat/tap/dilated` installs the same build.
 
+A Mac App Store version isn't available yet. The direct download above is the current build.
+
 Closed-lid mode needs a narrow sudo rule that you install once with an administrator password. The [installation guide](docs/INSTALLATION.md) covers setup, crash recovery, updates and removal.
 
 <hr>
