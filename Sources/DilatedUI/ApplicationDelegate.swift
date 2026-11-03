@@ -25,6 +25,9 @@ import IOKit.ps
       server = try LocalSocketServer(endpoint: model.endpoint) { [weak self] request in
         let response = await model.control(request)
         await self?.settings?.dismissSheetForPackage(request, response: response)
+        if response.ok, request.action == .prepareUpdate || request.action == .prepareUninstall {
+          Task { await PackageQuit().run() }
+        }
         return response
       }
     } catch {
