@@ -158,10 +158,14 @@ public struct CLIInput {
   public var json = false
   public var help = false
   public var packageCheck = false
+  public var agent: AgentCommand?
 
   public static func parse(_ arguments: [String]) throws -> CLIInput {
     guard let verb = arguments.first, !["--help", "-h", "help"].contains(verb) else {
       return CLIInput(help: true)
+    }
+    if verb == "agent" {
+      return CLIInput(agent: try AgentCommand.parse(arguments))
     }
     if verb == "package-check" {
       guard arguments.count == 1 else { throw InputError("Use dilated package-check.") }
