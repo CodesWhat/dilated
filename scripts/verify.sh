@@ -30,6 +30,7 @@ plutil -lint packaging/mas/Dilated-MAS.entitlements
 bash -n scripts/mas-check-lib.sh
 bash -n scripts/mas-repair-agent-check.sh
 bash -n scripts/mas-crash-revert-check.sh
+bash -n scripts/closed-lid-setup-check.sh
 plutil -lint packaging/mas/com.codeswhat.dilated.closed-lid-repair.plist
 python3 -c 'import ast; from pathlib import Path; [ast.parse(file.read_text(), filename=str(file)) for file in Path("scripts").rglob("*.py")]'
 plutil -lint packaging/Info.plist
