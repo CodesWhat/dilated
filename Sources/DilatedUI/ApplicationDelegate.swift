@@ -130,10 +130,12 @@ import IOKit.ps
     let appMenu = NSMenu(title: "Dilated")
     appMenu.addItem(AwakeMenu.action("About Dilated") { [weak self] in self?.showAbout() })
     appMenu.addItem(AwakeMenu.action("Settings…", key: ",") { [weak self] in self?.showSettings() })
-    appMenu.addItem(
-      AwakeMenu.action("Check for Updates…") { [weak self] in
-        self?.model?.updater.checkForUpdates()
-      })
+    #if !MAS_CHANNEL
+      appMenu.addItem(
+        AwakeMenu.action("Check for Updates…") { [weak self] in
+          self?.model?.updater.checkForUpdates()
+        })
+    #endif
     appMenu.addItem(
       AwakeMenu.action("Open Menu Bar Menu") { [weak self] in self?.menu?.showMenu() })
     appMenu.addItem(.separator())

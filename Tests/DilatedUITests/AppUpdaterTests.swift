@@ -62,7 +62,7 @@ import Testing
 
   @Test func launchPolicyRequiresAReleaseBundleWithSignedFeedConfiguration() {
     let info: [String: Any] = [
-      "SUFeedURL": "https://dilated.codeswhat.com/updates/appcast.xml",
+      "SUFeedURL": "https://dilated.app/updates/appcast.xml",
       "SUPublicEDKey": "ehOxBirzN5y9MqUzYKsrYwgn4MAle82Z3rQIvYpZlhY=",
       "SURequireSignedFeed": true, "SUVerifyUpdateBeforeExtraction": true,
       "DilatedUpdatesEnabled": true,

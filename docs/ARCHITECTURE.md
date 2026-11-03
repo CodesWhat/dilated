@@ -355,3 +355,45 @@ armed run; crash/relaunch never restore arming. Pending replies cannot restore
 permission after Stop/Resume, disarm or edit. Closed-lid failures remain visible and
 require a new explicit arm. The native closed-lid and installed UI acceptance gates
 remain separate from injected tests and offscreen rendering.
+
+## Mac App Store build
+
+`DILATED_CHANNEL=mas` defines `MAS_CHANNEL` and drops Sparkle (see `Distribution.current`). These surfaces are
+compiled out with `#if MAS_CHANNEL`, not hidden:
+
+- Donate and sponsor links: `SupportLinks`, the "Support Dilated" menu item and the About credits line.
+- Command line install: the Automation row, the `CommandLineInstallation` type and its package-removal call.
+- Process triggers: both process kinds in the trigger editor, `ProcessCatalog`, and process evaluation in
+  `TriggerMonitor`. Saved process rules stay in the data, show a note in the editor and never match.
+- Helper migration: `HelperMigration` and its launch, package and Closed Lid settings call sites.
+- Update controls: the General updates group, the About update row and both "Check for Updates…" menu items.
+  `AppUpdater.statusText` reads "Updates come from the Mac App Store."
+
+Closed-lid mode in this channel can't spawn `sudo` from the sandbox. `LocalClosedLidTransport` uses
+`SerialPowerDriver(runner: UserScriptPowerRunner())`, which runs `~/Library/Application Scripts/<bundle id>/dilated-power`
+through `NSUserUnixTask` (`LiveUserScriptLauncher`, 3 second bound; a task can't be killed, so a timeout drops the result).
+The script runs unsandboxed as the user and the sudoers rule does the elevation. A separate companion, Dilated
+Closed-Lid Setup, installs the script and the rule; the app never installs either. The source is
+`packaging/mas/dilated-power`.
+
+The script takes exactly one argument, `on`, `off` or `probe`. Anything else prints `usage` to stderr and exits 64. It uses
+absolute paths, runs `/usr/bin/env -i /usr/bin/sudo -n`, and reads no environment. `probe` runs `sudo -n -l` for both
+`pmset -a disablesleep` commands. It prints one word, then exits:
+
+| Word | Exit | Meaning |
+| --- | --- | --- |
+| `ok` | 0 | The command ran, or sudo allows both commands. |
+| `norule` | 3 | sudo needs a password, doesn't allow the command, or the user may not run sudo. |
+| `failed` | the failing status, or 1 | Anything else. |
+
+The app reads the first stdout word, not the exit status, because `NSUserUnixTask` only reports an `Error`. `norule` and a
+missing script become `ClosedLidPowerError.permissionUnavailable`, a timeout becomes `.commandTimedOut`, and the rest
+`.commandFailed`. `ClosedLidScriptState` (`scriptMissing`, `ruleMissing`, `ready`) comes from `probe`; a timeout or failure
+reads as `ruleMissing`. `ClosedLidPermissionModel` shows plain copy for each state and no install or remove button.
+
+Download targets in this channel are `DownloadTargetRecord`s (path, folder flag, optional `bookmark`; old records decode with no bookmark). `SecurityScopedBookmarks` creates `.withSecurityScope` data from an open-panel URL, re-creates stale data, throws `missingTarget` for a deleted target, and hands `AppModel.startDownload` a `BookmarkAccess` that the monitor holds until it's released. The default `~/Downloads` needs no bookmark, only the `files.downloads.read-only` entitlement in `packaging/mas/Dilated-MAS.entitlements`; `DownloadTarget.systemDownloads()` resolves it through `FileManager`, never `NSHomeDirectory()`. The direct build keeps plain paths.
+
+There is no crash watchdog in this channel (`ClosedLidWatchdogSpawner` is compiled out) until slice BUILD.4 decides the
+revert path. The in-app lease and the relaunch revert still run.
+
+`scripts/check-mas-build.sh` builds this channel in `.build-mas`; CI also runs the `MASChannel` tests there.

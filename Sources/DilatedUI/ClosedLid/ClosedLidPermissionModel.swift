@@ -8,17 +8,22 @@ import Observation
   public private(set) var busy = false
   public private(set) var lastError: String?
   public private(set) var recovery = ClosedLidSessionGuard.Recovery.notChecked
+  /// What the Mac App Store build's `probe` found. Always nil in the direct build.
+  public private(set) var scriptState: ClosedLidScriptState?
   @ObservationIgnored private let permission: ClosedLidPermission
+  @ObservationIgnored private let scriptPermission: ClosedLidScriptPermission
   @ObservationIgnored private let readRecovery:
     @MainActor () async -> ClosedLidSessionGuard.Recovery
   @ObservationIgnored private let acknowledgeRestore: @MainActor () async -> Bool
 
   public init(
     permission: ClosedLidPermission = ClosedLidPermission(),
+    scriptPermission: ClosedLidScriptPermission = ClosedLidScriptPermission(),
     recovery: @escaping @MainActor () async -> ClosedLidSessionGuard.Recovery = { .notChecked },
     acknowledgeRestore: @escaping @MainActor () async -> Bool = { false }
   ) {
     self.permission = permission
+    self.scriptPermission = scriptPermission
     readRecovery = recovery
     self.acknowledgeRestore = acknowledgeRestore
   }
@@ -26,16 +31,40 @@ import Observation
   public enum Result: Equatable, Sendable { case done, cancelled, failed }
 
   public func refresh() async {
-    state = await permission.state()
+    #if MAS_CHANNEL
+      let script = await scriptPermission.state()
+      scriptState = script
+      state = script == .ready ? .ready : .notInstalled
+    #else
+      state = await permission.state()
+    #endif
     recovery = await readRecovery()
   }
 
+  #if MAS_CHANNEL
+    static let setupMessage = "The app can't install the rule itself. Use Dilated Closed-Lid Setup."
+
+    /// The sandboxed build never installs or removes the rule; the companion does.
+    private func refuseSetup() -> Result {
+      lastError = Self.setupMessage
+      return .failed
+    }
+  #endif
+
   /// Cancelling the admin prompt is a no-op: nothing changes and no error shows.
   @discardableResult public func install() async -> Result {
-    await run { await permission.install() }
+    #if MAS_CHANNEL
+      return refuseSetup()
+    #else
+      return await run { await permission.install() }
+    #endif
   }
   @discardableResult public func remove() async -> Result {
-    await run { await permission.remove() }
+    #if MAS_CHANNEL
+      return refuseSetup()
+    #else
+      return await run { await permission.remove() }
+    #endif
   }
 
   /// Runs the admin-prompt `pmset -a disablesleep 0`.
@@ -44,7 +73,7 @@ import Observation
     busy = true
     lastError = nil
     defer { busy = false }
-    switch await permission.restoreNormalSleep() {
+    switch await restoreOutcome() {
     case .cancelled:
       return .cancelled
     case .failed(let message):
@@ -59,6 +88,20 @@ import Observation
       await refresh()
       return .done
     }
+  }
+
+  private func restoreOutcome() async -> PrivilegedScriptOutcome {
+    #if MAS_CHANNEL
+      // The sandboxed build can't show an admin prompt; the installed script does the revert.
+      do {
+        try await UserScriptPowerRunner().run(.setSleepDisabled(false))
+        return .succeeded
+      } catch {
+        return .failed(error.localizedDescription)
+      }
+    #else
+      return await permission.restoreNormalSleep()
+    #endif
   }
 
   private func run(_ action: () async -> ClosedLidPermissionOutcome) async -> Result {
@@ -82,6 +125,17 @@ import Observation
     }
   }
 
+  #if MAS_CHANNEL
+    /// Plain copy for the two states the companion fixes.
+    private var scriptCopy: String? {
+      switch scriptState {
+      case .scriptMissing: "Closed-lid mode needs the Dilated Closed-Lid Setup companion."
+      case .ruleMissing: "Closed-lid permission isn't set up. Run Dilated Closed-Lid Setup again."
+      case .ready, nil: nil
+      }
+    }
+  #endif
+
   public var title: String {
     switch state {
     case nil: "Checking closed-lid permission"
@@ -95,7 +149,10 @@ import Observation
   }
 
   public var detail: String {
-    switch state {
+    #if MAS_CHANNEL
+      if let scriptCopy { return scriptCopy }
+    #endif
+    return switch state {
     case nil: "One moment."
     case .ready:
       "Dilated can turn sleep off for closed-lid holds. Regular awake holds never need it."
@@ -113,23 +170,34 @@ import Observation
   }
 
   public var setUpTitle: String? {
-    switch state {
-    case .notInstalled, .allowedByOtherRule: "Set Up"
-    case .needsRepair, .blocked: "Repair"
-    default: nil
-    }
+    #if MAS_CHANNEL
+      return nil
+    #else
+      switch state {
+      case .notInstalled, .allowedByOtherRule: "Set Up"
+      case .needsRepair, .blocked: "Repair"
+      default: nil
+      }
+    #endif
   }
 
   public var canRemove: Bool {
-    switch state {
-    case .ready, .needsRepair, .blocked: true
-    default: false
-    }
+    #if MAS_CHANNEL
+      return false
+    #else
+      switch state {
+      case .ready, .needsRepair, .blocked: true
+      default: false
+      }
+    #endif
   }
 
   /// Plain words for the CLI and control socket.
   public var summary: String {
-    switch state {
+    #if MAS_CHANNEL
+      if let scriptCopy { return scriptCopy }
+    #endif
+    return switch state {
     case .ready: "Closed-lid permission is set up."
     case .notInstalled: "Closed-lid permission isn't set up."
     case .needsRepair: "Closed-lid permission needs repair."

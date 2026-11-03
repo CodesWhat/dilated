@@ -6,6 +6,14 @@
   "outputDirectory": null,
   "routes": [
     {
+      "src": "^/(?!(?:updates|releases|download)/|source/?$)(.*)$",
+      "has": [{ "type": "host", "value": "dilated.codeswhat.com" }],
+      "headers": {
+        "Location": "https://dilated.app/$1"
+      },
+      "status": 308
+    },
+    {
       "src": "/(.*)",
       "headers": {
         "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'none'",

@@ -3,50 +3,54 @@ import Darwin
 import DilatedCore
 import SystemConfiguration
 
-struct NativeProcess: Identifiable, Sendable {
-  let id: Int32
-  let name: String
-  let path: String
-  let identity: ProcessIdentity
-}
-
-enum ProcessCatalog {
-  static func pickerList(_ processes: [NativeProcess] = read()) -> [NativeProcess] {
-    processes.sorted {
-      let order = $0.name.localizedStandardCompare($1.name)
-      return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
-    }
+#if !MAS_CHANNEL
+  struct NativeProcess: Identifiable, Sendable {
+    let id: Int32
+    let name: String
+    let path: String
+    let identity: ProcessIdentity
   }
 
-  static func read() -> [NativeProcess] {
-    let count = proc_listallpids(nil, 0)
-    guard count > 0 else { return [] }
-    var pids = [Int32](repeating: 0, count: Int(count) + 128)
-    let found = pids.withUnsafeMutableBytes { proc_listallpids($0.baseAddress, Int32($0.count)) }
-    guard found > 0 else { return [] }
-    return pids.prefix(min(Int(found), pids.count)).compactMap { pid in
-      guard pid > 0 else { return nil }
-      var info = proc_bsdinfo()
-      guard
-        proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout.size(ofValue: info))) > 0,
-        info.pbi_status != SZOMB
-      else { return nil }
-      var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-      let length = proc_pidpath(pid, &path, UInt32(path.count))
-      let executable = length > 0 ? String(cString: path) : ""
-      var name = [CChar](repeating: 0, count: 256)
-      guard proc_name(pid, &name, UInt32(name.count)) > 0 else { return nil }
-      return NativeProcess(
-        id: pid,
-        name: executable.isEmpty
-          ? String(cString: name) : URL(fileURLWithPath: executable).lastPathComponent,
-        path: executable,
-        identity: ProcessIdentity(
-          pid: pid, startedAtMicroseconds: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
-      )
+  enum ProcessCatalog {
+    static func pickerList(_ processes: [NativeProcess] = read()) -> [NativeProcess] {
+      processes.sorted {
+        let order = $0.name.localizedStandardCompare($1.name)
+        return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+      }
+    }
+
+    static func read() -> [NativeProcess] {
+      let count = proc_listallpids(nil, 0)
+      guard count > 0 else { return [] }
+      var pids = [Int32](repeating: 0, count: Int(count) + 128)
+      let found = pids.withUnsafeMutableBytes { proc_listallpids($0.baseAddress, Int32($0.count)) }
+      guard found > 0 else { return [] }
+      return pids.prefix(min(Int(found), pids.count)).compactMap { pid in
+        guard pid > 0 else { return nil }
+        var info = proc_bsdinfo()
+        guard
+          proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout.size(ofValue: info)))
+            > 0,
+          info.pbi_status != SZOMB
+        else { return nil }
+        var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        let length = proc_pidpath(pid, &path, UInt32(path.count))
+        let executable = length > 0 ? String(cString: path) : ""
+        var name = [CChar](repeating: 0, count: 256)
+        guard proc_name(pid, &name, UInt32(name.count)) > 0 else { return nil }
+        return NativeProcess(
+          id: pid,
+          name: executable.isEmpty
+            ? String(cString: name) : URL(fileURLWithPath: executable).lastPathComponent,
+          path: executable,
+          identity: ProcessIdentity(
+            pid: pid,
+            startedAtMicroseconds: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
+        )
+      }
     }
   }
-}
+#endif
 
 @MainActor final class TriggerMonitor {
   private let changed: () -> Void
@@ -116,16 +120,22 @@ enum ProcessCatalog {
 
   func configure(rules: [TriggerRule]) {
     let rules = rules.filter { $0.enabled && ($0.pausedUntil.map { $0 <= Date() } ?? true) }
-    processNames = Set(
-      rules.flatMap(\.criteria).compactMap {
-        if case .process(let name) = $0 { return name }
-        return nil
-      })
-    processInstances = Set(
-      rules.flatMap(\.criteria).compactMap {
-        if case .processInstance(let identity) = $0 { return identity }
-        return nil
-      })
+    // The Mac App Store build never reads the process list, so saved process rules stay in the data and never match.
+    #if MAS_CHANNEL
+      processNames = []
+      processInstances = []
+    #else
+      processNames = Set(
+        rules.flatMap(\.criteria).compactMap {
+          if case .process(let name) = $0 { return name }
+          return nil
+        })
+      processInstances = Set(
+        rules.flatMap(\.criteria).compactMap {
+          if case .processInstance(let identity) = $0 { return identity }
+          return nil
+        })
+    #endif
     needsProcesses = !processNames.isEmpty || !processInstances.isEmpty
     let criteria = rules.flatMap(\.criteria)
     needsCPU = criteria.contains {
@@ -225,32 +235,34 @@ enum ProcessCatalog {
       }
       input.cpuPercent = lastCPUReading?.value
     }
-    if needsProcesses {
-      let processes = ProcessCatalog.read()
-      input.processInstances = Set(processes.map(\.identity))
-      input.processNames = Set(processes.flatMap { [$0.name, $0.path] }.filter { !$0.isEmpty })
-      let pids = Set(
-        processes.filter {
-          processNames.contains($0.name) || processNames.contains($0.path)
-            || processInstances.contains($0.identity)
-        }.map(
-          \.id))
-      for pid in exits.keys.filter({ !pids.contains($0) }) {
-        exits.removeValue(forKey: pid)?.cancel()
-      }
-      for pid in pids where exits[pid] == nil {
-        let source = DispatchSource.makeProcessSource(
-          identifier: pid, eventMask: .exit, queue: .main)
-        source.setEventHandler { [weak self] in
-          MainActor.assumeIsolated {
-            self?.exits.removeValue(forKey: pid)?.cancel()
-            self?.changed()
-          }
+    #if !MAS_CHANNEL
+      if needsProcesses {
+        let processes = ProcessCatalog.read()
+        input.processInstances = Set(processes.map(\.identity))
+        input.processNames = Set(processes.flatMap { [$0.name, $0.path] }.filter { !$0.isEmpty })
+        let pids = Set(
+          processes.filter {
+            processNames.contains($0.name) || processNames.contains($0.path)
+              || processInstances.contains($0.identity)
+          }.map(
+            \.id))
+        for pid in exits.keys.filter({ !pids.contains($0) }) {
+          exits.removeValue(forKey: pid)?.cancel()
         }
-        exits[pid] = source
-        source.resume()
+        for pid in pids where exits[pid] == nil {
+          let source = DispatchSource.makeProcessSource(
+            identifier: pid, eventMask: .exit, queue: .main)
+          source.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+              self?.exits.removeValue(forKey: pid)?.cancel()
+              self?.changed()
+            }
+          }
+          exits[pid] = source
+          source.resume()
+        }
       }
-    }
+    #endif
     return input
   }
 

@@ -37,7 +37,7 @@ import ViewInspector
     #expect(window.firstResponder === editor)
   }
 
-  #if DEBUG
+  #if DEBUG && !MAS_CHANNEL
     @Test func specificProcessPickerLoadsWithoutPressingRefresh() throws {
       _ = NSApplication.shared
       FontRegistry.registerBundledFonts()

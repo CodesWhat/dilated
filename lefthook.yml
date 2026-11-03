@@ -28,6 +28,11 @@ pre-commit:
       run: |
         command -v bash >/dev/null 2>&1 || { echo "bash is required: brew install bash" >&2; exit 1; }
         for script in {staged_files}; do bash -n "$script"; done
+    mas-script:
+      glob: "packaging/mas/dilated-power"
+      run: |
+        command -v bash >/dev/null 2>&1 || { echo "bash is required: brew install bash" >&2; exit 1; }
+        bash -n packaging/mas/dilated-power
 
 commit-msg:
   commands:

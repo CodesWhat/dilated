@@ -5,7 +5,7 @@ import Observation
 enum UpdateActivity { case starting, idle, closedLid, helperChange, recovering }
 
 enum UpdateLaunchPolicy {
-  static let feedURL = "https://dilated.codeswhat.com/updates/appcast.xml"
+  static let feedURL = "https://dilated.app/updates/appcast.xml"
   static func allows(arguments: [String], bundleURL: URL, info: [String: Any]) -> Bool {
     arguments.count == 1 && bundleURL.pathExtension == "app"
       && info["SUFeedURL"] as? String == feedURL
@@ -36,7 +36,13 @@ enum UpdateLaunchPolicy {
       && (!started || driverCanCheck)
   }
   public var statusText: String {
-    guard isAvailable else { return "Updates aren't enabled in this test build." }
+    guard isAvailable else {
+      #if MAS_CHANNEL
+        return "Updates come from the Mac App Store."
+      #else
+        return "Updates aren't enabled in this test build."
+      #endif
+    }
     if blocksNewWork { return "Installing the update. Dilated will reopen when it's ready." }
     if pendingInstall != nil {
       return "Waiting for closed-lid mode and permission changes to finish."

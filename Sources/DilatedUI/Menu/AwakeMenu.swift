@@ -113,34 +113,42 @@ import DilatedCore
     }
     menu.addItem(.separator())
     menu.addItem(action("Settings…", key: ",", body: openSettings))
-    if model.updater.isAvailable {
-      let updates = action("Check for Updates…") { model.updater.checkForUpdates() }
-      updates.isEnabled = model.updater.canCheckForUpdates
-      menu.addItem(updates)
-    }
+    #if !MAS_CHANNEL
+      if model.updater.isAvailable {
+        let updates = action("Check for Updates…") { model.updater.checkForUpdates() }
+        updates.isEnabled = model.updater.canCheckForUpdates
+        menu.addItem(updates)
+      }
+    #endif
     menu.addItem(action("About Dilated", body: openAbout))
-    menu.addItem(supportItem())
+    #if !MAS_CHANNEL
+      menu.addItem(supportItem())
+    #endif
     menu.addItem(action("Quit Dilated", key: "q") { NSApp.terminate(nil) })
     return menu
   }
 
-  private static func supportItem() -> NSMenuItem {
-    let submenu = NSMenu(title: SupportLinks.menuTitle)
-    submenu.autoenablesItems = false
-    for destination in SupportLinks.all {
-      submenu.addItem(action(destination.title) { NSWorkspace.shared.open(destination.url) })
+  #if !MAS_CHANNEL
+    private static func supportItem() -> NSMenuItem {
+      let submenu = NSMenu(title: SupportLinks.menuTitle)
+      submenu.autoenablesItems = false
+      for destination in SupportLinks.all {
+        submenu.addItem(action(destination.title) { NSWorkspace.shared.open(destination.url) })
+      }
+      let item = NSMenuItem(title: SupportLinks.menuTitle, action: nil, keyEquivalent: "")
+      item.submenu = submenu
+      return item
     }
-    let item = NSMenuItem(title: SupportLinks.menuTitle, action: nil, keyEquivalent: "")
-    item.submenu = submenu
-    return item
-  }
+  #endif
 
   static func refreshStatus(in menu: NSMenu, model: AppModel) {
     menu.items.first?.title = model.statusText
     menu.items.first { $0.keyEquivalent == "d" }?.title =
       model.engine.holds.isEmpty ? "Keep Awake" : "Stop"
-    menu.items.first { $0.title == "Check for Updates…" }?.isEnabled =
-      model.updater.canCheckForUpdates
+    #if !MAS_CHANNEL
+      menu.items.first { $0.title == "Check for Updates…" }?.isEnabled =
+        model.updater.canCheckForUpdates
+    #endif
   }
 
   private static func information(_ title: String) -> NSMenuItem {
@@ -180,7 +188,7 @@ import DilatedCore
         (5...3600).contains(seconds)
       else { throw DownloadInputError() }
       try model.startDownload(
-        .init(url: url, mode: folder ? .folder : .file), quietSeconds: Double(seconds))
+        DownloadTargetRecord(chosen: url, isFolder: folder), quietSeconds: Double(seconds))
     } catch { model.message = error.localizedDescription }
     model.onChange?()
   }

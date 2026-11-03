@@ -14,6 +14,7 @@ Removal preserves other commands and the executable inside the app bundle.
 | Command | Behavior |
 |---|---|
 | `dilated status --json` | Current holds, deadlines, pause state and error status |
+| `dilated status --assertions [--json]` | Read-only list of every process's power assertions (type, name, PID, process name), with Dilated's own marked |
 | `dilated on` | Keep the system awake indefinitely, allowing display sleep |
 | `dilated on --for 90m --label build` | Start a timed hold and print its ID |
 | `dilated on --until 17:00` | Keep awake until the next local 17:00 |
@@ -41,6 +42,14 @@ closed-lid safety limits or the first battery-use warning. Renewals preserve an
 active lid request but cannot re-enable one that stopped. See
 [installation and removal](INSTALLATION.md) for setup and current acceptance
 limits.
+
+`status --assertions` reads the system's power assertions and never releases or
+changes any of them. It asks the running app for its PID so Dilated's own
+assertions are marked (`*` in text, `"ours": true` in JSON). Without the app it
+still lists system assertions and marks none. JSON has `appPID` (null when the
+app isn't reachable), `assertions` (each with `pid`, `process`, `type`, `name`
+and `ours`; `process` and `name` are null when unavailable) and `summary`
+(assertion type to system-wide holder count).
 
 Normal commands connect to the app and launch the bundled/installed app if
 needed. Status only queries; it doesn't launch the app. `run` can hold a native
@@ -230,6 +239,26 @@ their monitoring. Saved unavailable selections remain editable.
 Configuration survives app restarts, but matching holds are rebuilt from current
 conditions. A saved process/app hold is never treated as evidence the work is
 still running.
+
+## Agent lifecycle commands
+
+`dilated agent` wraps the renewable hold API so any hook can call one contract.
+`--agent` is 1-32 and `--run` 1-64 letters, digits, `-` or `_`, because they become
+file names. Each run keeps its hold ID and last renew time in
+`agents/AGENT.RUN.json` under the app's state directory, written atomically and
+guarded by a per-run lock so concurrent hooks can't race. The lease is 10 minutes.
+No command makes a model or network call. `--json` prints the usual response.
+
+| Command | Behavior |
+|---|---|
+| `dilated agent begin --agent NAME --run ID` | Start a 10-minute hold for the run and print its hold ID. A repeat for the same run renews and prints the same ID. If the saved hold already ended, starts a fresh one, unless automation is paused |
+| `dilated agent renew --agent NAME --run ID` | Renew the run's hold for another 10 minutes. Never creates one: with no saved hold, an ended hold or paused automation it fails and creates nothing |
+| `dilated agent end --agent NAME --run ID` | Release only this run's hold and delete its record. Safe to repeat, and a run with no record succeeds |
+
+Exit status is 0 on success, 4 when automation is paused and 1 for an ended hold or
+any other error. An ended-ID reply deletes the run's record, so later renewals fail the
+same way. Only an explicit `begin` starts a new hold after that. If the app isn't
+running, `begin` and `renew` launch it like `hold` does, while `end` doesn't.
 
 ## Manual agent hook pattern
 

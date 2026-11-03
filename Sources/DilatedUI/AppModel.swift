@@ -8,6 +8,14 @@ import os
 
 public enum SystemTransition: Sendable { case sleep, userSwitch, userReturn }
 
+/// The `helperMigration:` argument of `AppModel.init`. The Mac App Store build never had the helper, so it carries no
+/// migration type and the argument can only be nil.
+#if MAS_CHANNEL
+  public typealias HelperMigrationInjection = Never
+#else
+  public typealias HelperMigrationInjection = HelperMigration
+#endif
+
 public struct AppSettings: Codable, Equatable, Sendable {
   public var defaultMinutes = 0
   public var allowDisplaySleep = true
@@ -200,7 +208,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored public var onBatteryOverrideNeeded: ((TimeInterval?) -> Void)?
   @ObservationIgnored public var onClosedLidBatteryWarning: (() -> Bool)?
   public let closedLid: ClosedLidController
-  public let helperMigration: HelperMigration
+  #if !MAS_CHANNEL
+    public let helperMigration: HelperMigration
+  #endif
   public let closedLidPermission: ClosedLidPermissionModel
   public let updater: AppUpdater
   @ObservationIgnored public let endpoint: SocketEndpoint
@@ -275,7 +285,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     endpoint: SocketEndpoint = .current, power: @escaping () -> PowerState = SystemPower.read,
     assertions: any AssertionControlling = NativeAssertions(),
     closedLid: ClosedLidController? = nil,
-    helperMigration: HelperMigration? = nil,
+    helperMigration: HelperMigrationInjection? = nil,
     closedLidPermission: ClosedLidPermissionModel? = nil,
     updater: AppUpdater? = nil
   ) {
@@ -289,8 +299,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
       sounds: NativeFeedbackSounds(directory: endpoint.stateDirectory))
     self.closedLid =
       closedLid ?? ClosedLidController.configured(stateDirectory: endpoint.stateDirectory)
-    self.helperMigration =
-      helperMigration ?? HelperMigration(stateDirectory: endpoint.stateDirectory)
+    #if !MAS_CHANNEL
+      self.helperMigration =
+        helperMigration ?? HelperMigration(stateDirectory: endpoint.stateDirectory)
+    #endif
     let lid = self.closedLid
     self.closedLidPermission =
       closedLidPermission
@@ -372,15 +384,19 @@ public struct AppSettings: Codable, Equatable, Sendable {
       message = "Couldn't clear package preparation: \(error.localizedDescription)"
     }
     // A saved failure or pending restore shows on every launch until it's resolved.
-    if let record = helperMigration.record, record.needsAttention { message = record.message }
+    #if !MAS_CHANNEL
+      if let record = helperMigration.record, record.needsAttention { message = record.message }
+    #endif
     commit()
     if settings.startAtLaunch { automaticStart(label: "At launch") }
     Task { [weak self] in
       guard let self else { return }
-      await self.helperMigration.run()
-      if let record = self.helperMigration.record, record.needsAttention {
-        self.message = record.message
-      }
+      #if !MAS_CHANNEL
+        await self.helperMigration.run()
+        if let record = self.helperMigration.record, record.needsAttention {
+          self.message = record.message
+        }
+      #endif
       await self.closedLidPermission.refresh()
       if helperWasApproved { self.noteHelperApprovalNoLongerApplies() }
       self.onChange?()
@@ -389,7 +405,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     refreshTriggers()
   }
   var updateActivity: UpdateActivity {
-    if closedLidPermission.busy || helperMigration.running { return .helperChange }
+    #if MAS_CHANNEL
+      if closedLidPermission.busy { return .helperChange }
+    #else
+      if closedLidPermission.busy || helperMigration.running { return .helperChange }
+    #endif
     if engine.desiredState.closedLid || closedLid.hasLease || closedLid.pendingEnable
       || closedLid.busy
     {
@@ -410,6 +430,24 @@ public struct AppSettings: Codable, Equatable, Sendable {
         batteryOverride: batteryOverride)
     }
     if failure == .lowBattery && !batteryOverride { onBatteryOverrideNeeded?(duration) }
+  }
+  /// Starts a download hold from a saved record, resolving its bookmark and keeping scoped access for the watch.
+  @discardableResult func startDownload(
+    _ record: DownloadTargetRecord, quietSeconds: TimeInterval,
+    bookmarks: SecurityScopedBookmarks = .live
+  ) throws -> UUID {
+    let resolved: DownloadTargetRecord.Resolved
+    do { resolved = try record.resolve(bookmarks: bookmarks) } catch {
+      message = error.localizedDescription
+      commit()
+      throw error
+    }
+    return try startDownload(resolved.target, quietSeconds: quietSeconds) {
+      target, seconds, finished in
+      let monitor = DownloadMonitor(target: target, quietSeconds: seconds, finished: finished)
+      monitor.scopeAccess = resolved.access
+      return monitor
+    }
   }
   @discardableResult func startDownload(
     _ target: DownloadTarget, quietSeconds: TimeInterval,
@@ -516,8 +554,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public func setClosedLid(
     id: UUID, enabled: Bool, allowPrompt: Bool = true, requireAutomation: Bool = false
   ) async throws {
+    #if MAS_CHANNEL
+      let migrationRunning = false
+    #else
+      let migrationRunning = helperMigration.running
+    #endif
     guard !stopped, !preparingToQuit, !updater.blocksNewWork, !closedLidPermission.busy,
-      !helperMigration.running
+      !migrationRunning
     else {
       throw HelperClientError.rejected("Dilated is finishing a closed-lid permission change.")
     }
@@ -734,16 +777,20 @@ public struct AppSettings: Codable, Equatable, Sendable {
     let handoff = PackageHandoffStore(directory: endpoint.stateDirectory)
     do {
       try handoff.clear()
-      let helperWasApproved = helperMigration.helperWasApproved
-      // package-check needs the old helper's job gone, so finish (or retry) the migration here
-      // and say why if it can't be.
-      await helperMigration.run()
-      if await helperMigration.helperJobStillPresent() {
-        throw InputError(
-          helperMigration.record?.message
-            ?? "Dilated couldn't confirm its old background helper is gone. Turn off Dilated under Login Items & Extensions in System Settings, then try again."
-        )
-      }
+      #if MAS_CHANNEL
+        let helperWasApproved = false
+      #else
+        let helperWasApproved = helperMigration.helperWasApproved
+        // package-check needs the old helper's job gone, so finish (or retry) the migration here
+        // and say why if it can't be.
+        await helperMigration.run()
+        if await helperMigration.helperJobStillPresent() {
+          throw InputError(
+            helperMigration.record?.message
+              ?? "Dilated couldn't confirm its old background helper is gone. Turn off Dilated under Login Items & Extensions in System Settings, then try again."
+          )
+        }
+      #endif
       try await synchronizeClosedLid()
       try await ensureClosedLidOff()
       if intent == .uninstall {
@@ -767,13 +814,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
             try service.unregister()
           }
         }
-        if let removeCommandLine {
-          try removeCommandLine()
-        } else {
-          let cli = CommandLineInstallation(
-            source: app.appendingPathComponent("Contents/MacOS/dilated"))
-          if cli.isInstalled { _ = try cli.remove() }
-        }
+        #if !MAS_CHANNEL
+          if let removeCommandLine {
+            try removeCommandLine()
+          } else {
+            let cli = CommandLineInstallation(
+              source: app.appendingPathComponent("Contents/MacOS/dilated"))
+            if cli.isInstalled { _ = try cli.remove() }
+          }
+        #endif
       }
       var prepared = WakeEngine(
         snapshot: engine.snapshot, power: readPower(), batteryFloor: engine.batteryFloor,
@@ -894,6 +943,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     response.snapshot = engine.snapshot
     response.helper = closedLid.state
+    if request.action == .status { response.appPID = ProcessInfo.processInfo.processIdentifier }
     if response.ok, request.action == .status, settingsRecoveryIssue != nil {
       response.message = attention
     }
@@ -967,7 +1017,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     return result
   }
   public func restoreNormalSleep() async {
-    if await closedLidPermission.restoreNormalSleep() == .done { helperMigration.sleepRestored() }
+    #if MAS_CHANNEL
+      _ = await closedLidPermission.restoreNormalSleep()
+    #else
+      if await closedLidPermission.restoreNormalSleep() == .done { helperMigration.sleepRestored() }
+    #endif
     message = closedLidPermission.lastError
     onChange?()
   }

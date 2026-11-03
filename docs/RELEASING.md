@@ -76,10 +76,10 @@ Copy the staged `dilated.rb` from `releases/<version>/` into `Casks/dilated.rb` 
 
 Fetch these without any authentication and compare checksums against the manifest:
 
-- `https://dilated.codeswhat.com/updates/appcast.xml`
-- `https://dilated.codeswhat.com/releases/latest.json`
-- `https://dilated.codeswhat.com/download/file`, the full DMG, then its SHA-256
-- `https://dilated.codeswhat.com/source`
+- `https://dilated.app/updates/appcast.xml`
+- `https://dilated.app/releases/latest.json`
+- `https://dilated.app/download/file`, the full DMG, then its SHA-256
+- `https://dilated.app/source`
 
 Check the downloaded DMG with `codesign`, `stapler validate` and `spctl`. A 200 or a signed feed doesn't prove an update installs over an older build, so test that separately.
 

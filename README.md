@@ -11,9 +11,9 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 </div>
 
 <p align="center">
-  <a href="https://dilated.codeswhat.com/download/file"><img src="https://img.shields.io/badge/version-1.0.0--beta.10-2ea44f" alt="Version 1.0.0-beta.10"></a>
-  <a href="https://dilated.codeswhat.com/"><img src="https://img.shields.io/badge/macOS-26%2B-000000?logo=apple&amp;logoColor=white" alt="macOS 26 or later"></a>
-  <a href="https://dilated.codeswhat.com/"><img src="https://img.shields.io/badge/Apple_Silicon-arm64-000000?logo=apple&amp;logoColor=white" alt="Apple Silicon"></a>
+  <a href="https://dilated.app/download/file"><img src="https://img.shields.io/badge/version-1.0.0--beta.10-2ea44f" alt="Version 1.0.0-beta.10"></a>
+  <a href="https://dilated.app/"><img src="https://img.shields.io/badge/macOS-26%2B-000000?logo=apple&amp;logoColor=white" alt="macOS 26 or later"></a>
+  <a href="https://dilated.app/"><img src="https://img.shields.io/badge/Apple_Silicon-arm64-000000?logo=apple&amp;logoColor=white" alt="Apple Silicon"></a>
   <a href="https://github.com/CodesWhat/dilated/releases"><img src="https://img.shields.io/github/v/release/CodesWhat/dilated?include_prereleases" alt="Latest release"></a>
   <a href="https://codecov.io/gh/CodesWhat/dilated/branch/main"><img src="https://codecov.io/gh/CodesWhat/dilated/branch/main/graph/badge.svg" alt="Coverage"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License MIT"></a>
@@ -45,8 +45,8 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 
 | Resource | Link |
 | --- | --- |
-| Website | [dilated.codeswhat.com](https://dilated.codeswhat.com/) |
-| Download | [dilated.codeswhat.com/download/file](https://dilated.codeswhat.com/download/file) |
+| Website | [dilated.app](https://dilated.app/) |
+| Download | [dilated.app/download/file](https://dilated.app/download/file) |
 | Installation and removal | [docs/INSTALLATION.md](docs/INSTALLATION.md) |
 | Automation (CLI, URLs, AppleScript, Shortcuts, triggers) | [docs/AUTOMATION.md](docs/AUTOMATION.md) |
 | Architecture | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
@@ -60,7 +60,7 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 
 Dilated needs **macOS 26 or later on Apple Silicon**. The current release is 1.0.0-beta.10, a public beta.
 
-1. Download the signed, notarized DMG from [dilated.codeswhat.com](https://dilated.codeswhat.com/download/file).
+1. Download the signed, notarized DMG from [dilated.app](https://dilated.app/download/file).
 2. Open the DMG, drag Dilated to Applications and open it.
 3. Pick **Keep awake for** from the menu bar item.
 
@@ -72,7 +72,7 @@ Closed-lid mode needs a narrow sudo rule that you install once with an administr
 
 <h2 align="center" id="why-dilated">Why Dilated</h2>
 
-Sometimes a Mac needs to stay awake: a long build, a download, a backup, an agent working through a task. Dilated does that from the menu bar, and the [website](https://dilated.codeswhat.com/) has an interactive preview of the menu. You can hold for a set time or until you stop it, let a trigger do it when a condition is true, or call it from a script.
+Sometimes a Mac needs to stay awake: a long build, a download, a backup, an agent working through a task. Dilated does that from the menu bar, and the [website](https://dilated.app/) has an interactive preview of the menu. You can hold for a set time or until you stop it, let a trigger do it when a condition is true, or call it from a script.
 
 Battery floor and Low Power Mode guards can end a hold before it drains your battery, and Stop releases everything and pauses automation until you resume it. It's a beta, and closed-lid mode is the part with the least hardware testing.
 
@@ -104,7 +104,7 @@ The [automation reference](docs/AUTOMATION.md) has every command, trigger condit
 - **Notifications** are requested only when you enable banners.
 - **Files** are accessed only through your selection, for example a download watch or a Drive Alive volume.
 
-History and statistics stay on your Mac. The only network use in the app code is Sparkle's update check against `dilated.codeswhat.com`. There's no analytics code in it.
+History and statistics stay on your Mac. The only network use in the app code is Sparkle's update check against `dilated.app`. There's no analytics code in it.
 
 <hr>
 
