@@ -82,34 +82,37 @@ import ViewInspector
     }
   #endif
 
-  @Test func creditsLineLinksBothDestinations() {
-    let credits = SupportLinks.credits
-    #expect(
-      String(credits.characters)
-        == "Dilated is free and open source. If it saves you time, you can support it on GitHub Sponsors or donate directly."
-    )
-    let links = credits.runs.compactMap { run in
-      run.link.map { (String(credits[run.range].characters), $0) }
+  #if !MAS_CHANNEL
+    @Test func creditsLineLinksBothDestinations() {
+      let credits = SupportLinks.credits
+      #expect(
+        String(credits.characters)
+          == "Dilated is free and open source. If it saves you time, you can support it on GitHub Sponsors or donate directly."
+      )
+      let links = credits.runs.compactMap { run in
+        run.link.map { (String(credits[run.range].characters), $0) }
+      }
+      #expect(links.map(\.0) == ["GitHub Sponsors", "donate directly"])
+      #expect(
+        links.map(\.1.absoluteString) == [
+          "https://github.com/sponsors/CodesWhat", "https://codeswhat.com/support",
+        ])
     }
-    #expect(links.map(\.0) == ["GitHub Sponsors", "donate directly"])
-    #expect(
-      links.map(\.1.absoluteString) == [
-        "https://github.com/sponsors/CodesWhat", "https://codeswhat.com/support",
-      ])
-  }
 
-  @Test func aboutPageShowsTheCreditsLine() throws {
-    _ = NSApplication.shared
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
-    defer { model.shutdown() }
-    let text = try AboutSettings(model: model).inspect().find(ViewType.Text.self) {
-      (try? String($0.attributedString().characters).hasPrefix("Dilated is free and open source"))
-        == true
+    @Test func aboutPageShowsTheCreditsLine() throws {
+      _ = NSApplication.shared
+      let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+        UUID().uuidString)
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+      defer { model.shutdown() }
+      let text = try AboutSettings(model: model).inspect().find(ViewType.Text.self) {
+        (try? String($0.attributedString().characters).hasPrefix("Dilated is free and open source"))
+          == true
+      }
+      #expect(String(try text.attributedString().characters).hasSuffix("or donate directly."))
     }
-    #expect(String(try text.attributedString().characters).hasSuffix("or donate directly."))
-  }
+  #endif
 
   /// Writes a PNG of the About page when `SUPPORT_RENDER_DIR` is set. A no-op otherwise.
   @Test func rendersAboutPage() throws {
