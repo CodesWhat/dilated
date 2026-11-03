@@ -431,6 +431,24 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     if failure == .lowBattery && !batteryOverride { onBatteryOverrideNeeded?(duration) }
   }
+  /// Starts a download hold from a saved record, resolving its bookmark and keeping scoped access for the watch.
+  @discardableResult func startDownload(
+    _ record: DownloadTargetRecord, quietSeconds: TimeInterval,
+    bookmarks: SecurityScopedBookmarks = .live
+  ) throws -> UUID {
+    let resolved: DownloadTargetRecord.Resolved
+    do { resolved = try record.resolve(bookmarks: bookmarks) } catch {
+      message = error.localizedDescription
+      commit()
+      throw error
+    }
+    return try startDownload(resolved.target, quietSeconds: quietSeconds) {
+      target, seconds, finished in
+      let monitor = DownloadMonitor(target: target, quietSeconds: seconds, finished: finished)
+      monitor.scopeAccess = resolved.access
+      return monitor
+    }
+  }
   @discardableResult func startDownload(
     _ target: DownloadTarget, quietSeconds: TimeInterval,
     makeMonitor: (DownloadTarget, TimeInterval, @escaping @MainActor (String?) -> Void)
@@ -925,6 +943,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     response.snapshot = engine.snapshot
     response.helper = closedLid.state
+    if request.action == .status { response.appPID = ProcessInfo.processInfo.processIdentifier }
     if response.ok, request.action == .status, settingsRecoveryIssue != nil {
       response.message = attention
     }

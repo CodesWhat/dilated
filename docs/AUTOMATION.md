@@ -14,6 +14,7 @@ Removal preserves other commands and the executable inside the app bundle.
 | Command | Behavior |
 |---|---|
 | `dilated status --json` | Current holds, deadlines, pause state and error status |
+| `dilated status --assertions [--json]` | Read-only list of every process's power assertions (type, name, PID, process name), with Dilated's own marked |
 | `dilated on` | Keep the system awake indefinitely, allowing display sleep |
 | `dilated on --for 90m --label build` | Start a timed hold and print its ID |
 | `dilated on --until 17:00` | Keep awake until the next local 17:00 |
@@ -41,6 +42,14 @@ closed-lid safety limits or the first battery-use warning. Renewals preserve an
 active lid request but cannot re-enable one that stopped. See
 [installation and removal](INSTALLATION.md) for setup and current acceptance
 limits.
+
+`status --assertions` reads the system's power assertions and never releases or
+changes any of them. It asks the running app for its PID so Dilated's own
+assertions are marked (`*` in text, `"ours": true` in JSON). Without the app it
+still lists system assertions and marks none. JSON has `appPID` (null when the
+app isn't reachable), `assertions` (each with `pid`, `process`, `type`, `name`
+and `ours`; `process` and `name` are null when unavailable) and `summary`
+(assertion type to system-wide holder count).
 
 Normal commands connect to the app and launch the bundled/installed app if
 needed. Status only queries; it doesn't launch the app. `run` can hold a native

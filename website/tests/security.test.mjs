@@ -10,7 +10,7 @@ const fields = Object.fromEntries(text.trim().split('\n').map(line => {
 
 test('security.txt carries the RFC 9116 fields', () => {
   assert.equal(fields.Contact, 'mailto:security@codeswhat.com');
-  assert.equal(fields.Canonical, 'https://dilated.codeswhat.com/.well-known/security.txt');
+  assert.equal(fields.Canonical, 'https://dilated.app/.well-known/security.txt');
   assert.equal(fields['Preferred-Languages'], 'en');
 });
 

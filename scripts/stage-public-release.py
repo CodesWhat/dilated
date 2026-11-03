@@ -193,7 +193,7 @@ def cask_text(manifest, acceptance=None):
   url "https://github.com/CodesWhat/dilated/releases/download/v#{{version}}/Dilated-#{{version}}-macos-arm64.dmg"
   name "Dilated"
   desc "Keep your Mac awake, with reasons"
-  homepage "https://dilated.codeswhat.com/"
+  homepage "https://dilated.app/"
 {livecheck}  auto_updates true
   depends_on arch: :arm64
   depends_on macos: :tahoe
@@ -245,7 +245,7 @@ def main():
     if (info.get('SUPublicEDKey') != public_key or info.get('SURequireSignedFeed') is not True
             or info.get('SUVerifyUpdateBeforeExtraction') is not True
             or info.get('DilatedUpdatesEnabled') is not True
-            or info.get('SUFeedURL') != 'https://dilated.codeswhat.com/updates/appcast.xml'):
+            or info.get('SUFeedURL') != 'https://dilated.app/updates/appcast.xml'):
         raise RuntimeError('The app must require the feed signing key used for publication')
     release.verify_disk_image(directory / manifest['dmg'], directory, 'public-dmg')
     with tempfile.TemporaryDirectory(prefix='dilated-public-check-') as temporary:
@@ -286,8 +286,8 @@ def main():
         shutil.copy2(archive, feed_directory / archive.name)
         shutil.copy2(ROOT / 'packaging/ReleaseNotes.txt', feed_directory / f'{archive.stem}.txt')
         release.run([str(tools / 'generate_appcast'), '--account', args.sparkle_account,
-                     '--download-url-prefix', f'https://dilated.codeswhat.com/releases/{version}/',
-                     '--link', 'https://dilated.codeswhat.com/', '--embed-release-notes',
+                     '--download-url-prefix', f'https://dilated.app/releases/{version}/',
+                     '--link', 'https://dilated.app/', '--embed-release-notes',
                      '--maximum-deltas', '0', str(feed_directory)], timeout=180,
                     log=directory / 'appcast-generation.log')
         feed = feed_directory / 'appcast.xml'

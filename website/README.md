@@ -12,7 +12,7 @@ are relative, so the page can also be served from a subdirectory. Hosting and
 domain setup are handled separately.
 
 The site is deployed to the Vercel project `dilated-website` at
-https://dilated.codeswhat.com with `scripts/publish-website.py`. For local
+https://dilated.app with `scripts/publish-website.py`. For local
 review, serve `dist/` from any static server, for example on
 `http://127.0.0.1:5173/`.
 

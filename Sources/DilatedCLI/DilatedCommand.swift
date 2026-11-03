@@ -47,6 +47,17 @@ import Foundation
       if !input.command.isEmpty { exit(try await run(input)) }
       guard let request = input.request else { throw InputError("Missing command.") }
       let endpoint = SocketEndpoint.current
+      if input.assertions {
+        // Read-only: works without the app, in which case nothing is tagged as ours.
+        let appPID = (try? LocalSocketClient.send(request, to: endpoint))?.appPID
+        let report = AssertionInspector.report(appPID: appPID)
+        if input.json {
+          print(String(decoding: try report.jsonData(), as: UTF8.self))
+        } else {
+          print(report.text)
+        }
+        return
+      }
       let response: ControlResponse
       do {
         response = try LocalSocketClient.send(request, to: endpoint)
@@ -292,7 +303,7 @@ import Foundation
     FileHandle.standardError.write(Data(("dilated: " + text + "\n").utf8))
   }
   private static let help = """
-    Usage: dilated status [--json]
+    Usage: dilated status [--json] [--assertions]
            dilated on [--for 2h | --until 17:00] [--label NAME] [--display-awake] [--lid]
            dilated off [--id ID | --label NAME]
            dilated hold --ttl 10m [--label NAME] [--id ID | --lid]
@@ -305,6 +316,7 @@ import Foundation
            dilated prepare-uninstall [--remove-lid-permission] [--json]
            dilated package-check
 
+    status --assertions lists every process's power assertions (read-only); Dilated's are starred.
     Starts allow display sleep unless --display-awake is supplied.
     --override-low-power explicitly allows a new hold in Low Power Mode.
     --lid requires closed-lid permission (see lid-permission) and the app's safety limits.

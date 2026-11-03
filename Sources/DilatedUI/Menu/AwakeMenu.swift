@@ -188,7 +188,7 @@ import DilatedCore
         (5...3600).contains(seconds)
       else { throw DownloadInputError() }
       try model.startDownload(
-        .init(url: url, mode: folder ? .folder : .file), quietSeconds: Double(seconds))
+        DownloadTargetRecord(chosen: url, isFolder: folder), quietSeconds: Double(seconds))
     } catch { model.message = error.localizedDescription }
     model.onChange?()
   }

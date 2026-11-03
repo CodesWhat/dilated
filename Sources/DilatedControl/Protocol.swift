@@ -156,6 +156,7 @@ public struct CLIInput {
   public var request: ControlRequest?
   public var command: [String] = []
   public var json = false
+  public var assertions = false
   public var help = false
   public var packageCheck = false
   public var agent: AgentCommand?
@@ -223,7 +224,7 @@ public struct CLIInput {
     var index = 1
     let allowed: Set<String> =
       switch verb {
-      case "status": ["--json"]
+      case "status": ["--json", "--assertions"]
       case "on":
         [
           "--for", "--until", "--label", "--display-awake", "--display-sleep",
@@ -254,6 +255,7 @@ public struct CLIInput {
       index += 1
       switch flag {
       case "--json": result.json = true
+      case "--assertions": result.assertions = true
       case "--display-awake": request.displayAwake = true
       case "--display-sleep": request.displayAwake = false
       case "--override-low-power": request.lowPowerOverride = true

@@ -391,6 +391,8 @@ missing script become `ClosedLidPowerError.permissionUnavailable`, a timeout bec
 `.commandFailed`. `ClosedLidScriptState` (`scriptMissing`, `ruleMissing`, `ready`) comes from `probe`; a timeout or failure
 reads as `ruleMissing`. `ClosedLidPermissionModel` shows plain copy for each state and no install or remove button.
 
+Download targets in this channel are `DownloadTargetRecord`s (path, folder flag, optional `bookmark`; old records decode with no bookmark). `SecurityScopedBookmarks` creates `.withSecurityScope` data from an open-panel URL, re-creates stale data, throws `missingTarget` for a deleted target, and hands `AppModel.startDownload` a `BookmarkAccess` that the monitor holds until it's released. The default `~/Downloads` needs no bookmark, only the `files.downloads.read-only` entitlement in `packaging/mas/Dilated-MAS.entitlements`; `DownloadTarget.systemDownloads()` resolves it through `FileManager`, never `NSHomeDirectory()`. The direct build keeps plain paths.
+
 There is no crash watchdog in this channel (`ClosedLidWatchdogSpawner` is compiled out) until slice BUILD.4 decides the
 revert path. The in-app lease and the relaunch revert still run.
 
