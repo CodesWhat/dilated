@@ -1,8 +1,13 @@
 #!/bin/bash
 # Phase B for the Mac App Store closed-lid repair agent (slice DIL-MAS-BUILD.4b): builds the ad-hoc
 # sandboxed bundle, installs the real dilated-power script and LaunchAgent, starts a closed-lid
-# session through AppleScript, kill -9s the app and proves the agent reverts SleepDisabled, then
-# proves a relaunch doesn't turn it back on. Removes everything it installed.
+# session through the dilated:// URL scheme, kill -9s the app and proves the agent reverts
+# SleepDisabled, then proves a relaunch doesn't turn it back on. Removes everything it installed.
+#
+# No Apple Events and no consent prompt: the app is driven with `open -g -a <temp app path>
+# dilated://...` (exact path, never the real Dilated) and observed through SleepDisabled and `dilated-power check`. Closed-lid URLs need
+# closedLidURLAutomation in the test container's settings.json, so the script merges that one key
+# before the first launch and restores the file on cleanup.
 #
 # It really changes this Mac's SleepDisabled setting through the sudoers rule, so it refuses to run
 # unless the rule is there, the Mac is on AC, sleep is currently enabled, and nothing of ours is
@@ -20,25 +25,26 @@ build_dir=""
 app=""
 exe=""
 app_pid=""
+state_dir="$HOME/Library/Containers/$bundle/Data/Library/Application Support/Dilated"
+settings_file="$state_dir/settings.json"
+settings_backup=""
+settings_created=0
+settings_touched=0
 
 power() { /usr/bin/env -i HOME="$HOME" /bin/bash "$installed_script" "$@"; }
 
 pid_alive() { [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null; }
 
-# Runs one command of the app's AppleScript dictionary against the test app by bundle ID. It only
-# runs while our pid is alive, so a dead app is never relaunched by Apple Events. A 15 second Apple
-# Event timeout means the app is stuck, most likely behind a dialog.
-dilated() {
-  pid_alive "$app_pid" || { echo "app not running"; return 1; }
-  /usr/bin/osascript \
-    -e 'with timeout of 15 seconds' \
-    -e "tell application id \"$bundle\" to $1" \
-    -e 'end timeout' 2>&1
+# Sends a dilated:// URL to our temp copy of the test app by exact path (LaunchServices does not resolve the bundle ID of an app in a temp dir), without taking focus. Only while our pid is alive,
+# so a URL never launches some other copy of the bundle.
+send_url() {
+  pid_alive "$app_pid" || return 1
+  /usr/bin/open -g -a "$app" "$1"
 }
 
 # Opens the ad-hoc app and sets app_pid to the one process running from our temp build.
 launch_app() {
-  /usr/bin/open -n "$app" || return 1
+  /usr/bin/open -g -n "$app" || return 1
   local i pids
   for i in $(seq 1 40); do
     pids=$(/usr/bin/pgrep -f "^$exe\$" || true)
@@ -52,28 +58,6 @@ launch_app() {
     fi
     /bin/sleep 0.25
   done
-  return 1
-}
-
-# Polls the closed-lid permission state through "closed display mode enabled". It answers false once
-# the helper readback is confirmed, and returns an error while the state is unknown.
-wait_for_ready() {
-  local limit=$1 start out
-  start=$(now)
-  while pid_alive "$app_pid"; do
-    out=$(dilated "closed display mode enabled")
-    if [ "$out" = false ]; then
-      elapsed_since "$start"
-      return 0
-    fi
-    if [ "$(/usr/bin/perl -e 'print(($ARGV[1] - $ARGV[0]) > $ARGV[2] ? 1 : 0)' "$start" "$(now)" "$limit")" = 1 ]; then
-      say "  last answer: $out" >&2
-      elapsed_since "$start"
-      return 1
-    fi
-    /bin/sleep 0.5
-  done
-  elapsed_since "$start"
   return 1
 }
 
@@ -95,12 +79,56 @@ quit_app() {
   kill -9 "$app_pid" 2>/dev/null
 }
 
+# Merges closedLidURLAutomation=true into settings.json and nothing else.
+merge_setting() {
+  python3 -I - "$settings_file" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+with open(path) as f:
+    data = json.load(f)
+data["closedLidURLAutomation"] = True
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(data, f, separators=(",", ":"))
+os.replace(tmp, path)
+PY
+}
+
+# Seeds the test container's settings before the app's first launch of this run.
+seed_settings() {
+  settings_touched=1
+  if [ -f "$settings_file" ]; then
+    settings_backup="$build_dir/settings.json.backup"
+    /bin/cp -p "$settings_file" "$settings_backup" || return 1
+  else
+    say "  no settings.json yet: launch once to let the app create it"
+    settings_created=1
+    launch_app || return 1
+    local i
+    for i in $(seq 1 60); do
+      [ -f "$settings_file" ] && break
+      /bin/sleep 0.5
+    done
+    quit_app
+    [ -f "$settings_file" ] || { fail "the app never wrote $settings_file"; return 1; }
+  fi
+  merge_setting || return 1
+  say "  closedLidURLAutomation set in $settings_file"
+}
+
 # shellcheck disable=SC2329  # runs from the EXIT trap
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
   say "cleanup"
   quit_app
+  if [ "$settings_touched" -eq 1 ]; then
+    if [ -n "$settings_backup" ] && [ -f "$settings_backup" ]; then
+      /bin/cp -p "$settings_backup" "$settings_file" && say "  settings.json restored"
+    elif [ "$settings_created" -eq 1 ]; then
+      /bin/rm -f "$settings_file" && say "  settings.json removed"
+    fi
+  fi
   if [ "$installed" -eq 1 ]; then
     mas_uninstall_agent
     [ "$uninstall_status" -eq 0 ] || status=1
@@ -143,30 +171,33 @@ python3 -I "$repo/scripts/check-mas-bundle.py" "$app" >>"$build_dir/build.log" 2
 }
 say "  built and checked in $(elapsed_since "$t0")s"
 
-say "setup: dilated-power and the repair agent"
+say "setup: dilated-power, the repair agent and the URL setting"
 mas_install_agent || exit 1
+seed_settings || exit 1
 /bin/sleep 2
 
-say "launch: open -n the ad-hoc app"
+say "launch: open the ad-hoc app"
 launch_app || { fail "the app did not start"; exit 1; }
 say "  pid $app_pid"
-if took=$(wait_for_ready 30); then
-  say "  closed-lid permission state ready after ${took}s"
-else
-  fail "closed-lid permission state not ready after ${took}s (a dialog on the app would show here)"
+
+# Starts a closed-lid session by URL, retrying every 3s for up to 30s: the app refreshes its script
+# permission state at launch, and a URL sent before that is rejected.
+say "session: dilated://awake?lid=closed"
+t0=$(now)
+enabled=0
+while [ "$(/usr/bin/perl -e 'print(($ARGV[1] - $ARGV[0]) > 30 ? 1 : 0)' "$t0" "$(now)")" = 0 ]; do
+  send_url "dilated://awake?lid=closed" || { pid_alive "$app_pid" || { fail "the app died before the URL was accepted"; exit 1; }; /bin/sleep 3; continue; }
+  if wait_for_sleep_disabled 1 3 >/dev/null; then
+    enabled=1
+    break
+  fi
+done
+if [ "$enabled" -ne 1 ]; then
+  fail "SleepDisabled never went to 1 within 30s of the URL (a dialog on the app would show here)"
   exit 1
 fi
-
-say "session: start a session with closed-lid on"
-out=$(dilated "start new session with options {duration:0, interval:0}")
-[ -z "$out" ] || { fail "start new session answered '$out'"; exit 1; }
-[ "$(dilated "session is active")" = true ] || { fail "no session is active after start"; exit 1; }
-t0=$(now)
-out=$(dilated "enable closed display mode")
-[ -z "$out" ] || { fail "enable closed display mode answered '$out'"; exit 1; }
-expect_sleep_disabled "enable" 1 5 || exit 1
-say "  closed display mode enabled: $(dilated "closed display mode enabled")"
-say "  check: $(power check)"
+say "  SleepDisabled 1 after $(elapsed_since "$t0")s"
+expect_word "check" "$(power check)" live
 [ -f "$session_dir/session" ] || fail "no session file under $session_dir"
 
 say "kill: kill -9 the app ($app_pid)"
@@ -175,18 +206,12 @@ kill -9 "$app_pid"
 while pid_alive "$app_pid"; do /bin/sleep 0.1; done
 expect_sleep_disabled "kill" 0 40
 say "  revert took $(elapsed_since "$t0")s after the kill (limit 40s)"
-say "  check after revert: $(power check)"
+expect_word "check after revert" "$(power check)" reverted
 [ -f "$session_dir/session" ] && fail "session file still there after the revert"
 
 say "relaunch: the app must not turn it back on"
 launch_app || { fail "the app did not relaunch"; exit 1; }
 say "  pid $app_pid"
-if took=$(wait_for_ready 30); then
-  say "  closed-lid permission state ready after ${took}s"
-else
-  fail "closed-lid permission state not ready after relaunch (${took}s)"
-  exit 1
-fi
 t0=$(now)
 while [ "$(/usr/bin/perl -e 'print(($ARGV[1] - $ARGV[0]) > 30 ? 1 : 0)' "$t0" "$(now)")" = 0 ]; do
   if [ "$(sleep_disabled)" != 0 ]; then
@@ -196,15 +221,10 @@ while [ "$(/usr/bin/perl -e 'print(($ARGV[1] - $ARGV[0]) > 30 ? 1 : 0)' "$t0" "$
   /bin/sleep 0.5
 done
 [ "$(sleep_disabled)" = 0 ] && say "  SleepDisabled stayed 0 for $(elapsed_since "$t0")s"
-say "  closed display mode enabled: $(dilated "closed display mode enabled")"
-say "  session active: $(dilated "session is active")"
 [ -f "$session_dir/session" ] && fail "session file exists after the relaunch"
 after=$(power check)
 say "  check after relaunch: $after"
-case "$after" in
-  none) ;;
-  *) fail "recovery state after relaunch is '$after', want none" ;;
-esac
+[ "$after" = none ] || fail "recovery state after relaunch is '$after', want none (tombstone not cleared by the relaunch)"
 
 say "quit: by bundle ID"
 quit_app
