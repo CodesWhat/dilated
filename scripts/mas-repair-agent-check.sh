@@ -10,61 +10,10 @@
 set -uo pipefail
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
-label="com.codeswhat.dilated.closed-lid-repair"
-bundle="com.codeswhat.dilated.appstore"
-uid=$(id -u)
-scripts_dir="$HOME/Library/Application Scripts/$bundle"
-installed_script="$scripts_dir/dilated-power"
-agent_plist="$HOME/Library/LaunchAgents/$label.plist"
-session_dir="$HOME/Library/Application Support/dilated-power"
+# shellcheck source=scripts/mas-check-lib.sh
+source "$repo/scripts/mas-check-lib.sh"
 
-installed=0
-created_scripts_dir=0
 children=()
-failures=0
-
-now() { /usr/bin/perl -MTime::HiRes=time -e 'printf "%.2f\n", time'; }
-elapsed_since() { /usr/bin/perl -e 'printf "%.1f", $ARGV[1] - $ARGV[0]' "$1" "$(now)"; }
-sleep_disabled() { pmset -g | /usr/bin/awk '/SleepDisabled/ { print $2 }'; }
-say() { echo "[$(date +%H:%M:%S)] $*"; }
-
-fail() {
-  say "FAIL: $*"
-  failures=$((failures + 1))
-}
-
-# Polls until SleepDisabled equals $1, for at most $2 seconds. Prints the seconds it took on
-# stdout and returns 1 on timeout.
-wait_for_sleep_disabled() {
-  local want=$1 limit=$2 start
-  start=$(now)
-  while true; do
-    if [ "$(sleep_disabled)" = "$want" ]; then
-      elapsed_since "$start"
-      return 0
-    fi
-    if [ "$(/usr/bin/perl -e 'print(($ARGV[1] - $ARGV[0]) > $ARGV[2] ? 1 : 0)' "$start" "$(now)" "$limit")" = 1 ]; then
-      elapsed_since "$start"
-      return 1
-    fi
-    /bin/sleep 0.25
-  done
-}
-
-expect_word() {
-  local what=$1 got=$2 want=$3
-  if [ "$got" = "$want" ]; then say "  $what printed $got"; else fail "$what printed '$got', want '$want'"; fi
-}
-
-expect_sleep_disabled() {
-  local label_text=$1 want=$2 limit=$3 took
-  if took=$(wait_for_sleep_disabled "$want" "$limit"); then
-    say "  $label_text: SleepDisabled $want after ${took}s (limit ${limit}s)"
-  else
-    fail "$label_text: SleepDisabled still not $want after ${took}s (limit ${limit}s)"
-    return 1
-  fi
-}
 
 start_child() {
   /bin/sleep 600 &
@@ -83,25 +32,8 @@ cleanup() {
     wait "$child_pid" 2>/dev/null
   done
   if [ "$installed" -eq 1 ]; then
-    launchctl bootout "gui/$uid/$label" 2>/dev/null
-    /bin/rm -f "$agent_plist" "$installed_script"
-    [ "$created_scripts_dir" -eq 1 ] && /bin/rmdir "$scripts_dir" 2>/dev/null
-    /bin/rm -rf "$session_dir"
-    if /usr/bin/env -i /usr/bin/sudo -n /usr/bin/pmset -a disablesleep 0; then
-      if [ "$(sleep_disabled)" = 0 ]; then
-        say "  SleepDisabled 0 after cleanup"
-      else
-        say "FAIL: SleepDisabled is still $(sleep_disabled) after cleanup"
-        status=1
-      fi
-    else
-      say "FAIL: could not run pmset -a disablesleep 0 during cleanup"
-      status=1
-    fi
-    if launchctl print "gui/$uid/$label" >/dev/null 2>&1; then
-      say "FAIL: $label is still loaded"
-      status=1
-    fi
+    mas_uninstall_agent
+    [ "$uninstall_status" -eq 0 ] || status=1
   fi
   [ "$failures" -eq 0 ] || status=1
   if [ "$status" -eq 0 ]; then say "PASS"; else say "FAILED"; fi
@@ -111,36 +43,13 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 
 # Pre-flight: change nothing unless all of it holds.
-preflight_failed=0
-refuse() {
-  say "pre-flight: $*"
-  preflight_failed=1
-}
-sudo -n -l /usr/bin/pmset -a disablesleep 1 >/dev/null 2>&1 || refuse "no sudo rule for pmset -a disablesleep 1"
-pmset -g batt | grep -q 'AC Power' || refuse "not on AC power"
-[ "$(sleep_disabled)" = 0 ] || refuse "SleepDisabled is already $(sleep_disabled)"
-[ ! -e "$installed_script" ] || refuse "$installed_script already exists"
-[ ! -e "$agent_plist" ] || refuse "$agent_plist already exists"
-[ ! -e "$session_dir" ] || refuse "$session_dir already exists"
-launchctl print "gui/$uid/$label" >/dev/null 2>&1 && refuse "$label is already loaded"
-if [ "$preflight_failed" -eq 1 ]; then
+if ! mas_preflight; then
   trap - EXIT
   exit 2
 fi
 
 say "Phase A: closed-lid repair agent ($(hostname -s), $(sw_vers -productVersion))"
-installed=1
-if [ ! -d "$scripts_dir" ]; then
-  /bin/mkdir -p "$scripts_dir" || exit 1
-  created_scripts_dir=1
-fi
-/bin/cp "$repo/packaging/mas/dilated-power" "$installed_script" || exit 1
-/bin/chmod 755 "$installed_script"
-/usr/bin/sed "s|__HOME__|$HOME|g" "$repo/packaging/mas/$label.plist" >"$agent_plist" || exit 1
-plutil -lint "$agent_plist" >/dev/null || exit 1
-t0=$(now)
-launchctl bootstrap "gui/$uid" "$agent_plist" || exit 1
-say "agent bootstrapped in $(elapsed_since "$t0")s"
+mas_install_agent || exit 1
 /bin/sleep 2
 
 power() { /usr/bin/env -i HOME="$HOME" /bin/bash "$installed_script" "$@"; }
