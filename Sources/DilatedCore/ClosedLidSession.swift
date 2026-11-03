@@ -198,6 +198,8 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
 
   /// How often the active session rewrites the heartbeat file the watchdog watches.
   public static let defaultHeartbeatInterval: TimeInterval = 10
+  /// The Mac App Store build's cadence for the script's `beat`; its repair agent waits 120s.
+  public static let scriptHeartbeatInterval: TimeInterval = 20
 
   private let power: any ClosedLidPowerControlling
   private let store: ClosedLidMarkerStore
@@ -208,6 +210,7 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
   private var session: ClosedLidSessionMarker?
   private var settled = false
   private let heartbeatInterval: TimeInterval
+  private let scriptBeat: (@Sendable () -> Void)?
   private var beatCount: UInt64 = 0
   private var lastBeat: Date?
   private var recoveryError: (any Error)?
@@ -219,9 +222,11 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
     startMicros: @escaping @Sendable (Int32) -> Int64? = { ProcessStartTime.micros(pid: $0) },
     now: @escaping @Sendable () -> Date = { Date() },
     launchWatchdog: @escaping @Sendable (ClosedLidWatchdogLaunch) throws -> Void = { _ in },
-    heartbeatInterval: TimeInterval = ClosedLidSessionGuard.defaultHeartbeatInterval
+    heartbeatInterval: TimeInterval = ClosedLidSessionGuard.defaultHeartbeatInterval,
+    scriptBeat: (@Sendable () -> Void)? = nil
   ) {
     self.heartbeatInterval = heartbeatInterval
+    self.scriptBeat = scriptBeat
     self.power = power
     self.store = store
     self.pid = pid
@@ -246,6 +251,7 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
     beatCount += 1
     lastBeat = date
     store.writeHeartbeat(generation: session.generation, count: beatCount, at: date)
+    scriptBeat?()
   }
 
   public func readback() async -> ClosedLidReadback { await power.readback() }

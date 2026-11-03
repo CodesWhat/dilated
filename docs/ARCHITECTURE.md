@@ -376,15 +376,39 @@ The script runs unsandboxed as the user and the sudoers rule does the elevation.
 Closed-Lid Setup, installs the script and the rule; the app never installs either. The source is
 `packaging/mas/dilated-power`.
 
-The script takes exactly one argument, `on`, `off` or `probe`. Anything else prints `usage` to stderr and exits 64. It uses
-absolute paths, runs `/usr/bin/env -i /usr/bin/sudo -n`, and reads no environment. `probe` runs `sudo -n -l` for both
-`pmset -a disablesleep` commands. It prints one word, then exits:
+The script takes one verb: `on <pid>` (exactly one argument, all digits, at most 10), or `beat`, `off`, `check`, `repair`,
+`probe` with no argument. Anything else prints `usage` to stderr and exits 64. It uses absolute paths, runs
+`/usr/bin/env -i /usr/bin/sudo -n`, and reads only `HOME`. `probe` runs `sudo -n -l` for both `pmset -a disablesleep`
+commands. It prints one word, then exits:
 
 | Word | Exit | Meaning |
 | --- | --- | --- |
 | `ok` | 0 | The command ran, or sudo allows both commands. |
+| `reverted` | 4 | `on` from a pid the repair agent already reverted. |
 | `norule` | 3 | sudo needs a password, doesn't allow the command, or the user may not run sudo. |
 | `failed` | the failing status, or 1 | Anything else. |
+| `none` | 0 | `beat` or `check` with no session. |
+| `live`, `dead`, `stale`, `reverted` | 0 | `check` only. It reads and changes nothing. |
+
+The script test hooks (`DILATED_POWER_TEST_SUDO`, `DILATED_POWER_TEST_WAKE`) are honored only when the script runs from
+`<repo>/packaging/mas` next to `Package.swift`. The installed copy ignores them, so the environment of a `NSUserUnixTask`
+or a local shell can't redirect sudo.
+
+The sandbox gives the app no crash watchdog, so the script owns the revert. `on <pid>` writes
+`~/Library/Application Support/dilated-power/session` (`<pid> <ps lstart>`, mode 0600 in a 0700 directory, written by temp
+file and `mv`) before it disables sleep. Its mtime is the heartbeat. The record lives outside the container because other
+processes can't read the container under TCC. The app passes `getpid()` to `on` and the session guard calls `beat` every 20
+seconds (`ClosedLidSessionGuard.scriptHeartbeatInterval`, wired only under `MAS_CHANNEL`).
+
+The companion installs the user LaunchAgent `com.codeswhat.dilated.closed-lid-repair`
+(`packaging/mas/com.codeswhat.dilated.closed-lid-repair.plist`, `StartInterval` 30, `RunAtLoad`; the file carries a
+`__HOME__` placeholder because launchd doesn't expand `~`). It runs `dilated-power repair`, which does nothing with no
+session. Otherwise it reverts (`pmset -a disablesleep 0`, delete the session, write the tombstone `reverted <pid>`) when the
+recorded pid is gone, its start time differs, or the heartbeat is older than 120 seconds while `kern.waketime` is also older
+than 120 seconds (a hung app, not a sleeping Mac). `check` prints which of `live`, `dead`, `stale`, `reverted`, `none`
+applies. A later `on` from the tombstoned pid prints `reverted` once and exits 4, and the app maps it to
+`ClosedLidSessionError.revertedWhileUnresponsive`. That covers a crash, `kill -9` or force quit within 30 seconds, a hang
+within 150, and a forced logout or reboot at the next login. `scripts/mas-repair-agent-check.sh` proves this on a real Mac.
 
 The app reads the first stdout word, not the exit status, because `NSUserUnixTask` only reports an `Error`. `norule` and a
 missing script become `ClosedLidPowerError.permissionUnavailable`, a timeout becomes `.commandTimedOut`, and the rest
@@ -393,7 +417,7 @@ reads as `ruleMissing`. `ClosedLidPermissionModel` shows plain copy for each sta
 
 Download targets in this channel are `DownloadTargetRecord`s (path, folder flag, optional `bookmark`; old records decode with no bookmark). `SecurityScopedBookmarks` creates `.withSecurityScope` data from an open-panel URL, re-creates stale data, throws `missingTarget` for a deleted target, and hands `AppModel.startDownload` a `BookmarkAccess` that the monitor holds until it's released. The default `~/Downloads` needs no bookmark, only the `files.downloads.read-only` entitlement in `packaging/mas/Dilated-MAS.entitlements`; `DownloadTarget.systemDownloads()` resolves it through `FileManager`, never `NSHomeDirectory()`. The direct build keeps plain paths.
 
-There is no crash watchdog in this channel (`ClosedLidWatchdogSpawner` is compiled out) until slice BUILD.4 decides the
-revert path. The in-app lease and the relaunch revert still run.
+There is no watchdog process in this channel (`ClosedLidWatchdogSpawner` is compiled out); the repair agent above replaces
+it. The in-app lease and the relaunch revert still run.
 
 `scripts/check-mas-build.sh` builds this channel in `.build-mas`; CI also runs the `MASChannel` tests there.
