@@ -94,6 +94,52 @@ class PublishWebsiteTests(unittest.TestCase):
         (self.assets / 'updates').mkdir(exist_ok=True)
         (self.assets / 'updates/appcast.xml').write_text(FEED.format(build=build))
 
+    def live(self, *versions, latest=None):
+        """A fake fetcher for a live site referencing these versions."""
+        latest = latest or versions[-1]
+        items = ''.join(f'<item><enclosure url="https://dilated.app/releases/{v}/Dilated-{v}.zip"/></item>'
+                        for v in versions)
+
+        def fetch(path):
+            if path == '/releases/latest.json':
+                return json.dumps({'version': latest})
+            return f'<rss><channel>{items}</channel></rss>'
+        return fetch
+
+    def production(self, fetch, *extra):
+        original = publish.ROOT
+        publish.ROOT = self.repo
+        self.addCleanup(setattr, publish, 'ROOT', original)
+        publish.main(['--public-dir', str(self.assets), '--production', *extra], fetch=fetch)
+
+    def test_production_refuses_when_live_versions_have_no_directory(self):
+        with self.assertRaisesRegex(RuntimeError, r'missing.*0\.9\.0'):
+            self.production(self.live('0.9.0', VERSION))
+        self.assertEqual(self.deploys(), [])
+
+    def test_production_refuses_a_single_release_dir_behind_the_live_latest(self):
+        with self.assertRaisesRegex(RuntimeError, 'Single-release public dir'):
+            self.production(self.live('0.8.0', '0.9.0'))
+        self.assertEqual(self.deploys(), [])
+
+    def test_production_refuses_when_the_live_site_cannot_be_fetched(self):
+        def down(path):
+            raise OSError('network down')
+        with self.assertRaisesRegex(RuntimeError, 'allow-offline'):
+            self.production(down)
+        self.assertEqual(self.deploys(), [])
+
+    def test_allow_offline_publishes_without_the_comparison(self):
+        def down(path):
+            raise OSError('network down')
+        self.production(down, '--allow-offline')
+
+    def test_default_public_dir_is_the_main_checkouts_retained_dir(self):
+        default = publish.public.default_public_dir()
+        self.assertEqual(default.name, 'public-release-assets')
+        self.assertEqual(default.parent.name, 'build')
+        self.assertNotIn('.claude/worktrees', str(default))
+
     def deploys(self):
         return [call for call in self.calls if call[0] == 'vercel']
 
@@ -131,7 +177,7 @@ class PublishWebsiteTests(unittest.TestCase):
             return ''
 
         publish.run = fake_run
-        publish.main(['--public-dir', str(self.assets), '--production'])
+        publish.main(['--public-dir', str(self.assets), '--production'], fetch=self.live(VERSION))
         self.assertIn('index.html', seen['files'])
         self.assertIn('vercel.json', seen['files'])
         self.assertIn('updates/appcast.xml', seen['files'])

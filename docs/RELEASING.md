@@ -53,20 +53,23 @@ The generated cask removes the closed-lid sudo rule (`/private/etc/sudoers.d/dil
 ## 5. Stage the public release
 
 ```sh
+PUBLIC_DIR="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/build/public-release-assets"
 python3 scripts/stage-public-release.py /absolute/path/to/release-output/<version> \
-  --public-dir build/public-release-assets --acceptance /absolute/path/to/acceptance.json
+  --public-dir "$PUBLIC_DIR" --acceptance /absolute/path/to/acceptance.json
 ```
+
+`--public-dir` is always the retained `build/public-release-assets` in the main checkout, never a per-worktree or per-release path. The `git rev-parse` line resolves to the main checkout from any worktree, and it is also the default when `--public-dir` is omitted. A Vercel deploy replaces the whole site, so publishing from a fresh directory drops every earlier release; the stage script warns on stderr when the directory has no history but https://dilated.app already has a release.
 
 It re-checks the tag, digests, notarization and the extracted app, builds the source tarball from the tag, generates and verifies the signed appcast, writes `latest.json` and `dilated.rb`, and adds the release to `build/public-release-assets`. Keep that directory between releases. Published versioned files are immutable and only the feed and `latest.json` get replaced.
 
 ## 6. Publish the website
 
 ```sh
-python3 scripts/publish-website.py --public-dir build/public-release-assets
-python3 scripts/publish-website.py --public-dir build/public-release-assets --production
+python3 scripts/publish-website.py --public-dir "$PUBLIC_DIR"
+python3 scripts/publish-website.py --public-dir "$PUBLIC_DIR" --production
 ```
 
-The first run only validates. `--production` deploys the committed `website/dist` plus the retained `releases/` and `updates/` to the Vercel project. The checkout has to be clean, and `/download/file` and `/source` in `website/vercel.json` have to point at the staged release. Update them in the version bump if they don't.
+The first run only validates. Before deploying, `--production` fetches the live `latest.json` and appcast and refuses if the directory lacks any release they reference (a directory holding only the new release gets its own error). If dilated.app can't be fetched it refuses too, unless you pass `--allow-offline`. It then deploys the committed `website/dist` plus the retained `releases/` and `updates/` to the Vercel project. The checkout has to be clean, and `/download/file` and `/source` in `website/vercel.json` have to point at the staged release. Update them in the version bump if they don't.
 
 ## 7. Homebrew and GitHub
 
