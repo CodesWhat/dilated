@@ -21,6 +21,10 @@ import AppKit
   private var lastMotion: Motion?
   private var reducedMotion = false
   private weak var openMenu: NSMenu?
+  // Strongly owns the presented menu (and so its MenuCommand targets, which items only hold weakly)
+  // until AppKit has dispatched the chosen item's action after menuDidClose.
+  private var presentedMenu: NSMenu?
+  private var menuGeneration = 0
 
   init(
     model: AppModel, openSettings: @escaping () -> Void, openAbout: @escaping () -> Void = {},
@@ -60,6 +64,8 @@ import AppKit
     guard statusItem.button != nil else { return }
     let menu = AwakeMenu.make(model: model, openSettings: openSettings, openAbout: openAbout)
     menu.delegate = self
+    menuGeneration += 1
+    presentedMenu = menu
     statusItem.menu = menu
     presentMenu(statusItem)
   }
@@ -142,6 +148,11 @@ import AppKit
   func menuDidClose(_ menu: NSMenu) {
     openMenu = nil
     if statusItem.menu === menu { statusItem.menu = nil }
+    let generation = menuGeneration
+    DispatchQueue.main.async { [weak self] in
+      guard let self, self.menuGeneration == generation else { return }
+      self.presentedMenu = nil
+    }
   }
   private func animateBurst() {
     burst?.invalidate()
@@ -198,6 +209,7 @@ import AppKit
   }
   func stop() {
     openMenu = nil
+    presentedMenu = nil
     burst?.invalidate()
     microMotion?.invalidate()
     NSStatusBar.system.removeStatusItem(statusItem)

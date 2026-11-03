@@ -4,6 +4,7 @@ import DilatedCore
 import Foundation
 import IOKit.ps
 import Observation
+import os
 
 public enum SystemTransition: Sendable { case sleep, userSwitch, userReturn }
 
@@ -487,9 +488,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
   public func stop(id: UUID) { mutate { $0.stop(id: id) } }
   public func resumeAutomation() {
-    guard allowNewWork() else { return }
+    let allowed = allowNewWork()
     let wasPaused = engine.automationPaused
+    Self.log.info(
+      "resumeAutomation allowNewWork=\(allowed, privacy: .public) pausedBefore=\(wasPaused, privacy: .public)"
+    )
+    guard allowed else { return }
     mutate { $0.resumeAutomation() }
+    Self.log.info(
+      "resumeAutomation pausedAfter=\(self.engine.automationPaused, privacy: .public)")
     if wasPaused { triggerEvaluator = TriggerEvaluator() }
     refreshTriggers()
   }
@@ -1016,13 +1023,18 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     assertions.releaseAll()
   }
+  private static let log = Logger(subsystem: "com.codeswhat.dilated", category: "AppModel")
   private func allowNewWork(allowSettingsRecovery: Bool = false) -> Bool {
     guard !stopped, !preparingToQuit, !updater.blocksNewWork else {
+      Self.log.info(
+        "allowNewWork refused: stopped=\(self.stopped, privacy: .public) preparingToQuit=\(self.preparingToQuit, privacy: .public) updaterBlocks=\(self.updater.blocksNewWork, privacy: .public)"
+      )
       message = "Dilated is finishing an update or quitting."
       onChange?()
       return false
     }
     if settingsRecoveryIssue != nil && !allowSettingsRecovery {
+      Self.log.info("allowNewWork refused: settings recovery issue")
       message = "Couldn't read settings. Open Settings to recover before starting a hold."
       onChange?()
       return false
