@@ -1,3 +1,4 @@
+import DilatedUpdates
 import Foundation
 import Observation
 
@@ -13,23 +14,6 @@ enum UpdateLaunchPolicy {
       && info["SUVerifyUpdateBeforeExtraction"] as? Bool == true
       && info["DilatedUpdatesEnabled"] as? Bool == true
   }
-}
-
-@MainActor protocol UpdateDriverDelegate: AnyObject {
-  func mayCheckForUpdates() throws
-  func postponeInstallation(_ install: @escaping () -> Void) -> Bool
-  func updateAvailable()
-  func updateWillRelaunch()
-  func updateFinished(error: (any Error)?)
-}
-
-@MainActor protocol UpdateDriving: AnyObject {
-  var delegate: (any UpdateDriverDelegate)? { get set }
-  var onChange: (() -> Void)? { get set }
-  var canCheckForUpdates: Bool { get }
-  var automaticallyChecksForUpdates: Bool { get set }
-  func start() throws
-  func checkForUpdates()
 }
 
 @MainActor @Observable public final class AppUpdater: UpdateDriverDelegate {
@@ -69,7 +53,7 @@ enum UpdateLaunchPolicy {
     let allowed = UpdateLaunchPolicy.allows(
       arguments: CommandLine.arguments, bundleURL: Bundle.main.bundleURL,
       info: Bundle.main.infoDictionary ?? [:])
-    self.init(driver: allowed ? SparkleDriver() : nil, activity: { .starting })
+    self.init(driver: allowed ? UpdateDriverFactory.makeDriver() : nil, activity: { .starting })
   }
   init(driver: (any UpdateDriving)?, activity: @escaping () -> UpdateActivity) {
     self.driver = driver
@@ -137,7 +121,7 @@ enum UpdateLaunchPolicy {
     driver?.automaticallyChecksForUpdates = enabled
     refreshDriver()
   }
-  func mayCheckForUpdates() throws {
+  public func mayCheckForUpdates() throws {
     guard activity() == .idle, !blocksNewWork, pendingInstall == nil else {
       throw NSError(
         domain: "DilatedUpdates", code: 1,
@@ -147,7 +131,7 @@ enum UpdateLaunchPolicy {
         ])
     }
   }
-  func postponeInstallation(_ install: @escaping () -> Void) -> Bool {
+  public func postponeInstallation(_ install: @escaping () -> Void) -> Bool {
     if activity() == .idle {
       blocksNewWork = true
       return false
@@ -155,12 +139,12 @@ enum UpdateLaunchPolicy {
     pendingInstall = install
     return true
   }
-  func updateAvailable() {
+  public func updateAvailable() {
     hasUpdate = true
     refreshActivity()
   }
-  func updateWillRelaunch() { blocksNewWork = true }
-  func updateFinished(error: (any Error)?) {
+  public func updateWillRelaunch() { blocksNewWork = true }
+  public func updateFinished(error: (any Error)?) {
     pendingInstall = nil
     blocksNewWork = false
     hasUpdate = false
