@@ -17,3 +17,4 @@ xcuserdata/
 /website/node_modules/
 /website/test-results/
 /website/playwright-report/
+.build-mas/
