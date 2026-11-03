@@ -2,7 +2,7 @@ import Foundation
 
 /// File and bookmark calls behind a seam so tests can fake staleness and missing targets.
 protocol BookmarkFileOperations: Sendable {
-  func makeBookmark(for url: URL) throws -> Data
+  func makeBookmark(for url: URL, options: URL.BookmarkCreationOptions) throws -> Data
   func resolve(_ data: Data) throws -> (url: URL, isStale: Bool)
   func startAccessing(_ url: URL) -> Bool
   func stopAccessing(_ url: URL)
@@ -10,9 +10,9 @@ protocol BookmarkFileOperations: Sendable {
 }
 
 struct LiveBookmarkFileOperations: BookmarkFileOperations {
-  func makeBookmark(for url: URL) throws -> Data {
+  func makeBookmark(for url: URL, options: URL.BookmarkCreationOptions) throws -> Data {
     try url.bookmarkData(
-      options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+      options: options, includingResourceValuesForKeys: nil, relativeTo: nil)
   }
 
   func resolve(_ data: Data) throws -> (url: URL, isStale: Bool) {
@@ -70,30 +70,50 @@ struct SecurityScopedBookmarks: Sendable {
 
   static let live = SecurityScopedBookmarks(operations: LiveBookmarkFileOperations())
 
+  /// The MAS entitlement is `files.user-selected.read-only`, so bookmarks are read-only scoped.
+  static let creationOptions: URL.BookmarkCreationOptions = [
+    .withSecurityScope, .securityScopeAllowOnlyReadAccess,
+  ]
+
   /// Bookmark data for a URL the user picked in an `NSOpenPanel`.
-  func create(from url: URL) throws -> Data { try operations.makeBookmark(for: url) }
+  func create(from url: URL) throws -> Data {
+    try operations.makeBookmark(for: url, options: Self.creationOptions)
+  }
 
   /// Resolves stored data. A stale bookmark is re-created from the resolved URL.
   func resolve(_ data: Data) throws -> BookmarkResolution {
+    let resolution = try resolveHoldingAccess(data)
+    operations.stopAccessing(resolution.url)
+    return resolution
+  }
+
+  /// Resolves the data and starts access. The returned handle ends access when stopped or released.
+  func access(_ data: Data) throws -> (resolution: BookmarkResolution, access: BookmarkAccess) {
+    let resolution = try resolveHoldingAccess(data)
+    let operations = operations
+    let url = resolution.url
+    return (resolution, BookmarkAccess { operations.stopAccessing(url) })
+  }
+
+  /// Starts scoped access before anything touches the target, since the sandbox can hide it
+  /// until then. Access stays open on success and is stopped here on every failure.
+  private func resolveHoldingAccess(_ data: Data) throws -> BookmarkResolution {
     let resolved: (url: URL, isStale: Bool)
     do { resolved = try operations.resolve(data) } catch let error as CocoaError
       where error.code == .fileNoSuchFile || error.code == .fileReadNoSuchFile
     {
       throw BookmarkError.missingTarget
     }
-    guard operations.exists(resolved.url) else { throw BookmarkError.missingTarget }
-    guard resolved.isStale else { return .init(url: resolved.url, refreshed: nil) }
     guard operations.startAccessing(resolved.url) else { throw BookmarkError.accessDenied }
-    defer { operations.stopAccessing(resolved.url) }
-    return .init(url: resolved.url, refreshed: try operations.makeBookmark(for: resolved.url))
-  }
-
-  /// Resolves the data and starts access. The returned handle ends access when stopped or released.
-  func access(_ data: Data) throws -> (resolution: BookmarkResolution, access: BookmarkAccess) {
-    let resolution = try resolve(data)
-    guard operations.startAccessing(resolution.url) else { throw BookmarkError.accessDenied }
-    let operations = operations
-    let url = resolution.url
-    return (resolution, BookmarkAccess { operations.stopAccessing(url) })
+    do {
+      guard operations.exists(resolved.url) else { throw BookmarkError.missingTarget }
+      guard resolved.isStale else { return .init(url: resolved.url, refreshed: nil) }
+      return .init(
+        url: resolved.url,
+        refreshed: try operations.makeBookmark(for: resolved.url, options: Self.creationOptions))
+    } catch {
+      operations.stopAccessing(resolved.url)
+      throw error
+    }
   }
 }

@@ -13,6 +13,8 @@ private final class FakeBookmarkOperations: BookmarkFileOperations, @unchecked S
   private var _starts = 0
   private var _stops = 0
   private var _created: [URL] = []
+  private var _options: [URL.BookmarkCreationOptions] = []
+  private var _events: [String] = []
   let resolved: URL
 
   init(resolved: URL) { self.resolved = resolved }
@@ -32,9 +34,14 @@ private final class FakeBookmarkOperations: BookmarkFileOperations, @unchecked S
   var starts: Int { lock.withLock { _starts } }
   var stops: Int { lock.withLock { _stops } }
   var created: [URL] { lock.withLock { _created } }
+  var options: [URL.BookmarkCreationOptions] { lock.withLock { _options } }
+  var events: [String] { lock.withLock { _events } }
 
-  func makeBookmark(for url: URL) throws -> Data {
-    lock.withLock { _created.append(url) }
+  func makeBookmark(for url: URL, options: URL.BookmarkCreationOptions) throws -> Data {
+    lock.withLock {
+      _created.append(url)
+      _options.append(options)
+    }
     return Data("bookmark-\(url.path)-\(created.count)".utf8)
   }
   func resolve(_ data: Data) throws -> (url: URL, isStale: Bool) {
@@ -44,11 +51,20 @@ private final class FakeBookmarkOperations: BookmarkFileOperations, @unchecked S
   func startAccessing(_ url: URL) -> Bool {
     lock.withLock {
       _starts += 1
+      _events.append("start")
       return _grants
     }
   }
-  func stopAccessing(_ url: URL) { lock.withLock { _stops += 1 } }
-  func exists(_ url: URL) -> Bool { present }
+  func stopAccessing(_ url: URL) {
+    lock.withLock {
+      _stops += 1
+      _events.append("stop")
+    }
+  }
+  func exists(_ url: URL) -> Bool {
+    lock.withLock { _events.append("exists") }
+    return present
+  }
 }
 
 struct MASChannelBookmarkStoreTests {
@@ -72,6 +88,29 @@ struct MASChannelBookmarkStoreTests {
     let refreshed = try #require(resolution.refreshed)
     #expect(refreshed != original && fake.created == [url])
     #expect(fake.starts == 1 && fake.stops == 1)
+  }
+
+  @Test func bookmarksAreCreatedReadOnlyScoped() throws {
+    let fake = FakeBookmarkOperations(resolved: url)
+    _ = try SecurityScopedBookmarks(operations: fake).create(from: url)
+    let options = try #require(fake.options.first)
+    #expect(options.contains(.withSecurityScope))
+    #expect(options.contains(.securityScopeAllowOnlyReadAccess))
+  }
+
+  @Test func resolveStartsAccessBeforeCheckingExistence() throws {
+    let fake = FakeBookmarkOperations(resolved: url)
+    _ = try SecurityScopedBookmarks(operations: fake).resolve(Data("x".utf8))
+    #expect(fake.events == ["start", "exists", "stop"])
+  }
+
+  @Test func missingTargetStopsAccessOnce() {
+    // Resolves fine but the target is gone.
+    let late = OrderedMissing(resolved: url)
+    #expect(throws: BookmarkError.missingTarget) {
+      try SecurityScopedBookmarks(operations: late).resolve(Data("x".utf8))
+    }
+    #expect(late.events == ["start", "exists", "stop"])
   }
 
   @Test func missingTargetThrowsFromResolveOrExistenceCheck() {
@@ -111,9 +150,29 @@ struct MASChannelBookmarkStoreTests {
   }
 }
 
+private final class OrderedMissing: BookmarkFileOperations, @unchecked Sendable {
+  private let lock = NSLock()
+  private var _events: [String] = []
+  let resolved: URL
+  init(resolved: URL) { self.resolved = resolved }
+  var events: [String] { lock.withLock { _events } }
+  private func log(_ event: String) { lock.withLock { _events.append(event) } }
+  func makeBookmark(for url: URL, options: URL.BookmarkCreationOptions) throws -> Data { Data() }
+  func resolve(_ data: Data) throws -> (url: URL, isStale: Bool) { (resolved, true) }
+  func startAccessing(_ url: URL) -> Bool {
+    log("start")
+    return true
+  }
+  func stopAccessing(_ url: URL) { log("stop") }
+  func exists(_ url: URL) -> Bool {
+    log("exists")
+    return false
+  }
+}
+
 private struct LateMissing: BookmarkFileOperations {
   let resolved: URL
-  func makeBookmark(for url: URL) throws -> Data { Data() }
+  func makeBookmark(for url: URL, options: URL.BookmarkCreationOptions) throws -> Data { Data() }
   func resolve(_ data: Data) throws -> (url: URL, isStale: Bool) { (resolved, false) }
   func startAccessing(_ url: URL) -> Bool { true }
   func stopAccessing(_ url: URL) {}
@@ -166,9 +225,9 @@ struct MASChannelDownloadRecordTests {
     #expect(resolved?.target.url == folder)
     #expect(resolved?.updated?.path == folder.path)
     #expect(resolved?.updated?.bookmark != record.bookmark)
-    #expect(fake.starts == 2 && fake.stops == 1)
+    #expect(fake.starts == 1 && fake.stops == 0)
     resolved = nil
-    #expect(fake.stops == 2)
+    #expect(fake.stops == 1)
   }
 
   @Test func missingBookmarkTargetFailsResolve() {
