@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -6,7 +7,7 @@ import Observation
     @MainActor (TimeInterval, @escaping @MainActor @Sendable () -> Void)
     -> (@MainActor () -> Void)
   private let clock: @MainActor () -> TimeInterval
-  private let pulse: @MainActor (DriveAliveVolume) async throws -> Void
+  private var pulse: @MainActor (DriveAliveVolume) async throws -> Void = { _ in }
   private let schedule: Schedule
   private(set) var statuses: [String: String] = [:]
   @ObservationIgnored private var settings = DriveAliveSettings()
@@ -18,10 +19,14 @@ import Observation
   @ObservationIgnored private var scheduleID = UUID()
   @ObservationIgnored private var cancelTimer: (@MainActor () -> Void)?
   @ObservationIgnored private var runningTask: Task<Void, Never>?
+  @ObservationIgnored private var mountObserver: (any NSObjectProtocol)?
+  @ObservationIgnored private var mountCenter: NotificationCenter?
+  /// Called with a volume id and fresh grant data when the stored bookmark went stale.
+  @ObservationIgnored var grantRefreshed: (@MainActor (String, Data) -> Void)?
 
   init(
     clock: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-    pulse: @escaping @MainActor (DriveAliveVolume) async throws -> Void = NativeDriveAlive.pulse,
+    pulse: (@MainActor (DriveAliveVolume) async throws -> Void)? = nil,
     schedule: @escaping Schedule = { seconds, fire in
       let timer = Timer(timeInterval: seconds, repeats: false) { _ in
         MainActor.assumeIsolated { fire() }
@@ -29,11 +34,35 @@ import Observation
       timer.tolerance = min(5, seconds / 10)
       RunLoop.main.add(timer, forMode: .common)
       return { timer.invalidate() }
-    }
+    },
+    mountEvents: NotificationCenter = NSWorkspace.shared.notificationCenter,
+    watchMounts: Bool = DownloadTargetRecord.isSandboxed
   ) {
     self.clock = clock
-    self.pulse = pulse
     self.schedule = schedule
+    self.pulse =
+      pulse ?? { [weak self] volume in
+        try await NativeDriveAlive.pulse(volume) { data in
+          Task { @MainActor in self?.grantRefreshed?(volume.id, data) }
+        }
+      }
+    if watchMounts {
+      mountCenter = mountEvents
+      mountObserver = mountEvents.addObserver(
+        forName: NSWorkspace.didMountNotification, object: nil, queue: .main
+      ) { [weak self] _ in
+        MainActor.assumeIsolated { self?.volumeMounted() }
+      }
+    }
+  }
+
+  /// A volume appeared. Writes to every eligible volume right away, so a remounted drive is
+  /// resolved through its grant without waiting out the interval.
+  func volumeMounted() {
+    guard !stopped, !eligibleVolumes.isEmpty else { return }
+    let now = clock()
+    for volume in eligibleVolumes { due[volume.id] = min(due[volume.id] ?? now, now) }
+    if runningTask == nil { startNext() }
   }
 
   func configure(_ settings: DriveAliveSettings, awake: Bool, paused: Bool) {
@@ -110,6 +139,8 @@ import Observation
 
   func stop() {
     stopped = true
+    if let mountObserver { mountCenter?.removeObserver(mountObserver) }
+    mountObserver = nil
     eligibleVolumes.removeAll()
     due.removeAll()
     generation += 1

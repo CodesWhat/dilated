@@ -417,6 +417,15 @@ reads as `ruleMissing`. `ClosedLidPermissionModel` shows plain copy for each sta
 
 Download targets in this channel are `DownloadTargetRecord`s (path, folder flag, optional `bookmark`; old records decode with no bookmark). `SecurityScopedBookmarks` creates `.withSecurityScope` data from an open-panel URL, re-creates stale data, throws `missingTarget` for a deleted target, and hands `AppModel.startDownload` a `BookmarkAccess` that the monitor holds until it's released. The default `~/Downloads` needs no bookmark, only the `files.downloads.read-only` entitlement in `packaging/mas/Dilated-MAS.entitlements`; `DownloadTarget.systemDownloads()` resolves it through `FileManager`, never `NSHomeDirectory()`. The direct build keeps plain paths.
 
+Drive Alive needs write access, so `files.user-selected.read-write` is in the entitlements and each volume carries its own
+read-write bookmark (`DriveAliveVolume.grant`, `SecurityScopedBookmarks.liveReadWrite`). Turning a volume on opens a panel at
+its mount point, and the picked folder must be the volume root (`DriveAliveGrants`). Every pulse resolves the bookmark,
+holds scoped access for the write, and refuses a bookmark that resolves to a different path; a volume with no grant reports
+"Grant access". A mount notification makes every eligible volume due at once, so a remounted drive writes without waiting out
+the interval. `DriveAliveWriter` keeps its `O_NOFOLLOW` and `fstatfs` checks. The custom glyph and feedback sound pickers
+already copy the picked file into the state directory (the container here), so settings hold an id and a name, never a path.
+The trigger app picker stores the bundle ID only.
+
 There is no watchdog process in this channel (`ClosedLidWatchdogSpawner` is compiled out); the repair agent above replaces
 it. The in-app lease and the relaunch revert still run.
 
