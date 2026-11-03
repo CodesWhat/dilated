@@ -1,4 +1,2 @@
-Closed-lid mode now uses a one-time administrator approval instead of a background helper. Set it up in Settings, Closed Lid. The old helper is removed on first launch.
-If Dilated quits unexpectedly or stops responding during a closed-lid session, normal sleep comes back on its own.
-New Support Dilated menu with sponsor and donate links.
+Menu clicks no longer get dropped. Resume automation and other menu items sometimes did nothing after the menu closed.
 Closed-lid mode remains experimental.
