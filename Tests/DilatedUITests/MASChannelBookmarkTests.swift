@@ -239,11 +239,6 @@ struct MASChannelDownloadRecordTests {
     }
   }
 
-  @Test func systemDownloadsIsTheRealFolderNotTheHome() throws {
-    let target = try #require(DownloadTarget.systemDownloads())
-    #expect(target.mode == .folder && target.url.lastPathComponent == "Downloads")
-  }
-
   @MainActor @Test func modelHoldsScopedAccessForTheWatchAndReleasesItWhenTheHoldEnds() async throws
   {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

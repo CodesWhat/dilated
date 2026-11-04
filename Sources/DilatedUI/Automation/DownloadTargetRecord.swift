@@ -54,13 +54,3 @@ struct DownloadTargetRecord: Codable, Equatable, Sendable {
       target: .init(url: resolution.url, mode: mode), access: access, updated: updated)
   }
 }
-
-extension DownloadTarget {
-  /// The user's real Downloads folder. Reading it in the sandbox still needs a bookmark from an open panel.
-  /// Don't build it from `NSHomeDirectory()`, which is the container.
-  static func systemDownloads(manager: FileManager = .default) -> DownloadTarget? {
-    manager.urls(for: .downloadsDirectory, in: .userDomainMask).first.map {
-      .init(url: $0, mode: .folder)
-    }
-  }
-}
