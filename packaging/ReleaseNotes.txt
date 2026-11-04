@@ -1,2 +1,4 @@
-Menu clicks no longer get dropped. Resume automation and other menu items sometimes did nothing after the menu closed.
+Updates now come from dilated.app.
+New dilated agent begin, renew and end commands let a coding agent keep the Mac awake for a run, and --pid keeps the hold alive through a long quiet turn.
+dilated status --assertions lists every process holding the Mac awake.
 Closed-lid mode remains experimental.
