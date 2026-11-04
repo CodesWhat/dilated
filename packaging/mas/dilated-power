@@ -140,9 +140,10 @@ take_lock() {
   have_lock=1
 }
 
-# Start time of a live pid, empty when it's gone.
+# Start time of a live pid, empty when it's gone. The locale is pinned: lstart is localized, and
+# the app's task and the LaunchAgent don't share an environment.
 start_of() {
-  { /bin/ps -o lstart= -p "$1" 2>/dev/null || true; } | /usr/bin/sed 's/^ *//; s/ *$//'
+  { /usr/bin/env LC_ALL=C /bin/ps -o lstart= -p "$1" 2>/dev/null || true; } | /usr/bin/sed 's/^ *//; s/ *$//'
 }
 
 # Seconds since the last wake, or empty when it can't be read.
@@ -227,12 +228,15 @@ case "$verb" in
     exit 0
     ;;
   beat)
-    if [ -f "$session_file" ]; then
-      /usr/bin/touch "$session_file" 2>/dev/null || true
-      echo ok
-    else
+    # Under the lock, so a beat can't land in the middle of repair or off; touch -c never creates
+    # the file, so a session they just removed stays removed. A busy lock still gets the touch.
+    [ -f "$session_file" ] || {
       echo none
-    fi
+      exit 0
+    }
+    take_lock || true
+    /usr/bin/touch -c "$session_file" 2>/dev/null || true
+    if [ -f "$session_file" ]; then echo ok; else echo none; fi
     exit 0
     ;;
   off)

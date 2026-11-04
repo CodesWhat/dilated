@@ -18,7 +18,7 @@ test('privacy.html exists with a title, h1 and the canonical https://dilated.app
 });
 
 test('privacy.html reuses the site stylesheet and loads no script or third-party resource', () => {
-  assert.match(privacy, /<link rel="stylesheet" href="\.\/styles\.css">/);
+  assert.match(privacy, /<link rel="stylesheet" href="\/styles\.css">/);
   assert.doesNotMatch(privacy, /<script\b/);
   assert.doesNotMatch(privacy, /<(?:link|img|iframe)\b[^>]*(?:href|src)="https?:\/\/(?!dilated\.app\/)/);
 });
@@ -51,4 +51,20 @@ test('/privacy resolves to privacy.html without the extension, with or without a
   assert.doesNotMatch('/privacy-policy', pattern);
   assert.doesNotMatch('/privacy.html', pattern);
   assert.notEqual(route.continue, true);
+});
+
+test('privacy.html has no relative asset or nav hrefs, so it renders from /privacy and /privacy/', () => {
+  const urls = [...privacy.matchAll(/\b(?:href|src)="([^"]*)"/g)].map(match => match[1]);
+  assert.ok(urls.length > 0);
+  for (const url of urls) {
+    assert.match(url, /^(?:\/(?!\/)|#|https:\/\/|mailto:)/, `relative url: ${url}`);
+  }
+});
+
+test('/privacy/ redirects to /privacy with a 308 before the rewrite', () => {
+  const index = config.routes.findIndex(item => item.status === 308 && !item.has && new RegExp(item.src).test('/privacy/'));
+  assert.ok(index >= 0, 'redirect route missing');
+  assert.equal(config.routes[index].headers.Location, '/privacy');
+  assert.doesNotMatch('/privacy', new RegExp(config.routes[index].src));
+  assert.ok(index < config.routes.findIndex(item => item.dest === '/privacy.html'), 'redirect must come before the rewrite');
 });

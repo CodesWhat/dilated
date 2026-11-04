@@ -73,6 +73,13 @@
       "continue": true
     },
     {
+      "src": "^/privacy/$",
+      "headers": {
+        "Location": "/privacy"
+      },
+      "status": 308
+    },
+    {
       "src": "^/privacy/?$",
       "dest": "/privacy.html"
     },

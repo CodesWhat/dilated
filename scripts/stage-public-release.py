@@ -168,8 +168,19 @@ def live_releases(fetch=fetch_live):
 
 
 def release_directories(public_dir):
+    """Versions of releases/<version>/ directories whose release-manifest.json parses and names that version."""
     releases = Path(public_dir) / 'releases'
-    return {path.name for path in releases.iterdir() if path.is_dir()} if releases.is_dir() else set()
+    if not releases.is_dir():
+        return set()
+    found = set()
+    for path in releases.iterdir():
+        try:
+            manifest = json.loads((path / 'release-manifest.json').read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(manifest, dict) and manifest.get('version') == path.name:
+            found.add(path.name)
+    return found
 
 
 def warn_if_history_missing(public_dir, fetch=fetch_live):

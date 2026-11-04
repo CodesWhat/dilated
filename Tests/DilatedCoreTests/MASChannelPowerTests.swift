@@ -234,11 +234,12 @@ struct MASChannelRepairScriptTests {
 
     func run(
       script: URL = MASChannelRepairScriptTests.script, _ arguments: [String],
-      wake: Int? = nil, useFakeSudo: Bool = true
+      wake: Int? = nil, useFakeSudo: Bool = true, environment extra: [String: String] = [:]
     ) throws -> (status: Int32, out: String, err: String) {
       var environment = ["HOME": home.path, "PATH": "/usr/bin:/bin"]
       if useFakeSudo { environment["DILATED_POWER_TEST_SUDO"] = fakeSudo.path }
       if let wake { environment["DILATED_POWER_TEST_WAKE"] = String(wake) }
+      environment.merge(extra) { _, new in new }
       let process = Process()
       process.executableURL = URL(fileURLWithPath: "/bin/bash")
       process.arguments = [script.path] + arguments
@@ -317,6 +318,53 @@ struct MASChannelRepairScriptTests {
       try FileManager.default.attributesOfItem(atPath: box.sessionFile.path)[
         .modificationDate] as? Date
     #expect(Date().timeIntervalSince(try #require(modified)) < 30)
+  }
+
+  @Test func beatNeverRecreatesASessionAndWaitsForTheLock() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    _ = try box.run(["on", String(child.processIdentifier)])
+    // Hold the lock the way repair does, then start a beat against the live session.
+    let lock = box.sessionDirectory.appendingPathComponent("lock.d")
+    try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: false)
+    let beat = Process()
+    beat.executableURL = URL(fileURLWithPath: "/bin/bash")
+    beat.arguments = [Self.script.path, "beat"]
+    beat.environment = ["HOME": box.home.path, "PATH": "/usr/bin:/bin"]
+    let out = Pipe()
+    beat.standardOutput = out
+    try beat.run()
+    Thread.sleep(forTimeInterval: 0.5)
+    #expect(beat.isRunning, "beat must wait while repair holds the lock")
+    // repair removes the session before it lets go of the lock.
+    try FileManager.default.removeItem(at: box.sessionFile)
+    try FileManager.default.removeItem(at: lock)
+    let output = String(
+      decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self
+    ).trimmingCharacters(in: .whitespacesAndNewlines)
+    beat.waitUntilExit()
+    #expect(output == "none")
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
+  }
+
+  @Test func aLiveSessionStaysLiveAcrossLocales() throws {
+    for (writer, reader) in [
+      ("de_DE.UTF-8", "C"), ("C", "de_DE.UTF-8"), ("ja_JP.UTF-8", "fr_FR.UTF-8"),
+    ] {
+      let box = try Sandbox()
+      let child = try box.spawnSleeper()
+      let on = try box.run(
+        ["on", String(child.processIdentifier)],
+        environment: ["LC_ALL": writer, "LANG": writer])
+      #expect(on.out == "ok")
+      let check = try box.run(
+        ["check"], environment: ["LC_ALL": reader, "LANG": reader])
+      #expect(check.out == "live", "written under \(writer), read under \(reader)")
+      let repair = try box.run(
+        ["repair"], environment: ["LC_ALL": reader, "LANG": reader])
+      #expect(repair.out == "")
+      #expect(box.sudoCalls.filter { $0.contains("disablesleep 0") }.isEmpty)
+    }
   }
 
   @Test func checkReadsDeadWhenThePidIsGone() throws {

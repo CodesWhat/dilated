@@ -430,6 +430,15 @@ test.describe('privacy page', () => {
     await page.evaluate(() => document.fonts.ready);
   });
 
+  test('/privacy/ redirects to /privacy and the page keeps its stylesheet', async ({ page, request }) => {
+    const response = await request.get('/privacy/', { maxRedirects: 0 });
+    expect(response.status()).toBe(308);
+    expect(response.headers()['location']).toBe('/privacy');
+    await page.goto('/privacy/');
+    await expect(page).toHaveURL(/\/privacy$/);
+    await expect(page.locator('h1')).toHaveText('Privacy.');
+  });
+
   test('the home footer links to it and the link lands on the page', async ({ page, open }) => {
     await open('/');
     const link = page.locator('footer a', { hasText: 'PRIVACY' });

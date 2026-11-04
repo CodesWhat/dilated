@@ -33,6 +33,12 @@ const server = createServer(async (request, response) => {
   };
   try {
     let { pathname } = new URL(request.url, 'http://127.0.0.1');
+    // Same redirects as vercel.json (the trailing-slash /privacy/ one), so relative URLs can't hide a bug here.
+    const redirect = config.routes.find(item => item.status === 308 && !item.has && new RegExp(item.src).test(pathname));
+    if (redirect) {
+      response.writeHead(308, { ...headers, Location: redirect.headers.Location });
+      return response.end();
+    }
     // Same path rewrites as vercel.json, so clean URLs like /privacy resolve here too.
     const rewrite = config.routes.find(item => item.dest && !item.has && new RegExp(item.src).test(pathname));
     if (rewrite) pathname = rewrite.dest;
