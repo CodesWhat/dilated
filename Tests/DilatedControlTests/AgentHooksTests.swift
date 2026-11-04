@@ -97,6 +97,22 @@ struct AgentHooksTests {
     #expect(throws: (any Error).self) { try installer.remove() }
     #expect(try Data(contentsOf: installer.settingsURL) == original)
   }
+  @Test func installationPreservesASymlinkedSettingsFile() throws {
+    let (directory, original) = try rig()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let target = directory.appendingPathComponent("managed-settings.json")
+    try Data(#"{"model":"keep"}"#.utf8).write(to: target)
+    try FileManager.default.createSymbolicLink(at: original.settingsURL, withDestinationURL: target)
+    let installer = ClaudeHookInstallation(
+      settingsURL: original.settingsURL, executable: original.executable)
+    try installer.install()
+    #expect(
+      try FileManager.default.destinationOfSymbolicLink(atPath: original.settingsURL.path)
+        == target.path)
+    #expect(try installer.health() == .installed)
+    #expect(String(decoding: try Data(contentsOf: target), as: UTF8.self).contains("claude-hook"))
+  }
+
   @Test func hookInputUsesSessionIdentity() throws {
     let begin = try ClaudeHookInput.command(
       data: Data(#"{"session_id":"abc-123","hook_event_name":"UserPromptSubmit"}"#.utf8), pid: 42)

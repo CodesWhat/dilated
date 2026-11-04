@@ -10,7 +10,7 @@ public struct ClaudeHookInstallation {
   private static let marker = " agent claude-hook --pid "
 
   public init(settingsURL: URL, executable: URL) {
-    self.settingsURL = settingsURL
+    self.settingsURL = settingsURL.resolvingSymlinksInPath()
     self.executable = executable
   }
 

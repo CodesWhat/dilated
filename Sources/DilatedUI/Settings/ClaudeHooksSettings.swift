@@ -40,7 +40,7 @@
       if let error { return error }
       switch health {
       case .missing: return "Missing. Install to keep awake while Claude works."
-      case .installed: return "Installed. Decided by: hook."
+      case .installed: return "Installed. Claude turns can request awake holds."
       case .drifted:
         return "Drifted. Hooks changed, are incomplete, or are disabled in Claude settings."
       }
