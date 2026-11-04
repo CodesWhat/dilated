@@ -407,3 +407,23 @@ socket reads/writes. A minimal status request is `{"action":"status"}`.
 `DILATED_STATE_DIR` selects an isolated state directory for development/testing.
 Normal app state lives in `~/Library/Application Support/Dilated`. Tests do not
 read local planning files. This is a single-user local app, not a network service.
+
+## Claude Code hooks
+
+In the direct build, Settings → Automation → Claude Code hooks installs, verifies,
+repairs or removes Dilated's hooks in `~/.claude/settings.json`. Existing settings
+and unrelated hooks are preserved. Each edit of an existing file saves a private
+`dilated-settings-<ID>.backup` beside it. Invalid JSON is refused without changing
+the file. Restart existing Claude sessions after changing hooks.
+
+The health check reports Missing, Installed or Drifted. Drifted includes partial
+hooks, a changed app path, or Claude's `disableAllHooks` setting. Repair preserves
+that setting; enable hooks in Claude before using them.
+
+A prompt starts one ten-minute hold per Claude session, with a detached renewer
+while the agent process lives. Tool calls renew that hold. Stop, StopFailure and
+SessionEnd release it. The menu and history label reads `decided by: hook`.
+Dilated's Stop pauses automation, so later hooks cannot recreate an awake hold
+until Resume automation. Hook errors stay quiet and never block Claude.
+
+The hook protocol follows [Claude Code's hook reference](https://code.claude.com/docs/en/hooks).

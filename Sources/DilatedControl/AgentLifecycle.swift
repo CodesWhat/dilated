@@ -14,13 +14,18 @@ public struct AgentCommand: Equatable, Sendable {
   /// The agent's process ID, `begin` only. With it, `begin` starts a detached renewer that keeps
   /// the lease alive while that process runs.
   public var pid: Int32?
+  public var decidedByHook: Bool
 
-  public init(verb: Verb, agent: String, run: String, json: Bool, pid: Int32? = nil) {
+  public init(
+    verb: Verb, agent: String, run: String, json: Bool, pid: Int32? = nil,
+    decidedByHook: Bool = false
+  ) {
     self.verb = verb
     self.agent = agent
     self.run = run
     self.json = json
     self.pid = pid
+    self.decidedByHook = decidedByHook
   }
 
   static let usage =
@@ -183,7 +188,10 @@ public struct AgentLifecycle {
     }
     return try await transport(
       ControlRequest(
-        action: .lease, label: "Agent \(command.agent)", duration: Self.leaseSeconds))
+        action: .lease,
+        label: command.decidedByHook
+          ? "Agent \(command.agent) · decided by: hook" : "Agent \(command.agent)",
+        duration: Self.leaseSeconds))
   }
 
   private static let ended = ControlResponse(
