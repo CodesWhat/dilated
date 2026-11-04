@@ -2,6 +2,8 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import contextlib
+import io
 import tempfile
 import unittest
 
@@ -236,6 +238,62 @@ class PublicationGuardsTests(unittest.TestCase):
             stage.retain_public_assets(staged, retained)
         self.assertEqual((retained / 'updates/appcast.xml').read_bytes(), b'original')
         self.assertEqual((retained / 'releases/latest.json').read_bytes(), b'original')
+
+    def live(self, version):
+        def fetch(path):
+            if path == '/releases/latest.json':
+                return json.dumps({'version': version})
+            return '<rss><channel></channel></rss>'
+        return fetch
+
+    def test_empty_public_dir_warns_when_the_live_site_has_a_release(self):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            stage.warn_if_history_missing(self.root / 'fresh', self.live('1.0.0-beta.9'))
+        self.assertIn('WARNING', stderr.getvalue())
+        self.assertIn('1.0.0-beta.9', stderr.getvalue())
+
+    def test_no_warning_with_history_or_when_the_live_site_is_empty_or_down(self):
+        kept = self.root / 'kept/releases/1.0.0'
+        kept.mkdir(parents=True)
+        (kept / 'release-manifest.json').write_text(json.dumps({'version': '1.0.0'}))
+
+        def down(path):
+            raise OSError('down')
+        for directory, fetch in [('kept', self.live('1.0.0')), ('fresh', self.live(None)), ('fresh', down)]:
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                stage.warn_if_history_missing(self.root / directory, fetch)
+            self.assertEqual(stderr.getvalue(), '')
+
+    def test_live_releases_collects_versions_from_latest_and_the_appcast(self):
+        def fetch(path):
+            if path == '/releases/latest.json':
+                return json.dumps({'version': 'b2'})
+            return ('<rss><channel><item><enclosure url="https://dilated.app/releases/b1/D.zip"/></item>'
+                    '<item><enclosure url="https://dilated.app/releases/b2/D.zip"/></item></channel></rss>')
+        self.assertEqual(stage.live_releases(fetch), ('b2', {'b1', 'b2'}))
+
+    def test_release_directories_count_only_dirs_with_a_matching_manifest(self):
+        releases = self.root / 'public/releases'
+        good = releases / '1.0.0'
+        good.mkdir(parents=True)
+        (good / 'release-manifest.json').write_text(json.dumps({'version': '1.0.0'}))
+        (releases / '0.9.0').mkdir()
+        mismatched = releases / '0.8.0'
+        mismatched.mkdir()
+        (mismatched / 'release-manifest.json').write_text(json.dumps({'version': '0.7.0'}))
+        broken = releases / '0.6.0'
+        broken.mkdir()
+        (broken / 'release-manifest.json').write_text('not json')
+        self.assertEqual(stage.release_directories(self.root / 'public'), {'1.0.0'})
+
+    def test_a_dir_without_a_valid_manifest_still_warns_about_missing_history(self):
+        (self.root / 'bare/releases/1.0.0').mkdir(parents=True)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            stage.warn_if_history_missing(self.root / 'bare', self.live('1.0.0'))
+        self.assertIn('WARNING', stderr.getvalue())
 
 
 if __name__ == '__main__':

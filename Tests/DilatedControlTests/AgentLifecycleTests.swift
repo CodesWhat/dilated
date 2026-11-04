@@ -91,6 +91,26 @@ struct AgentLifecycleTests {
     #expect(rig.app.requests.filter { $0.action == .lease }.count == 1)
   }
 
+  @Test func endWithTheAppClosedClearsTheRecordAndSucceeds() async throws {
+    let rig = Rig()
+    let started = try await rig.run(.begin, run: "r1")
+    #expect(started.ok && rig.stateFiles().count == 1)
+    let closed = AgentLifecycle(stateDirectory: rig.directory) { _ in
+      throw AppConnectionUnavailable(text: "Start the app first")
+    }
+    let command = AgentCommand(verb: .end, agent: "claude", run: "r1", json: false)
+    let ended = try await closed.run(command, now: rig.app.clock)
+    #expect(ended.ok && ended.message == "Released.")
+    #expect(rig.stateFiles().isEmpty)
+    let again = try await closed.run(command, now: rig.app.clock)
+    #expect(again.ok)
+    // begin still surfaces the unavailable app.
+    let begin = AgentCommand(verb: .begin, agent: "claude", run: "r2", json: false)
+    await #expect(throws: AppConnectionUnavailable.self) {
+      try await closed.run(begin, now: rig.app.clock)
+    }
+  }
+
   @Test func renewAfterAnEndedIDCreatesNothingAndReportsEnded() async throws {
     let rig = Rig()
     _ = try await rig.run(.begin, run: "r1")

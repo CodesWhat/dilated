@@ -17,17 +17,23 @@ public struct DriveAliveVolume: Codable, Equatable, Identifiable, Sendable {
   public let name: String
   public let path: String
   public var mode = DriveAliveMode.inherit
-  init(id: String, name: String, path: String, mode: DriveAliveMode = .inherit) {
+  /// Read-write security-scoped bookmark of the volume root. Only the Mac App Store build sets it.
+  public var grant: Data?
+  init(
+    id: String, name: String, path: String, mode: DriveAliveMode = .inherit, grant: Data? = nil
+  ) {
     self.id = id
     self.name = name
     self.path = path
     self.mode = mode
+    self.grant = grant
   }
   public init(from decoder: any Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
     id = try values.decode(String.self, forKey: .id)
     name = try values.decode(String.self, forKey: .name)
     path = try values.decode(String.self, forKey: .path)
+    grant = try values.decodeIfPresent(Data.self, forKey: .grant)
     if values.contains(.mode) {
       mode =
         (try? values.decode(String.self, forKey: .mode))
@@ -40,6 +46,11 @@ public struct DriveAliveVolume: Codable, Equatable, Identifiable, Sendable {
   var isValid: Bool {
     !id.isEmpty && id.utf8.count <= 4096 && !name.isEmpty && name.count <= 255
       && path.hasPrefix("/") && !path.utf8.contains(0) && path.utf8.count <= 4096
+      && (grant?.count ?? 0) <= 65536
+  }
+  /// The sandbox only lets Dilated write to a volume the user granted.
+  func needsGrant(sandboxed: Bool = DownloadTargetRecord.isSandboxed) -> Bool {
+    sandboxed && grant == nil
   }
 }
 
@@ -79,6 +90,46 @@ public struct DriveAliveSettings: Codable, Equatable, Sendable {
 struct DriveAliveError: LocalizedError {
   let errorDescription: String?
   init(_ message: String) { errorDescription = message }
+  static let grantRequired = DriveAliveError(
+    "Grant access to this volume to allow writes. Choose its root folder.")
+}
+
+/// Per-volume write grants for the sandboxed build. The bookmark is read-write and scoped to the
+/// volume root, and it's resolved each time the volume is written to, so a remount just works.
+struct DriveAliveGrants: Sendable {
+  var bookmarks = SecurityScopedBookmarks.liveReadWrite
+
+  /// Builds the saved volume from the root folder the user picked. It must be this drive's root.
+  func grant(for drive: MountedDrive, chosen url: URL, mode: DriveAliveMode = .inherit) throws
+    -> DriveAliveVolume
+  {
+    guard url.resolvingSymlinksInPath().path == drive.volume.path else {
+      throw DriveAliveError("Choose the root folder of \(drive.volume.name).")
+    }
+    var volume = drive.volume
+    volume.mode = mode
+    volume.grant = try bookmarks.create(from: url)
+    return volume
+  }
+
+  /// Opens scoped access to the granted root. A bookmark that resolves to somewhere else is refused.
+  func open(_ selected: DriveAliveVolume, current: MountedDrive) throws -> (
+    access: BookmarkAccess, refreshed: Data?
+  ) {
+    guard let grant = selected.grant else { throw DriveAliveError.grantRequired }
+    let opened: (resolution: BookmarkResolution, access: BookmarkAccess)
+    do { opened = try bookmarks.access(grant) } catch let error as BookmarkError {
+      switch error {
+      case .missingTarget: throw DriveAliveError("This volume isn't mounted. Choose it again.")
+      case .accessDenied: throw DriveAliveError.grantRequired
+      }
+    }
+    guard opened.resolution.url.resolvingSymlinksInPath().path == current.volume.path else {
+      opened.access.stop()
+      throw DriveAliveError.grantRequired
+    }
+    return (opened.access, opened.resolution.refreshed)
+  }
 }
 
 struct MountedDrive: Sendable {
@@ -133,7 +184,11 @@ enum NativeDriveAlive {
     }.sorted { $0.volume.name.localizedStandardCompare($1.volume.name) == .orderedAscending }
   }
 
-  static func pulse(_ selected: DriveAliveVolume) async throws {
+  static func pulse(
+    _ selected: DriveAliveVolume, sandboxed: Bool = DownloadTargetRecord.isSandboxed,
+    grants: DriveAliveGrants = DriveAliveGrants(),
+    refreshed: @escaping @Sendable (Data) -> Void = { _ in }
+  ) async throws {
     let task = Task.detached(priority: .utility) {
       try Task.checkCancellation()
       let matches = try mounted().filter { $0.volume.id == selected.id }
@@ -141,6 +196,13 @@ enum NativeDriveAlive {
         throw DriveAliveError("This volume isn't mounted, or its identity is ambiguous.")
       }
       guard !current.readOnly else { throw DriveAliveError("This volume is read-only.") }
+      var scope: BookmarkAccess?
+      defer { scope?.stop() }
+      if sandboxed {
+        let opened = try grants.open(selected, current: current)
+        scope = opened.access
+        if let data = opened.refreshed { refreshed(data) }
+      }
       let url = URL(fileURLWithPath: current.volume.path, isDirectory: true)
       try DriveAliveWriter.write(in: url, name: ".dilated-drive-alive-" + UUID().uuidString) {
         descriptor in

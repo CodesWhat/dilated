@@ -146,11 +146,14 @@ extension ClosedLidController {
     stateDirectory: URL = SocketEndpoint.current.stateDirectory
   ) -> ClosedLidController {
     #if MAS_CHANNEL
-      // No crash watchdog in the sandboxed build until slice BUILD.4 decides its revert path.
-      // The in-app lease and the relaunch revert still run.
+      // No watchdog process in the sandboxed build. The script's LaunchAgent reverts after a
+      // crash or hang; the in-app lease and the relaunch revert still run.
+      let beat = ClosedLidScriptBeat()
       let session = ClosedLidSessionGuard(
         power: SerialPowerDriver(runner: LocalClosedLidTransport.powerRunner),
-        store: ClosedLidMarkerStore(directory: stateDirectory))
+        store: ClosedLidMarkerStore(directory: stateDirectory),
+        heartbeatInterval: ClosedLidSessionGuard.scriptHeartbeatInterval,
+        scriptBeat: { beat.send() })
     #else
       let session = ClosedLidSessionGuard(
         power: SerialPowerDriver(runner: SudoPowerRunner()),

@@ -151,6 +151,10 @@ import Observation
   public var detail: String {
     #if MAS_CHANNEL
       if let scriptCopy { return scriptCopy }
+      if state == .ready {
+        return
+          "Dilated can turn sleep off for closed-lid holds. If Dilated quits or stops responding, a background agent turns it back on within a few minutes. Regular awake holds never need it."
+      }
     #endif
     return switch state {
     case nil: "One moment."

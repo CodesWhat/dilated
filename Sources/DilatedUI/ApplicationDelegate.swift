@@ -2,6 +2,7 @@ import AppKit
 import DilatedControl
 import DilatedCore
 import IOKit.ps
+import os
 
 @MainActor public final class ApplicationDelegate: NSObject, NSApplicationDelegate {
   private var model: AppModel?
@@ -16,13 +17,26 @@ import IOKit.ps
   private var started = false
   private var awaitingQuit = false
 
+  /// The sandboxed Mac App Store build doesn't ship the CLI, and its automation goes through AppleEvents and
+  /// App Intents, so it never opens the control socket (the sandbox denies the `/tmp` directory it needs).
+  static func makeControlServer(
+    endpoint: SocketEndpoint,
+    handler: @escaping @Sendable (ControlRequest) async -> ControlResponse
+  ) throws -> LocalSocketServer? {
+    #if MAS_CHANNEL
+      return nil
+    #else
+      return try LocalSocketServer(endpoint: endpoint, handler: handler)
+    #endif
+  }
+
   public func applicationDidFinishLaunching(_ notification: Notification) {
     installMainMenu()
     FontRegistry.registerBundledFonts()
     let model = AppModel()
     self.model = model
     do {
-      server = try LocalSocketServer(endpoint: model.endpoint) { [weak self] request in
+      server = try Self.makeControlServer(endpoint: model.endpoint) { [weak self] request in
         let response = await model.control(request)
         await self?.settings?.dismissSheetForPackage(request, response: response)
         if response.ok, request.action == .prepareUpdate || request.action == .prepareUninstall {
@@ -32,6 +46,8 @@ import IOKit.ps
       }
     } catch {
       AutomationService.shared.unavailable()
+      Logger(subsystem: "com.codeswhat.dilated", category: "App").error(
+        "Startup failed: \(error.localizedDescription, privacy: .public)")
       let alert = NSAlert()
       alert.messageText = "Dilated couldn't start"
       alert.informativeText = error.localizedDescription

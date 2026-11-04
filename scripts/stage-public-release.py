@@ -10,7 +10,10 @@ from pathlib import Path
 import plistlib
 import re
 import shutil
+import subprocess
+import sys
 import tempfile
+import urllib.request
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -138,6 +141,62 @@ def validate_disk_image(directory, manifest):
         raise RuntimeError('DMG length does not match the checked release')
 
 
+LIVE_SITE = 'https://dilated.app'
+
+
+def default_public_dir():
+    """The retained directory in the main checkout, whichever worktree this runs from."""
+    common = subprocess.run(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+                            cwd=ROOT, check=True, capture_output=True, text=True).stdout.strip()
+    return Path(common).parent / 'build/public-release-assets'
+
+
+def fetch_live(path, timeout=10):
+    with urllib.request.urlopen(f'{LIVE_SITE}{path}', timeout=timeout) as response:
+        return response.read().decode()
+
+
+def live_releases(fetch=fetch_live):
+    """Return (latest version, every version the live latest.json and appcast reference)."""
+    latest = json.loads(fetch('/releases/latest.json')).get('version')
+    versions = {latest} if latest else set()
+    for enclosure in ET.fromstring(fetch('/updates/appcast.xml')).iter('enclosure'):
+        found = re.search(r'/releases/([^/]+)/', enclosure.get('url', ''))
+        if found:
+            versions.add(found.group(1))
+    return latest, versions
+
+
+def release_directories(public_dir):
+    """Versions of releases/<version>/ directories whose release-manifest.json parses and names that version."""
+    releases = Path(public_dir) / 'releases'
+    if not releases.is_dir():
+        return set()
+    found = set()
+    for path in releases.iterdir():
+        try:
+            manifest = json.loads((path / 'release-manifest.json').read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(manifest, dict) and manifest.get('version') == path.name:
+            found.add(path.name)
+    return found
+
+
+def warn_if_history_missing(public_dir, fetch=fetch_live):
+    """Warn (never fail) when a staging directory has no history but the live site has releases."""
+    if release_directories(public_dir):
+        return
+    try:
+        latest, _ = live_releases(fetch)
+    except Exception:
+        return
+    if latest:
+        print(f'WARNING: {public_dir} has no releases/ history but {LIVE_SITE} reports {latest}. '
+              'Publishing from it would drop every earlier release. Use the retained '
+              'build/public-release-assets in the main checkout.', file=sys.stderr)
+
+
 def retain_public_assets(staged, retained):
     feed = (staged / 'updates/appcast.xml').read_bytes()
     latest = (staged / 'releases/latest.json').read_bytes()
@@ -221,11 +280,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('release_directory', type=Path)
     parser.add_argument('--sparkle-account', default='com.codeswhat.dilated')
-    parser.add_argument('--public-dir', required=True, type=Path,
-                        help='Retained public artifact directory; keep it across releases')
+    parser.add_argument('--public-dir', type=Path,
+                        help='Retained public artifact directory; keep it across releases '
+                             '(default: build/public-release-assets in the main checkout)')
     parser.add_argument('--acceptance', required=True, type=Path,
                         help='Hardware/install evidence tied to these exact release artifacts')
     args = parser.parse_args()
+    args.public_dir = args.public_dir or default_public_dir()
+    warn_if_history_missing(args.public_dir.resolve())
     directory = args.release_directory.resolve()
     manifest = validate_archive(directory)
     summary = validate_acceptance(json.loads(args.acceptance.read_text()), manifest)

@@ -99,18 +99,23 @@ public struct LiveUserScriptLauncher: UserScriptLaunching {
 }
 
 /// Runs `pmset` through the user-installed script. The sandboxed Mac App Store build's
-/// counterpart to `SudoPowerRunner`.
+/// counterpart to `SudoPowerRunner`. Enabling passes this process's pid so the script's repair
+/// agent can revert if the app dies or hangs; the script answers `reverted` when it already did.
 public struct UserScriptPowerRunner: PowerCommandRunning {
   private let launcher: any UserScriptLaunching
+  private let pid: Int32
 
-  public init(launcher: any UserScriptLaunching = LiveUserScriptLauncher()) {
+  public init(
+    launcher: any UserScriptLaunching = LiveUserScriptLauncher(), pid: Int32 = getpid()
+  ) {
     self.launcher = launcher
+    self.pid = pid
   }
 
   public func run(_ command: PowerCommand) async throws {
     switch command {
     case .setSleepDisabled(let disabled):
-      let result = await launcher.run(arguments: [disabled ? "on" : "off"])
+      let result = await launcher.run(arguments: disabled ? ["on", String(pid)] : ["off"])
       switch result {
       case .missing: throw ClosedLidPowerError.permissionUnavailable
       case .timedOut: throw ClosedLidPowerError.commandTimedOut
@@ -118,6 +123,7 @@ public struct UserScriptPowerRunner: PowerCommandRunning {
         switch (result.firstWord, failureStatus) {
         case ("ok", nil): return
         case ("norule", _): throw ClosedLidPowerError.permissionUnavailable
+        case ("reverted", _): throw ClosedLidSessionError.revertedWhileUnresponsive
         default: throw ClosedLidPowerError.commandFailed(failureStatus ?? 1)
         }
       }
@@ -149,5 +155,21 @@ public struct ClosedLidScriptPermission: Sendable {
     case .finished(_, let failureStatus):
       return result.firstWord == "ok" && failureStatus == nil ? .ready : .ruleMissing
     }
+  }
+}
+
+/// Tells the script's repair agent the app is still alive. Compiled for both channels so it's
+/// testable; only the Mac App Store build wires it into the session guard.
+public struct ClosedLidScriptBeat: Sendable {
+  private let launcher: any UserScriptLaunching
+
+  public init(launcher: any UserScriptLaunching = LiveUserScriptLauncher()) {
+    self.launcher = launcher
+  }
+
+  /// Fire and forget: a missed beat only matters if the agent sees 120 seconds of them.
+  public func send() {
+    let launcher = launcher
+    Task.detached { _ = await launcher.run(arguments: ["beat"]) }
   }
 }
