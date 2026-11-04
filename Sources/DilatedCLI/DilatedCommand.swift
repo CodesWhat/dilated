@@ -9,6 +9,9 @@ import Foundation
     if let launch = ClosedLidWatchdogCommand.parse(Array(CommandLine.arguments.dropFirst())) {
       exit(await ClosedLidWatchdogCommand.run(launch))
     }
+    if AgentRenewerCommand.matches(Array(CommandLine.arguments.dropFirst())) {
+      exit(await AgentRenewerCommand.run(Array(CommandLine.arguments.dropFirst())))
+    }
     do {
       let input = try CLIInput.parse(Array(CommandLine.arguments.dropFirst()))
       if input.help {
@@ -162,7 +165,15 @@ import Foundation
   @MainActor private static func runAgent(_ command: AgentCommand) async throws -> Int32 {
     let endpoint = SocketEndpoint.current
     var launched = false
-    let lifecycle = AgentLifecycle(stateDirectory: endpoint.stateDirectory) { request in
+    let executable = (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0]))
+      .resolvingSymlinksInPath()
+    let spawnRenewer: @Sendable (AgentCommand, Int32) throws -> Int32 = { command, pid in
+      try AgentRenewerSpawner.spawn(
+        executable: executable, agent: command.agent, run: command.run, pid: pid)
+    }
+    let lifecycle = AgentLifecycle(
+      stateDirectory: endpoint.stateDirectory, spawnRenewer: spawnRenewer
+    ) { request in
       do {
         return try LocalSocketClient.send(request, to: endpoint)
       } catch let error as AppConnectionUnavailable {
@@ -308,7 +319,7 @@ import Foundation
            dilated off [--id ID | --label NAME]
            dilated hold --ttl 10m [--label NAME] [--id ID | --lid]
            dilated release --id ID
-           dilated agent begin|renew|end --agent NAME --run ID [--json]
+           dilated agent begin|renew|end --agent NAME --run ID [--pid N] [--json]
            dilated run [--label NAME] [--lid] -- command arguments
            dilated lid-permission status|install|remove [--json]
            dilated helper status|setup|remove [--json]   (deprecated, use lid-permission)
@@ -334,6 +345,8 @@ import Foundation
     Stop pauses CLI/URL starts and renewals until Resume automation in the app.
     agent keeps one 10-minute hold per run ID: begin is idempotent, renew never recreates an
     ended hold, and end releases only that run's hold. NAME and ID use letters, digits, - and _.
+    begin --pid N (your agent's process ID) also renews the hold every 2 minutes until that
+    process exits or end runs.
     run works without the app. Ending its awake hold never terminates the command.
     """
 }

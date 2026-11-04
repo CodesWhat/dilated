@@ -251,7 +251,7 @@ No command makes a model or network call. `--json` prints the usual response.
 
 | Command | Behavior |
 |---|---|
-| `dilated agent begin --agent NAME --run ID` | Start a 10-minute hold for the run and print its hold ID. A repeat for the same run renews and prints the same ID. If the saved hold already ended, starts a fresh one, unless automation is paused |
+| `dilated agent begin --agent NAME --run ID [--pid N]` | Start a 10-minute hold for the run and print its hold ID. A repeat for the same run renews and prints the same ID. If the saved hold already ended, starts a fresh one, unless automation is paused |
 | `dilated agent renew --agent NAME --run ID` | Renew the run's hold for another 10 minutes. Never creates one: with no saved hold, an ended hold or paused automation it fails and creates nothing |
 | `dilated agent end --agent NAME --run ID` | Release only this run's hold and delete its record. Safe to repeat, and a run with no record succeeds |
 
@@ -259,6 +259,34 @@ Exit status is 0 on success, 4 when automation is paused and 1 for an ended hold
 any other error. An ended-ID reply deletes the run's record, so later renewals fail the
 same way. Only an explicit `begin` starts a new hold after that. If the app isn't
 running, `begin` and `renew` launch it like `hold` does, while `end` doesn't.
+
+### Keeping a quiet turn alive with `--pid`
+
+A long model turn can go longer than the 10-minute lease without firing a hook. Pass the
+agent's process ID to `begin` and it also starts a small detached renewer for that run:
+
+```
+dilated agent begin --agent claude --run "$SESSION" --pid $PPID
+```
+
+In a hook's shell, `$PPID` is the agent process. `--pid` is digits only, can't be 0 or 1,
+and must be a running process you own. It is accepted by `begin` only. Without it nothing
+changes and the lease runs out after its 10-minute TTL.
+
+The renewer (`dilated agent _renew`, hidden from help) runs in its own session with output
+discarded, and keeps its pid and start time in the run's record. At most one runs per
+run: a repeat `begin` doesn't start a second while the recorded one is alive. Every 2
+minutes, while the agent process is unchanged and the record still has the same hold, it
+renews the hold for another 10 minutes. It never starts or recreates a hold. It exits when:
+
+- the agent process exits (watched directly, so a killed agent stops it at once);
+- the run's record is gone, which means `end` ran;
+- a renew says the hold is not found, ended, or automation is paused;
+- the app is unreachable on two renews in a row. It never launches the app.
+
+Exiting doesn't release anything. The hold lapses within one 10-minute TTL, so a
+killed agent can't keep the Mac awake, and an idle open session holds nothing because
+`end` releases it at the end of each turn. `end` remains the only release.
 
 ## Manual agent hook pattern
 
