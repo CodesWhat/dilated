@@ -190,7 +190,10 @@ public enum AgentRenewerSpawner {
     posix_spawnattr_setsigdefault(&attributes, &defaults)
     posix_spawnattr_setsigmask(&attributes, &mask)
     posix_spawnattr_setflags(
-      &attributes, Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK))
+      &attributes,
+      Int16(
+        POSIX_SPAWN_SETSID | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK
+          | POSIX_SPAWN_CLOEXEC_DEFAULT))
     var actions: posix_spawn_file_actions_t?
     posix_spawn_file_actions_init(&actions)
     defer { posix_spawn_file_actions_destroy(&actions) }
