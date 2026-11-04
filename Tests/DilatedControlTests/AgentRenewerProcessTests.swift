@@ -85,6 +85,17 @@ struct AgentRenewerProcessTests {
     #expect(ProcessStartTime.micros(pid: child) == record.renewerStartMicros)
     // Its own session, so it outlives the hook that started it.
     #expect(getsid(child) == child)
+    let descriptors = Process()
+    descriptors.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+    descriptors.arguments = ["-a", "-p", String(child), "-Fn"]
+    let listing = Pipe()
+    descriptors.standardOutput = listing
+    descriptors.standardError = FileHandle.nullDevice
+    await Self.run(descriptors)
+    let files = String(decoding: listing.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    #expect(
+      !files.contains(state.appendingPathComponent("agents/claude.proc1.lock").path),
+      "The renewer inherited its parent's open descriptor.")
 
     kill(agent.processIdentifier, SIGKILL)
     await Self.exited(agent)
