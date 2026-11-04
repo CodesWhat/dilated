@@ -11,8 +11,33 @@ public struct AgentCommand: Equatable, Sendable {
   public var agent: String
   public var run: String
   public var json: Bool
+  /// The agent's process ID, `begin` only. With it, `begin` starts a detached renewer that keeps
+  /// the lease alive while that process runs.
+  public var pid: Int32?
 
-  static let usage = "Use dilated agent begin|renew|end --agent NAME --run ID [--json]."
+  public init(verb: Verb, agent: String, run: String, json: Bool, pid: Int32? = nil) {
+    self.verb = verb
+    self.agent = agent
+    self.run = run
+    self.json = json
+    self.pid = pid
+  }
+
+  static let usage =
+    "Use dilated agent begin|renew|end --agent NAME --run ID [--pid N] [--json]; --pid is for begin."
+
+  /// Digits only, above 1, a live process, and one this user owns.
+  public static func validate(pid text: String, pids: AgentPIDs = .system) throws -> Int32 {
+    guard !text.isEmpty, text.utf8.count <= 10, text.utf8.allSatisfy({ $0 >= 0x30 && $0 <= 0x39 }),
+      let value = Int32(text), value > 1
+    else {
+      throw InputError("--pid must be the numeric ID of your agent process.")
+    }
+    guard pids.owner(value) == pids.uid() else {
+      throw InputError("--pid must be a running process you own.")
+    }
+    return value
+  }
 
   public static func validate(agent: String, run: String) throws {
     func ok(_ value: String, limit: Int) -> Bool {
@@ -31,12 +56,14 @@ public struct AgentCommand: Equatable, Sendable {
   }
 
   /// `arguments` is the full argument list, starting with `agent`.
-  public static func parse(_ arguments: [String]) throws -> AgentCommand {
+  public static func parse(_ arguments: [String], pids: AgentPIDs = .system) throws -> AgentCommand
+  {
     guard arguments.count >= 2, let verb = Verb(rawValue: arguments[1]) else {
       throw InputError(usage)
     }
     var agent: String?
     var run: String?
+    var pid: Int32?
     var json = false
     var index = 2
     while index < arguments.count {
@@ -46,6 +73,12 @@ public struct AgentCommand: Equatable, Sendable {
       case "--json":
         guard !json else { throw InputError("Unknown or repeated option: \(flag)") }
         json = true
+      case "--pid":
+        guard verb == .begin, pid == nil, index < arguments.count else {
+          throw InputError("Unknown or repeated option: \(flag)")
+        }
+        pid = try validate(pid: arguments[index], pids: pids)
+        index += 1
       case "--agent", "--run":
         guard index < arguments.count else { throw InputError("Missing value for \(flag).") }
         let value = arguments[index]
@@ -62,13 +95,25 @@ public struct AgentCommand: Equatable, Sendable {
     }
     guard let agent, let run else { throw InputError(usage) }
     try validate(agent: agent, run: run)
-    return AgentCommand(verb: verb, agent: agent, run: run, json: json)
+    return AgentCommand(verb: verb, agent: agent, run: run, json: json, pid: pid)
   }
 }
 
 public struct AgentRunRecord: Codable, Equatable, Sendable {
   public var holdID: UUID
   public var lastRenew: Date
+  /// The detached renewer for this run, with its start time so a recycled pid isn't mistaken for it.
+  public var renewerPID: Int32?
+  public var renewerStartMicros: Int64?
+
+  public init(
+    holdID: UUID, lastRenew: Date, renewerPID: Int32? = nil, renewerStartMicros: Int64? = nil
+  ) {
+    self.holdID = holdID
+    self.lastRenew = lastRenew
+    self.renewerPID = renewerPID
+    self.renewerStartMicros = renewerStartMicros
+  }
 }
 
 public struct AgentLifecycle {
@@ -76,13 +121,23 @@ public struct AgentLifecycle {
   public let directory: URL
   /// Sends one request to the app, launching it first when the caller wants that.
   public let transport: (ControlRequest) async throws -> ControlResponse
+  public let pids: AgentPIDs
+  /// Starts a detached renewer for a run and returns its pid. Nil means `--pid` starts nothing.
+  public let spawnRenewer: (@Sendable (AgentCommand, Int32) throws -> Int32)?
 
   public init(
-    stateDirectory: URL, transport: @escaping (ControlRequest) async throws -> ControlResponse
+    stateDirectory: URL, pids: AgentPIDs = .system,
+    spawnRenewer: (@Sendable (AgentCommand, Int32) throws -> Int32)? = nil,
+    transport: @escaping (ControlRequest) async throws -> ControlResponse
   ) {
     self.directory = stateDirectory.appendingPathComponent("agents", isDirectory: true)
+    self.pids = pids
+    self.spawnRenewer = spawnRenewer
     self.transport = transport
   }
+
+  /// The saved record for a run, if any. The renewer uses it to notice `end`.
+  public func currentRecord(for command: AgentCommand) -> AgentRunRecord? { load(command) }
 
   private func file(_ command: AgentCommand, suffix: String = "json") -> URL {
     directory.appendingPathComponent("\(command.agent).\(command.run).\(suffix)")
@@ -135,6 +190,24 @@ public struct AgentLifecycle {
     ok: false, message: WakeError.holdNotFound.localizedDescription,
     code: WakeError.holdNotFound.rawValue)
 
+  /// Called under the run lock after a successful `begin --pid`. One renewer per run: a recorded
+  /// renewer that's alive with its start time unchanged is kept. A spawn failure leaves the lease
+  /// to its TTL rather than failing the begin.
+  private func ensureRenewer(_ command: AgentCommand) {
+    guard let agentPID = command.pid, let spawnRenewer, var record = load(command) else { return }
+    if let existing = record.renewerPID, let started = record.renewerStartMicros,
+      pids.startMicros(existing) == started
+    {
+      return
+    }
+    guard let child = try? spawnRenewer(command, agentPID),
+      let started = pids.startMicros(child)
+    else { return }
+    record.renewerPID = child
+    record.renewerStartMicros = started
+    try? save(record, for: command)
+  }
+
   public nonisolated(nonsending) func run(_ command: AgentCommand, now: Date = Date()) async throws
     -> ControlResponse
   {
@@ -144,7 +217,10 @@ public struct AgentLifecycle {
         if let record = load(command) {
           let renewed = try await lease(command, id: record.holdID)
           if renewed.ok {
-            try save(AgentRunRecord(holdID: record.holdID, lastRenew: now), for: command)
+            var updated = record
+            updated.lastRenew = now
+            try save(updated, for: command)
+            ensureRenewer(command)
             return ControlResponse(ok: true, id: record.holdID)
           }
           // Paused or any other refusal leaves things alone. Only an ended ID starts a new hold.
@@ -154,12 +230,15 @@ public struct AgentLifecycle {
         let started = try await lease(command, id: nil)
         guard started.ok, let id = started.id else { return started }
         try save(AgentRunRecord(holdID: id, lastRenew: now), for: command)
+        ensureRenewer(command)
         return ControlResponse(ok: true, id: id)
       case .renew:
         guard let record = load(command) else { return Self.ended }
         let renewed = try await lease(command, id: record.holdID)
         if renewed.ok {
-          try save(AgentRunRecord(holdID: record.holdID, lastRenew: now), for: command)
+          var updated = record
+          updated.lastRenew = now
+          try save(updated, for: command)
           return ControlResponse(ok: true, id: record.holdID)
         }
         if renewed.code == WakeError.holdNotFound.rawValue { clear(command) }
