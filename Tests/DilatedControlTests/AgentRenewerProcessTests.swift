@@ -19,6 +19,17 @@ private final class SocketApp: @unchecked Sendable {
 /// Runs the real `dilated` executable, built next to the test bundle, against a socket server in
 /// this process. The agent is a `sleep` child that the test kills.
 struct AgentRenewerProcessTests {
+  private static func run(_ process: Process) async {
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      process.terminationHandler = { _ in continuation.resume() }
+      do { try process.run() } catch { continuation.resume() }
+    }
+  }
+
+  private static func exited(_ process: Process) async {
+    while process.isRunning { try? await Task.sleep(for: .milliseconds(10)) }
+  }
+
   @Test func theDetachedRenewerExitsWhenTheAgentProcessDies() async throws {
     let executable = Bundle(for: BundleAnchor.self).bundleURL.deletingLastPathComponent()
       .appendingPathComponent("dilated")
@@ -52,12 +63,18 @@ struct AgentRenewerProcessTests {
       String(agent.processIdentifier),
     ]
     begin.environment = ["DILATED_STATE_DIR": state.path]
-    // Never inherit the test runner's output pipe, or the renewer holds CI's log open.
-    begin.standardOutput = FileHandle.nullDevice
-    begin.standardError = FileHandle.nullDevice
-    try begin.run()
-    begin.waitUntilExit()
-    #expect(begin.terminationStatus == 0)
+    // Our own pipe, never the test runner's, so the renewer can't hold CI's log open. The
+    // renewer's stdio goes to /dev/null, so the pipe closes when begin exits.
+    let output = Pipe()
+    begin.standardOutput = output
+    begin.standardError = output
+    // Awaited without blocking a thread: the socket server answers from the cooperative pool,
+    // and a test thread parked in waitUntilExit can starve it on a small CI runner, so begin
+    // times out reading the reply.
+    await Self.run(begin)
+    let printed = String(
+      decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    #expect(begin.terminationStatus == 0, "dilated agent begin printed: \(printed)")
     #expect(app.holdCount == 1)
 
     let record = try WireJSON.decode(
@@ -70,7 +87,7 @@ struct AgentRenewerProcessTests {
     #expect(getsid(child) == child)
 
     kill(agent.processIdentifier, SIGKILL)
-    agent.waitUntilExit()
+    await Self.exited(agent)
     var gone = false
     for _ in 0..<100 {
       if ProcessStartTime.micros(pid: child) == nil {
