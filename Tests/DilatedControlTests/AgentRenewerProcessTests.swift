@@ -19,15 +19,22 @@ private final class SocketApp: @unchecked Sendable {
 /// Runs the real `dilated` executable, built next to the test bundle, against a socket server in
 /// this process. The agent is a `sleep` child that the test kills.
 struct AgentRenewerProcessTests {
-  private static func run(_ process: Process) async {
-    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+  private static func run(_ process: Process) async throws {
+    try await withCheckedThrowingContinuation {
+      (continuation: CheckedContinuation<Void, any Error>) in
       process.terminationHandler = { _ in continuation.resume() }
-      do { try process.run() } catch { continuation.resume() }
+      do { try process.run() } catch { continuation.resume(throwing: error) }
     }
   }
 
   private static func exited(_ process: Process) async {
     while process.isRunning { try? await Task.sleep(for: .milliseconds(10)) }
+  }
+
+  @Test func processLaunchErrorsAreReported() async {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/nonexistent/dilated-inspection")
+    await #expect(throws: (any Error).self) { try await Self.run(process) }
   }
 
   @Test func theDetachedRenewerExitsWhenTheAgentProcessDies() async throws {
@@ -62,7 +69,11 @@ struct AgentRenewerProcessTests {
       "agent", "begin", "--agent", "claude", "--run", "proc1", "--pid",
       String(agent.processIdentifier),
     ]
-    begin.environment = ["DILATED_STATE_DIR": state.path]
+    begin.environment = [
+      "DILATED_STATE_DIR": state.path,
+      "LLVM_PROFILE_FILE": executable.deletingLastPathComponent()
+        .appendingPathComponent("codecov/agent-cli-%p.profraw").path,
+    ]
     // Our own pipe, never the test runner's, so the renewer can't hold CI's log open. The
     // renewer's stdio goes to /dev/null, so the pipe closes when begin exits.
     let output = Pipe()
@@ -71,7 +82,7 @@ struct AgentRenewerProcessTests {
     // Awaited without blocking a thread: the socket server answers from the cooperative pool,
     // and a test thread parked in waitUntilExit can starve it on a small CI runner, so begin
     // times out reading the reply.
-    await Self.run(begin)
+    try await Self.run(begin)
     let printed = String(
       decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     #expect(begin.terminationStatus == 0, "dilated agent begin printed: \(printed)")
@@ -91,8 +102,10 @@ struct AgentRenewerProcessTests {
     let listing = Pipe()
     descriptors.standardOutput = listing
     descriptors.standardError = FileHandle.nullDevice
-    await Self.run(descriptors)
+    try await Self.run(descriptors)
+    try #require(descriptors.terminationStatus == 0, "lsof inspection failed.")
     let files = String(decoding: listing.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    try #require(!files.isEmpty, "lsof returned no descriptor listing.")
     #expect(
       !files.contains(state.appendingPathComponent("agents/claude.proc1.lock").path),
       "The renewer inherited its parent's open descriptor.")
