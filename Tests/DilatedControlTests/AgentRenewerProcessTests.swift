@@ -62,7 +62,11 @@ struct AgentRenewerProcessTests {
       "agent", "begin", "--agent", "claude", "--run", "proc1", "--pid",
       String(agent.processIdentifier),
     ]
-    begin.environment = ["DILATED_STATE_DIR": state.path]
+    begin.environment = [
+      "DILATED_STATE_DIR": state.path,
+      "LLVM_PROFILE_FILE": executable.deletingLastPathComponent()
+        .appendingPathComponent("codecov/agent-cli-%p.profraw").path,
+    ]
     // Our own pipe, never the test runner's, so the renewer can't hold CI's log open. The
     // renewer's stdio goes to /dev/null, so the pipe closes when begin exits.
     let output = Pipe()
