@@ -416,3 +416,29 @@ assertions first. Each assertion lists its process, PID, type and name. The page
 reads a fresh snapshot when opened and doesn't poll or save other apps' history.
 It can't change another process's assertions. Closed-lid settings and other macOS
 behavior can also affect sleep without appearing in this list.
+
+## Claude Code hooks
+
+In the direct build, Settings → Automation → Claude Code hooks installs, verifies,
+repairs or removes Dilated's hooks in `~/.claude/settings.json`. Existing settings
+and unrelated hooks are preserved. Each edit of an existing file saves a private
+`dilated-settings-<ID>.backup` beside it. Invalid JSON is refused without changing
+the file. Restart existing Claude sessions after changing hooks.
+
+The health check reports Missing, Installed or Drifted. Drifted includes partial
+hooks, a changed app path, or Claude's `disableAllHooks` setting. Install and repair
+refuse to write while hooks are disabled, with an explanation. Enable hooks in
+Claude settings, then repair. Removal remains available and preserves that setting.
+
+A prompt starts one ten-minute hold per Claude session, with a detached renewer
+while the agent process lives, for up to one hour after the last prompt or tool
+hook. Tool calls renew the hold and extend that window. Stop, StopFailure and
+SessionEnd release it. Claude does not send Stop after a user interruption, so
+an interrupted turn can retain the hold until that one-hour renewal window ends
+and the remaining ten-minute lease expires. No hook activity means at most
+70 minutes of awake time; use Dilated's Stop to release it immediately. Quiet
+turns longer than an hour need an explicit timed hold. The menu and history label reads `decided by: hook`.
+Dilated's Stop pauses automation, so later hooks cannot recreate an awake hold
+until Resume automation. Hook errors stay quiet and never block Claude.
+
+The hook protocol follows [Claude Code's hook reference](https://code.claude.com/docs/en/hooks).
