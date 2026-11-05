@@ -103,6 +103,26 @@ struct AgentHooksTests {
     #expect(try installer.health() == .missing)
   }
 
+  @Test func disabledHooksRefuseRepairWithoutChangingSettingsAndAllowRemoval() throws {
+    let (directory, installer) = try rig()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try installer.install()
+    var root = try #require(
+      JSONSerialization.jsonObject(with: Data(contentsOf: installer.settingsURL)) as? [String: Any])
+    root["disableAllHooks"] = true
+    let original = try JSONSerialization.data(withJSONObject: root)
+    try original.write(to: installer.settingsURL)
+    let before = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+    #expect(throws: (any Error).self) { try installer.install() }
+    #expect(try Data(contentsOf: installer.settingsURL) == original)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == before)
+    try installer.remove()
+    let removed = try #require(
+      JSONSerialization.jsonObject(with: Data(contentsOf: installer.settingsURL)) as? [String: Any])
+    #expect(removed["disableAllHooks"] as? Bool == true)
+    #expect(removed["hooks"] == nil)
+  }
+
   @Test func missingFileAndDriftRepair() throws {
     let (directory, installer) = try rig()
     defer { try? FileManager.default.removeItem(at: directory) }

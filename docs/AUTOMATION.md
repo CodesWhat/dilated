@@ -417,8 +417,9 @@ and unrelated hooks are preserved. Each edit of an existing file saves a private
 the file. Restart existing Claude sessions after changing hooks.
 
 The health check reports Missing, Installed or Drifted. Drifted includes partial
-hooks, a changed app path, or Claude's `disableAllHooks` setting. Repair preserves
-that setting; enable hooks in Claude before using them.
+hooks, a changed app path, or Claude's `disableAllHooks` setting. Install and repair
+refuse to write while hooks are disabled, with an explanation. Enable hooks in
+Claude settings, then repair. Removal remains available and preserves that setting.
 
 A prompt starts one ten-minute hold per Claude session, with a detached renewer
 while the agent process lives, for up to one hour after the last prompt or tool

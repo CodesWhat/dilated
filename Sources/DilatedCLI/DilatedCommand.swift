@@ -20,7 +20,7 @@ import Foundation
         let data = FileHandle.standardInput.readDataToEndOfFile()
         guard let pid = Int32(arguments[3]) else { return }
         let command = try ClaudeHookInput.command(data: data, pid: pid)
-        if command.verb == .begin { _ = try AgentCommand.validate(pid: arguments[3]) }
+        if command.verb != .end { _ = try AgentCommand.validate(pid: arguments[3]) }
         _ = try await runAgent(command)
       } catch {}
       return

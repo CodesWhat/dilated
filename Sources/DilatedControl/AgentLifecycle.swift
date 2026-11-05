@@ -11,8 +11,8 @@ public struct AgentCommand: Equatable, Sendable {
   public var agent: String
   public var run: String
   public var json: Bool
-  /// The agent's process ID, `begin` only. With it, `begin` starts a detached renewer that keeps
-  /// the lease alive while that process runs.
+  /// The agent process ID. CLI `begin --pid` and hook begin/renew commands use it to start
+  /// a detached renewer while that process runs.
   public var pid: Int32?
   public var decidedByHook: Bool
 
@@ -265,6 +265,7 @@ public struct AgentLifecycle {
             updated.hookRenewUntil = now.addingTimeInterval(Self.hookQuietSeconds)
           }
           try save(updated, for: command)
+          ensureRenewer(command)
           return ControlResponse(ok: true, id: record.holdID)
         }
         if renewed.code == WakeError.holdNotFound.rawValue { clear(command) }

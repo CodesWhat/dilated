@@ -85,6 +85,10 @@ public struct ClaudeHookInstallation {
   private func change(install: Bool) throws {
     let (original, initial) = try read()
     var root = initial
+    if install, root["disableAllHooks"] as? Bool == true {
+      throw InputError(
+        "Claude settings disable all hooks. Enable hooks in Claude settings, then repair.")
+    }
     var events = root["hooks"] as? [String: [[String: Any]]] ?? [:]
     for (event, groups) in events {
       let retained = groups.compactMap { group -> [String: Any]? in
@@ -141,6 +145,6 @@ public enum ClaudeHookInput {
     try AgentCommand.validate(agent: "claude", run: run)
     return AgentCommand(
       verb: verb, agent: "claude", run: run, json: false,
-      pid: verb == .begin ? pid : nil, decidedByHook: true)
+      pid: verb == .end ? nil : pid, decidedByHook: true)
   }
 }
