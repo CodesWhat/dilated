@@ -70,6 +70,8 @@ struct ClaudeHookProcessTests {
     child = try #require(record.renewerPID)
     try await invoke(#"{"session_id":"process-test","hook_event_name":"PreToolUse"}"#)
     #expect(app.labels.count == 1)
+    try await invoke(#"{"session_id":"process-test","hook_event_name":"Stop"}"#)
+    #expect(app.labels.isEmpty)
     _ = app.send(ControlRequest(action: .stopAll))
     try await invoke(#"{"session_id":"process-test","hook_event_name":"UserPromptSubmit"}"#)
     #expect(app.labels.isEmpty)

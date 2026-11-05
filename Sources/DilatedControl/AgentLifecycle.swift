@@ -110,19 +110,23 @@ public struct AgentRunRecord: Codable, Equatable, Sendable {
   /// The detached renewer for this run, with its start time so a recycled pid isn't mistaken for it.
   public var renewerPID: Int32?
   public var renewerStartMicros: Int64?
+  public var hookRenewUntil: Date?
 
   public init(
-    holdID: UUID, lastRenew: Date, renewerPID: Int32? = nil, renewerStartMicros: Int64? = nil
+    holdID: UUID, lastRenew: Date, renewerPID: Int32? = nil, renewerStartMicros: Int64? = nil,
+    hookRenewUntil: Date? = nil
   ) {
     self.holdID = holdID
     self.lastRenew = lastRenew
     self.renewerPID = renewerPID
     self.renewerStartMicros = renewerStartMicros
+    self.hookRenewUntil = hookRenewUntil
   }
 }
 
 public struct AgentLifecycle {
   public static let leaseSeconds: TimeInterval = 600
+  public static let hookQuietSeconds: TimeInterval = 3600
   public let directory: URL
   /// Sends one request to the app, launching it first when the caller wants that.
   public let transport: (ControlRequest) async throws -> ControlResponse
@@ -227,6 +231,9 @@ public struct AgentLifecycle {
           if renewed.ok {
             var updated = record
             updated.lastRenew = now
+            if command.decidedByHook {
+              updated.hookRenewUntil = now.addingTimeInterval(Self.hookQuietSeconds)
+            }
             try save(updated, for: command)
             ensureRenewer(command)
             return ControlResponse(ok: true, id: record.holdID)
@@ -237,15 +244,26 @@ public struct AgentLifecycle {
         }
         let started = try await lease(command, id: nil)
         guard started.ok, let id = started.id else { return started }
-        try save(AgentRunRecord(holdID: id, lastRenew: now), for: command)
+        try save(
+          AgentRunRecord(
+            holdID: id, lastRenew: now,
+            hookRenewUntil: command.decidedByHook
+              ? now.addingTimeInterval(Self.hookQuietSeconds) : nil),
+          for: command)
         ensureRenewer(command)
         return ControlResponse(ok: true, id: id)
       case .renew:
         guard let record = load(command) else { return Self.ended }
+        if !command.decidedByHook, let deadline = record.hookRenewUntil, now >= deadline {
+          return Self.ended
+        }
         let renewed = try await lease(command, id: record.holdID)
         if renewed.ok {
           var updated = record
           updated.lastRenew = now
+          if command.decidedByHook {
+            updated.hookRenewUntil = now.addingTimeInterval(Self.hookQuietSeconds)
+          }
           try save(updated, for: command)
           return ControlResponse(ok: true, id: record.holdID)
         }

@@ -68,6 +68,41 @@ struct AgentHooksTests {
       JSONSerialization.jsonObject(with: Data(contentsOf: installer.settingsURL)) as? NSDictionary)
     #expect(removed == (try JSONSerialization.jsonObject(with: original) as? NSDictionary))
   }
+  @Test func markerInsideUserCommandsIsPreserved() throws {
+    let (directory, installer) = try rig()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let userCommand = "echo agent claude-hook --pid "
+    let root: [String: Any] = [
+      "hooks": ["Stop": [["hooks": [["type": "command", "command": userCommand]]]]]
+    ]
+    try JSONSerialization.data(withJSONObject: root).write(to: installer.settingsURL)
+    #expect(try installer.health() == .missing)
+    try installer.install()
+    #expect(
+      String(decoding: try Data(contentsOf: installer.settingsURL), as: UTF8.self).contains(
+        userCommand))
+    try installer.remove()
+    let removed =
+      try JSONSerialization.jsonObject(with: Data(contentsOf: installer.settingsURL))
+      as? NSDictionary
+    #expect(removed == NSDictionary(dictionary: root))
+  }
+
+  @Test func repairAndRemoveRecognizeThePreviousAppPath() throws {
+    let (directory, installer) = try rig()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let previous = ClaudeHookInstallation(
+      settingsURL: installer.settingsURL,
+      executable: URL(fileURLWithPath: "/Applications/Old Dilated.app/Contents/MacOS/dilated"))
+    try previous.install()
+    #expect(try installer.health() == .drifted)
+    try installer.install()
+    #expect(try installer.health() == .installed)
+    #expect(try previous.health() == .drifted)
+    try previous.remove()
+    #expect(try installer.health() == .missing)
+  }
+
   @Test func missingFileAndDriftRepair() throws {
     let (directory, installer) = try rig()
     defer { try? FileManager.default.removeItem(at: directory) }

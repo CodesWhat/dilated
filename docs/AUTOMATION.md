@@ -421,8 +421,13 @@ hooks, a changed app path, or Claude's `disableAllHooks` setting. Repair preserv
 that setting; enable hooks in Claude before using them.
 
 A prompt starts one ten-minute hold per Claude session, with a detached renewer
-while the agent process lives. Tool calls renew that hold. Stop, StopFailure and
-SessionEnd release it. The menu and history label reads `decided by: hook`.
+while the agent process lives, for up to one hour after the last prompt or tool
+hook. Tool calls renew the hold and extend that window. Stop, StopFailure and
+SessionEnd release it. Claude does not send Stop after a user interruption, so
+an interrupted turn can retain the hold until that one-hour renewal window ends
+and the remaining ten-minute lease expires. No hook activity means at most
+70 minutes of awake time; use Dilated's Stop to release it immediately. Quiet
+turns longer than an hour need an explicit timed hold. The menu and history label reads `decided by: hook`.
 Dilated's Stop pauses automation, so later hooks cannot recreate an awake hold
 until Resume automation. Hook errors stay quiet and never block Claude.
 

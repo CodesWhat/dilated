@@ -41,8 +41,10 @@ public struct ClaudeHookInstallation {
   }
 
   private func owns(_ handler: [String: Any]) -> Bool {
-    handler["type"] as? String == "command"
-      && (handler["command"] as? String)?.contains(Self.marker) == true
+    guard handler["type"] as? String == "command",
+      let text = handler["command"] as? String
+    else { return false }
+    return text.hasPrefix("exec '") && text.hasSuffix(Self.marker + "\"$PPID\"")
   }
 
   public func health() throws -> Health {
