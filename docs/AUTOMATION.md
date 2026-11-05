@@ -407,3 +407,12 @@ socket reads/writes. A minimal status request is `{"action":"status"}`.
 `DILATED_STATE_DIR` selects an isolated state directory for development/testing.
 Normal app state lives in `~/Library/Application Support/Dilated`. Tests do not
 read local planning files. This is a single-user local app, not a network service.
+
+## Why is my Mac awake?
+
+Choose Why is my Mac awake? from the menu, or Why Awake in Settings. The page
+shows Dilated's awake reasons followed by macOS power assertions, with Dilated's
+assertions first. Each assertion lists its process, PID, type and name. The page
+reads a fresh snapshot when opened and doesn't poll or save other apps' history.
+It can't change another process's assertions. Closed-lid settings and other macOS
+behavior can also affect sleep without appearing in this list.
