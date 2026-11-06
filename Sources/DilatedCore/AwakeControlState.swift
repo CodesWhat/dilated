@@ -34,10 +34,12 @@ public struct AwakeControlStateStore: Sendable {
 
   public init(directory: URL) { self.directory = directory }
 
-  public static func shared() -> Self? {
-    guard
-      let container = FileManager.default.containerURL(
-        forSecurityApplicationGroupIdentifier: appGroup)
+  public static func shared(
+    containerURL: (String) -> URL? = {
+      FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0)
+    }
+  ) -> Self? {
+    guard let container = containerURL(appGroup)
     else { return nil }
     #if MAS_CHANNEL
       let channel = "mas"

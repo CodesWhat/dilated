@@ -4,6 +4,35 @@ import Testing
 @testable import DilatedCore
 
 struct AwakeControlStateTests {
+  @Test func sharedStoreUsesOnlyItsDistributionDirectory() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var requestedGroup: String?
+    let store = try #require(
+      AwakeControlStateStore.shared(containerURL: { group in
+        requestedGroup = group
+        return directory
+      }))
+    #expect(requestedGroup == "3524374A2S.com.codeswhat.dilated.controls")
+    let state = AwakeControlState(snapshot: .init(automationPaused: true), appPID: 42)
+    try store.write(state)
+    #if MAS_CHANNEL
+      let own = "mas"
+      let other = "direct"
+    #else
+      let own = "direct"
+      let other = "mas"
+    #endif
+    #expect(
+      FileManager.default.fileExists(
+        atPath: directory.appendingPathComponent(own + "/awake.json").path))
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: directory.appendingPathComponent(other + "/awake.json").path))
+    #expect(store.read() == state)
+    #expect(AwakeControlStateStore.shared(containerURL: { _ in nil }) == nil)
+  }
+
   @Test func snapshotExpiresAndRequiresLiveHost() throws {
     let now = Date(timeIntervalSince1970: 1_000)
     var engine = WakeEngine(now: now)
