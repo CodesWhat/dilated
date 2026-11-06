@@ -165,6 +165,13 @@ it, and a pause that existed before you switched stays in place.
 
 ## Conditions and triggers
 
+The weekly schedule editor includes a seven-day hourly grid. Drag a block to
+replace the schedule's days and hours, or focus the grid and use arrow keys and
+Space to select an hour. Clear schedule removes the selected days. The weekday
+buttons and precise From/Until fields edit the same schedule, including overnight
+windows and minute-level times. The grid highlights any hour touched by that
+window; selecting a grid block uses whole hours.
+
 A trigger's saved **Work with the lid closed** choice requires **Arm closed-lid**
 in Settings for the current app run. Saving a rule or launching Dilated cannot
 arm it. Stop, safety stops, rule edits, permission changes and relaunch revoke that
