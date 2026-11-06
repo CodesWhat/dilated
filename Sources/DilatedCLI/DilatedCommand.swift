@@ -13,13 +13,15 @@ import Foundation
       exit(await AgentRenewerCommand.run(Array(CommandLine.arguments.dropFirst())))
     }
     let arguments = Array(CommandLine.arguments.dropFirst())
-    if arguments.starts(with: ["agent", "claude-hook"]) {
-      // Hook failures must never block Claude or add text to its context.
+    if arguments.count >= 2, arguments[0] == "agent",
+      let tool = AgentHookTool.allCases.first(where: { $0.commandName == arguments[1] })
+    {
+      // Hook failures must never block an agent or add text to its context.
       do {
         guard arguments.count == 4, arguments[2] == "--pid" else { return }
         let data = FileHandle.standardInput.readDataToEndOfFile()
         guard let pid = Int32(arguments[3]) else { return }
-        let command = try ClaudeHookInput.command(data: data, pid: pid)
+        let command = try AgentHookInput.command(data: data, pid: pid, tool: tool)
         if command.verb != .end { _ = try AgentCommand.validate(pid: arguments[3]) }
         _ = try await runAgent(command)
       } catch {}

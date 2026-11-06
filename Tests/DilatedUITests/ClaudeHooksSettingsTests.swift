@@ -36,6 +36,31 @@
       }
     }
 
+    @Test func codexAndOpenCodeButtonsWriteOnlyFixtureConfiguration() throws {
+      let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "adapter-ui-\(UUID().uuidString)")
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let codex = AgentHookInstallation(
+        settingsURL: directory.appendingPathComponent("hooks.json"),
+        executable: URL(fileURLWithPath: "/usr/bin/true"), tool: .codex)
+      var message = ""
+      let view = AgentHooksSettings(report: { message = $0 }, installation: codex, tool: .codex)
+      #expect(
+        try view.inspect().findAll(ViewType.Text.self).contains {
+          try $0.string().contains("review and trust")
+        })
+      try view.inspect().find(button: "Install hooks").tap()
+      #expect(try codex.health() == .installed)
+      #expect(message.contains("trust"))
+      let plugin = OpenCodePluginInstallation(
+        file: directory.appendingPathComponent("dilated.js"),
+        executable: URL(fileURLWithPath: "/usr/bin/true"))
+      let pluginView = OpenCodeHooksSettings(report: { message = $0 }, installation: plugin)
+      try pluginView.inspect().find(button: "Install plugin").tap()
+      #expect(try plugin.health() == .installed)
+      #expect(message.contains("Restart OpenCode"))
+    }
+
     @Test func installButtonWritesOnlyTheSelectedClaudeSettings() throws {
       let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
         "hooks-ui-\(UUID().uuidString)")
