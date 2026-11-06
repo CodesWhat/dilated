@@ -108,6 +108,22 @@ class ReleaseGuardsTests(unittest.TestCase):
         self.assertFalse(display['isOptional'])
         self.assertEqual(display['typeSpecificMetadata'], [
             'LNValueTypeSpecificMetadataKeyDefaultValue', {'int': {'wrapper': 1}}])
+        focus = actions['SetAwakeFocusFilterIntent']
+        self.assertEqual(focus['systemProtocols'], ['com.apple.link.systemProtocol.FocusConfiguration'])
+        self.assertTrue(focus['isDiscoverable'])
+        self.assertTrue(focus['parameters'][0]['isOptional'])
+        metadata_path = app / 'Contents/Resources/Metadata.appintents/extract.actionsdata'
+        original = metadata_path.read_bytes()
+        for field, value in [('systemProtocols', []), ('parameters', []), ('isDiscoverable', False)]:
+            with self.subTest(invalid_focus_field=field):
+                invalid = json.loads(original)
+                invalid['actions']['SetAwakeFocusFilterIntent'][field] = value
+                metadata_path.write_text(json.dumps(invalid))
+                try:
+                    with self.assertRaisesRegex(RuntimeError, 'automation'):
+                        release.validate_automation_bundle(app)
+                finally:
+                    metadata_path.write_bytes(original)
         linked = subprocess.check_output(['otool', '-L', str(app / 'Contents/MacOS/DilatedApp')], text=True)
         self.assertIn('@rpath/Sparkle.framework', linked)
         for binary in ['dilated']:
