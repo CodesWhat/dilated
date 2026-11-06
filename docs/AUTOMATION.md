@@ -89,6 +89,20 @@ or while Settings is visible. A display-sleep shortcut changes current holds;
 it reports when there are no active holds. Starts use manual hold semantics and
 remain available during the durable automation pause.
 
+## Preferences file
+
+General > Preferences file exports a JSON file for moving timer and appearance
+choices to another Mac. It includes the default duration, presets, display-sleep
+default, built-in menu bar icon, motion, countdown choices, menu clicks, idle
+opacity and Dock mode. Import shows the current and proposed values before
+**Apply preferences** saves them. Cancel leaves preferences as they were.
+
+Safety limits, startup behavior, triggers, hotkeys, permissions, local PNGs and
+sounds, drive bookmarks and history stay local. Current holds and the durable
+Stop/pause state are preserved. Custom icon files aren't exported; the file uses
+the selected built-in icon. Imports are limited to regular files up to 64 KB and
+reject unsupported versions, invalid choices and inconsistent duration presets.
+
 ## Shortcuts actions
 
 The signed app exposes four actions in the Mac's Shortcuts action library:
