@@ -48,7 +48,11 @@ import Testing
       await model.prepareForPackage(
         .uninstall, app: app, removeLoginItem: { operations.append("login") },
         removeCommandLine: { operations.append("cli") }))
-    #expect(operations == ["login", "cli"])
+    #if MAS_CHANNEL
+      #expect(operations == ["login"])
+    #else
+      #expect(operations == ["login", "cli"])
+    #endif
     #expect(model.history.records.first?.endReason?.rawValue == "packageRemoval")
     #expect(try StateStore(directory: directory).load().holds.isEmpty)
     #expect(
@@ -83,10 +87,15 @@ import Testing
       await model.prepareForPackage(
         .uninstall, app: app, removeLoginItem: {}, removeCommandLine: {}))
     #expect(world.scripts.isEmpty && world.installed)
-    #expect(model.message?.contains("--remove-lid-permission") == true)
+    #if MAS_CHANNEL
+      #expect(model.message?.contains("Dilated Closed-Lid Setup") == true)
+      #expect(model.message?.contains("--remove-lid-permission") == false)
+    #else
+      #expect(model.message?.contains("--remove-lid-permission") == true)
+    #endif
   }
 
-  @Test func packageRemovalNamesEveryWayToRemoveTheRuleWhileItIsInstalled() async throws {
+  @Test func packageRemovalExplainsTheAvailablePermissionRemovalPath() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let world = RuleWorld(outcome: .succeeded)
@@ -97,19 +106,35 @@ import Testing
     #expect(
       await model.prepareForPackage(
         .uninstall, app: app, removeLoginItem: {}, removeCommandLine: {}))
-    #expect(model.message?.contains("dilated lid-permission remove") == true)
-    #expect(model.message?.contains("Settings") == true)
+    #if MAS_CHANNEL
+      #expect(!permission.canRemove)
+      #expect(model.message?.contains("dilated lid-permission remove") == false)
+      #expect(model.message?.contains("--remove-lid-permission") == false)
+      #expect(model.message?.contains("Dilated Closed-Lid Setup") == true)
+    #else
+      #expect(model.message?.contains("dilated lid-permission remove") == true)
+      #expect(model.message?.contains("Settings") == true)
+    #endif
   }
 
-  @Test func packageRemovalWithTheFlagRemovesTheRuleThroughTheAdminPrompt() async throws {
+  @Test func packageRemovalWithPermissionFlagFollowsChannelSetupPolicy() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let world = RuleWorld(outcome: .succeeded)
     let model = makeModel(directory, permission: world.model())
     defer { model.shutdown() }
     let response = await model.control(.init(action: .prepareUninstall, removeLidPermission: true))
-    #expect(response.ok)
-    #expect(world.scripts.count == 1 && !world.installed)
+    #if MAS_CHANNEL
+      #expect(!response.ok)
+      #expect(world.scripts.isEmpty && world.installed)
+      #expect(response.message?.contains("Dilated Closed-Lid Setup") == true)
+      #expect(throws: (any Error).self) {
+        try PackageHandoffStore(directory: directory).requirePrepared(app: app)
+      }
+    #else
+      #expect(response.ok)
+      #expect(world.scripts.count == 1 && !world.installed)
+    #endif
   }
 
   @Test(arguments: [PrivilegedScriptOutcome.cancelled, .failed("sudoers is read-only")])

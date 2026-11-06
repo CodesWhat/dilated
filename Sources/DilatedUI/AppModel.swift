@@ -844,14 +844,21 @@ public struct AppSettings: Codable, Equatable, Sendable {
       savedForUpdate = true
       historyShutdownReason = intent == .update ? .update : .packageRemoval
       shutdown()
-      message =
-        intent == .update
-        ? "Prepared for update. Unexpired timers will keep their original deadlines."
-        : removeLidPermission
+      #if MAS_CHANNEL
+        let removalMessage =
+          "Prepared for removal. Use Dilated Closed-Lid Setup to remove its closed-lid components. Shared permissions may remain."
+      #else
+        let removalMessage =
+          removeLidPermission
           ? "Prepared for removal. Closed-lid permission, login item and owned command line link are removed."
           : closedLidPermission.canRemove
             ? "Prepared for removal. Login item and owned command line link are removed. The closed-lid permission stays until you run prepare-uninstall --remove-lid-permission, dilated lid-permission remove, or the Remove button in Settings."
             : "Prepared for removal. Login item and owned command line link are removed. The closed-lid permission stays until you run prepare-uninstall --remove-lid-permission."
+      #endif
+      message =
+        intent == .update
+        ? "Prepared for update. Unexpired timers will keep their original deadlines."
+        : removalMessage
       return true
     } catch {
       try? handoff.clear()
