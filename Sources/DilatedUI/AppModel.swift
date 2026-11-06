@@ -334,7 +334,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
         guard rules.count <= 100, Set(rules.map(\.id)).count == rules.count,
           rules.allSatisfy({ $0.validationMessage == nil })
         else { throw TriggerConfigurationError("Saved triggers contain invalid rules.") }
-        triggerRules = rules
+        triggerRules = rules.map { rule in
+          var rule = rule
+          if rule.focusControlled { rule.enabled = false }
+          return rule
+        }
       } catch { loadMessage = "Couldn't load triggers: \(error.localizedDescription)" }
     }
     preferences = loadedSettings
@@ -1664,6 +1668,31 @@ public struct AppSettings: Codable, Equatable, Sendable {
       reconcileTriggers(lastTriggerInputs)
       refreshTriggers()
     } catch { message = error.localizedDescription }
+  }
+  func applyFocusRule(id: UUID?) throws {
+    guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
+    var rules = triggerRules
+    for index in rules.indices where rules[index].focusControlled {
+      rules[index].enabled = false
+      rules[index].focusControlled = false
+    }
+    let disabled = rules
+    let selected = id.flatMap { id in rules.firstIndex { $0.id == id } }
+    if let selected {
+      rules[selected].enabled = true
+      rules[selected].focusControlled = true
+    }
+    do {
+      try writeTriggers(rules)
+    } catch {
+      triggerRules = disabled
+      reconcileTriggers(lastTriggerInputs)
+      refreshTriggers()
+      throw error
+    }
+    reconcileTriggers(lastTriggerInputs)
+    refreshTriggers()
+    if id != nil, selected == nil { throw InputError("The Dilated Focus rule no longer exists.") }
   }
   private func writeTriggers(_ rules: [TriggerRule]) throws {
     try FileManager.default.createDirectory(

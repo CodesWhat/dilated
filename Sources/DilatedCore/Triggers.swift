@@ -110,6 +110,7 @@ public struct TriggerRule: Codable, Equatable, Identifiable, Sendable {
   public var id = UUID()
   public var name: String
   public var enabled = true
+  public var focusControlled = false
   public var criteria: [TriggerCriterion]
   public var displayAwake = false
   public var closedLid = false
@@ -126,6 +127,7 @@ public struct TriggerRule: Codable, Equatable, Identifiable, Sendable {
     id = try values.decode(UUID.self, forKey: .id)
     name = try values.decode(String.self, forKey: .name)
     enabled = try values.decode(Bool.self, forKey: .enabled)
+    focusControlled = try values.decodeIfPresent(Bool.self, forKey: .focusControlled) ?? false
     criteria = try values.decode([TriggerCriterion].self, forKey: .criteria)
     displayAwake = try values.decode(Bool.self, forKey: .displayAwake)
     closedLid = try values.decodeIfPresent(Bool.self, forKey: .closedLid) ?? false

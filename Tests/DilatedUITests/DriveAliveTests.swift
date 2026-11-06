@@ -147,7 +147,7 @@ import Testing
         schedules += 1
         completed.continuation.yield(())
         return {}
-      })
+      }, watchMounts: false)
     defer { controller.stop() }
     var settings = DriveFixture.configuration
     var always = DriveFixture.volume
@@ -275,7 +275,7 @@ import Testing
       schedule: { _, _ in
         schedules += 1
         return {}
-      })
+      }, watchMounts: false)
     var settings = DriveFixture.configuration
     settings.volumes.append(.init(id: "second", name: "Second", path: "/Volumes/Second"))
     controller.configure(settings, awake: true, paused: false)
@@ -311,7 +311,7 @@ import Testing
         delays.append(seconds)
         scheduled.fire()
         return {}
-      })
+      }, watchMounts: false)
     defer { controller.stop() }
     var settings = DriveFixture.configuration
     controller.configure(settings, awake: true, paused: false)
@@ -368,7 +368,7 @@ import Testing
           scheduled = fire
           didSchedule.fire()
           return {}
-        })
+        }, watchMounts: false)
       defer { controller.stop() }
       var settings = DriveAliveSettings()
       settings.enabled = true
@@ -486,7 +486,7 @@ import Testing
       schedule: { [self] seconds, fire in
         schedules.append((seconds, fire))
         return { [self] in cancellations += 1 }
-      })
+      }, watchMounts: false)
   }
   func fire(at index: Int) {
     now += schedules[index].0
