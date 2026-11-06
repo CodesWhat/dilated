@@ -1,4 +1,5 @@
 import AppKit
+import DilatedControl
 import DilatedCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -71,6 +72,17 @@ import UniformTypeIdentifiers
         editing = TriggerRule(name: "New trigger", criteria: [.power(onBattery: false)])
       }
       .buttonStyle(.borderedProminent)
+      #if !MAS_CHANNEL
+        Menu("Agent preset…") {
+          ForEach(AgentHookTool.allCases, id: \.rawValue) { tool in
+            Button(tool.title + " CLI") { editing = AgentPreset.rule(process: tool.rawValue) }
+          }
+        }
+        SettingsNote(
+          text:
+            "Agent presets combine a CLI process name with total Mac CPU load. Other work can raise that load while the agent is idle. Review the conditions before saving; Stop still pauses automation."
+        )
+      #endif
       SettingsNote(
         text:
           "All conditions in a trigger must match. Each matching trigger keeps its own awake reason. Triggers can't wake a sleeping Mac. Closed-lid triggers need explicit arming for this app run. Relaunch, Stop and safety stops require arming again."

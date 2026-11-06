@@ -1,39 +1,40 @@
 import Foundation
 
-public struct ClaudeHookInstallation {
+public typealias ClaudeHookInstallation = AgentHookInstallation
+
+public struct AgentHookInstallation {
   public enum Health: String, Sendable { case missing, installed, drifted }
   public let settingsURL: URL
   public let executable: URL
-  private static let events = [
-    "UserPromptSubmit", "PreToolUse", "Stop", "StopFailure", "SessionEnd",
-  ]
-  private static let marker = " agent claude-hook --pid "
+  public let tool: AgentHookTool
+  private var marker: String { " agent " + tool.commandName + " --pid " }
 
-  public init(settingsURL: URL, executable: URL) {
+  public init(settingsURL: URL, executable: URL, tool: AgentHookTool = .claude) {
     self.settingsURL = settingsURL.resolvingSymlinksInPath()
     self.executable = executable
+    self.tool = tool
   }
 
   private var command: String {
     let quoted = "'" + executable.path.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
-    return "exec " + quoted + Self.marker + "\"$PPID\""
+    return "exec " + quoted + marker + "\"$PPID\""
   }
 
   private func read() throws -> (Data?, [String: Any]) {
     guard FileManager.default.fileExists(atPath: settingsURL.path) else { return (nil, [:]) }
     let data = try Data(contentsOf: settingsURL)
     guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-      throw InputError("Claude settings must be a JSON object. The file wasn't changed.")
+      throw InputError("\(tool.title) settings must be a JSON object. The file wasn't changed.")
     }
     if let hooks = root["hooks"] {
       guard let events = hooks as? [String: Any] else {
-        throw InputError("Claude hooks must be an object.")
+        throw InputError("\(tool.title) hooks must be an object.")
       }
       for value in events.values {
         guard let groups = value as? [[String: Any]],
           groups.allSatisfy({ $0["hooks"] is [[String: Any]] })
         else {
-          throw InputError("Claude hook entries must contain an array of handlers.")
+          throw InputError("\(tool.title) hook entries must contain an array of handlers.")
         }
       }
     }
@@ -44,7 +45,7 @@ public struct ClaudeHookInstallation {
     guard handler["type"] as? String == "command",
       let text = handler["command"] as? String
     else { return false }
-    return text.hasPrefix("exec '") && text.hasSuffix(Self.marker + "\"$PPID\"")
+    return text.hasPrefix("exec '") && text.hasSuffix(marker + "\"$PPID\"")
   }
 
   public func health() throws -> Health {
@@ -56,8 +57,9 @@ public struct ClaudeHookInstallation {
       for group in groups {
         for handler in group["hooks"] as? [[String: Any]] ?? [] where owns(handler) {
           found += 1
-          if Self.events.contains(event), handler["command"] as? String == command,
-            handler["async"] as? Bool != true, handler["timeout"] as? Int == 10,
+          if tool.events.contains(event), handler["command"] as? String == command,
+            handler["async"] as? Bool != true,
+            handler["timeout"] as? Int == tool.timeout(for: event),
             group["matcher"] == nil || group["matcher"] as? String == "*"
           {
             valid += 1
@@ -66,13 +68,13 @@ public struct ClaudeHookInstallation {
       }
     }
     guard found > 0 else { return .missing }
-    let complete = Self.events.allSatisfy { event in
+    let complete = tool.events.allSatisfy { event in
       (events[event] ?? []).contains { group in
         (group["hooks"] as? [[String: Any]] ?? []).contains { $0["command"] as? String == command }
       }
     }
-    return complete && found == Self.events.count && valid == found
-      && root["disableAllHooks"] as? Bool != true ? .installed : .drifted
+    return complete && found == tool.events.count && valid == found
+      && (tool != .claude || root["disableAllHooks"] as? Bool != true) ? .installed : .drifted
   }
 
   public func install() throws {
@@ -85,7 +87,7 @@ public struct ClaudeHookInstallation {
   private func change(install: Bool) throws {
     let (original, initial) = try read()
     var root = initial
-    if install, root["disableAllHooks"] as? Bool == true {
+    if install, tool == .claude, root["disableAllHooks"] as? Bool == true {
       throw InputError(
         "Claude settings disable all hooks. Enable hooks in Claude settings, then repair.")
     }
@@ -103,9 +105,9 @@ public struct ClaudeHookInstallation {
       if retained.isEmpty { events.removeValue(forKey: event) } else { events[event] = retained }
     }
     if install {
-      for event in Self.events {
+      for event in tool.events {
         events[event, default: []].append([
-          "hooks": [["type": "command", "command": command, "timeout": 10]]
+          "hooks": [["type": "command", "command": command, "timeout": tool.timeout(for: event)]]
         ])
       }
     }
@@ -129,22 +131,26 @@ public struct ClaudeHookInstallation {
 
 public enum ClaudeHookInput {
   public static func command(data: Data, pid: Int32) throws -> AgentCommand {
+    try AgentHookInput.command(data: data, pid: pid, tool: .claude)
+  }
+}
+
+public enum AgentHookInput {
+  public static func command(data: Data, pid: Int32, tool: AgentHookTool) throws -> AgentCommand {
     guard data.count <= 1_048_576,
       let input = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-      let run = input["session_id"] as? String, let event = input["hook_event_name"] as? String
-    else {
-      throw InputError("Invalid Claude hook input.")
-    }
+      let run = input["session_id"] as? String, let event = input["hook_event_name"] as? String,
+      tool.events.contains(event)
+    else { throw InputError("Invalid \(tool.title) hook input.") }
     let verb: AgentCommand.Verb
     switch event {
     case "UserPromptSubmit": verb = .begin
     case "PreToolUse": verb = .renew
-    case "Stop", "StopFailure", "SessionEnd": verb = .end
-    default: throw InputError("Unsupported Claude hook event.")
+    default: verb = .end
     }
-    try AgentCommand.validate(agent: "claude", run: run)
+    try AgentCommand.validate(agent: tool.rawValue, run: run)
     return AgentCommand(
-      verb: verb, agent: "claude", run: run, json: false,
+      verb: verb, agent: tool.rawValue, run: run, json: false,
       pid: verb == .end ? nil : pid, decidedByHook: true)
   }
 }
