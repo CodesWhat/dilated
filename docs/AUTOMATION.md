@@ -447,3 +447,39 @@ Dilated's Stop pauses automation, so later hooks cannot recreate an awake hold
 until Resume automation. Hook errors stay quiet and never block Claude.
 
 The hook protocol follows [Claude Code's hook reference](https://code.claude.com/docs/en/hooks).
+
+## Other coding agents
+
+Settings → Automation also configures Codex hooks and installs an OpenCode local
+plugin. All adapters use separate run identities, stay quiet on errors and respect
+Dilated's Stop pause. Automatic quiet-turn renewal is bounded to one hour since
+actual hook activity, followed by at most the remaining ten-minute lease.
+
+| Tool | Default file | Lifecycle and activation |
+| --- | --- | --- |
+| Codex | `~/.codex/hooks.json` | Prompt begins; tool hooks renew; Stop, Interrupt and SessionEnd release. Review and trust the new hooks in Codex `/hooks` or Settings > Hooks. Configured does not mean trusted or enabled by policy. |
+| OpenCode | `~/.config/opencode/plugins/dilated.js` | Busy starts; tools renew; idle, error, deletion and plugin disposal release. Restart OpenCode after changing plugins. Other plugin files are untouched; an unrelated file at this exact path is never overwritten or removed. |
+
+Install/repair preserves existing hooks and private backups. Removal deletes only
+Dilated's entries or owned plugin. These controls target the default user paths;
+custom configuration locations need the equivalent integration in that location.
+They do not change Codex trust, managed policy or feature flags. Hooks require a
+local runtime capable of executing the installed Dilated CLI.
+
+Contracts: [Codex hooks](https://learn.chatgpt.com/docs/hooks),
+[OpenCode plugins](https://opencode.ai/docs/plugins/) and the
+[OpenCode 1.19.5 session status schema](https://github.com/anomalyco/opencode/blob/v1.19.5/packages/schema/src/session-status-event.ts).
+Fixture configuration, actual CLI/socket isolation and generated plugin execution
+are tested; these checks do not claim a live Codex or OpenCode model turn.
+
+### CPU fallback presets
+
+In Triggers, Agent preset creates an editable rule for the Claude Code, Codex or
+OpenCode CLI. It combines the exact process name with total Mac CPU at least
+20%, using the existing process and CPU monitors. It adds no monitor or polling
+loop. The reason includes `decided by: CPU`; the hold ends on the next trigger
+evaluation when either condition stops matching. Stop-pause still wins.
+
+CPU here is system-wide, not per-process. Other work can keep the condition true
+while an agent is idle, so use lifecycle hooks when available. Review process
+name and threshold before saving. These presets are direct-build only.
