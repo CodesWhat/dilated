@@ -335,7 +335,7 @@ import Foundation
     Usage: dilated status [--json] [--assertions]
            dilated on [--for 2h | --until 17:00] [--label NAME] [--display-awake] [--lid]
            dilated off [--id ID | --label NAME]
-           dilated hold --ttl 10m [--label NAME] [--id ID | --lid]
+           dilated hold [--ttl 10m | --for "until 5pm"] [--label NAME] [--id ID | --lid]
            dilated release --id ID
            dilated agent begin|renew|end --agent NAME --run ID [--pid N] [--json]
            dilated run [--label NAME] [--lid] -- command arguments

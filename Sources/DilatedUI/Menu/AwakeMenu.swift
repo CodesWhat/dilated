@@ -22,7 +22,8 @@ import DilatedCore
   }
 
   static func make(
-    model: AppModel, openSettings: @escaping () -> Void, openAbout: @escaping () -> Void = {}
+    model: AppModel, openSettings: @escaping () -> Void, openAbout: @escaping () -> Void = {},
+    openInspector: @escaping () -> Void = {}
   ) -> NSMenu {
     let menu = NSMenu()
     menu.autoenablesItems = false
@@ -112,6 +113,7 @@ import DilatedCore
       menu.addItem(action("Sleep now") { Task { await model.sleepNow() } })
     }
     menu.addItem(.separator())
+    menu.addItem(action("Why is my Mac awake?", body: openInspector))
     menu.addItem(action("Settings…", key: ",", body: openSettings))
     #if !MAS_CHANNEL
       if model.updater.isAvailable {
@@ -198,8 +200,8 @@ import DilatedCore
     alert.messageText = until ? "Keep awake until" : "Keep awake for"
     alert.informativeText =
       until
-      ? "Enter a local time in 24-hour format. A past time means tomorrow."
-      : "Use seconds, minutes or hours, such as 30s, 90m or 2h."
+      ? "Enter a time such as 17:00, 5pm or tomorrow 9am. A past time means tomorrow."
+      : "Enter 90m, 2h30, for 1 hour or until 5pm."
     let input = NSTextField(string: until ? "17:00" : "90m")
     input.frame = NSRect(x: 0, y: 0, width: 280, height: 24)
     alert.accessoryView = input
@@ -208,11 +210,20 @@ import DilatedCore
     NSApp.activate()
     alert.window.initialFirstResponder = input
     guard alert.runModal() == .alertFirstButtonReturn else { return }
+    applyDurationInput(model: model, text: input.stringValue, until: until)
+  }
+
+  static func applyDurationInput(model: AppModel, text: String, until: Bool) {
     do {
-      let value = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-      let duration =
-        until ? try TimeInput.until(value).timeIntervalSinceNow : try TimeInput.duration(value)
-      model.start(duration: duration)
+      let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+      let seconds: TimeInterval
+      if until, let date = try? TimeInput.until(value) {
+        seconds = date.timeIntervalSinceNow
+      } else {
+        let phrase = until && !value.lowercased().hasPrefix("until ") ? "until " + value : value
+        seconds = try TimeInput.sessionDuration(phrase)
+      }
+      model.start(duration: seconds)
     } catch { model.message = error.localizedDescription }
   }
 }

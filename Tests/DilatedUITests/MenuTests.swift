@@ -8,6 +8,20 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct MenuTests {
+  @Test func customDurationPhrasesStartAndInvalidInputPreservesTheHold() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    AwakeMenu.applyDurationInput(model: model, text: "2h30", until: false)
+    let hold = try #require(model.engine.holds.first)
+    #expect(abs(try #require(hold.expiry).timeIntervalSince(hold.createdAt) - 9000) < 0.01)
+    let before = model.engine.holds
+    AwakeMenu.applyDurationInput(model: model, text: "until 5", until: false)
+    #expect(model.engine.holds == before)
+    #expect(model.message != nil)
+  }
+
   @Test func countdownFormatPersistsWithoutChangingOtherPreferences() throws {
     let settings = try JSONDecoder().decode(
       AppSettings.self,
