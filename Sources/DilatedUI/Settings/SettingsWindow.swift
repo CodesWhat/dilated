@@ -83,6 +83,7 @@ import SwiftUI
   }
 
   func present() {
+    navigation.didPresent()
     showWindow(nil)
     NSApp.activate()
     window?.makeKeyAndOrderFront(nil)
@@ -127,6 +128,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
   case triggers = "Triggers"
   case driveAlive = "Drive Alive"
   case notifications = "Notifications & Sounds"
+  case inspector = "Why Awake"
   case statistics = "Statistics"
   case automation = "Automation"
   case advanced = "Advanced"
@@ -144,6 +146,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     case .triggers: "switch.2"
     case .driveAlive: "externaldrive"
     case .notifications: "bell"
+    case .inspector: "list.bullet.rectangle"
     case .statistics: "chart.bar"
     case .automation: "terminal"
     case .advanced: "wrench.and.screwdriver"
@@ -162,6 +165,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     case .triggers: "Keep awake while your conditions match."
     case .driveAlive: "Keep selected drives active with small periodic writes."
     case .notifications: "Choose when Dilated speaks up."
+    case .inspector: "See the processes asking macOS to stay awake."
     case .statistics: "Recent awake reasons, end causes and local totals."
     case .automation: "Keep work alive from scripts and agents."
     case .advanced: "Inspect the current state and export diagnostics."
@@ -180,6 +184,8 @@ struct PageIdentity: Hashable {
 @MainActor @Observable final class SettingsNavigation {
   var requested: SettingsPage?
   private(set) var sheetEpoch = 0
+  private(set) var presentationEpoch = 0
+  func didPresent() { presentationEpoch += 1 }
   /// `NSWindow.endSheet` leaves the SwiftUI presentation state set, so SwiftUI puts the sheet back.
   /// Rebuilding the page is what actually clears that state.
   func dismissSheets() { sheetEpoch += 1 }
@@ -385,6 +391,8 @@ struct PageIdentity: Hashable {
     case .triggers: TriggersSettings(model: model)
     case .driveAlive: DriveAliveSettingsView(model: model)
     case .notifications: FeedbackSettingsView(model: model)
+    case .inspector:
+      AwakeInspectorView(reasons: model.engine.holds.map(\.label)).id(navigation.presentationEpoch)
     case .statistics: HistorySettings(model: model)
     case .automation: automation
     case .advanced: advanced

@@ -128,3 +128,11 @@ test('Quit ends the holds without pausing automation; Settings and About just cl
   assert.equal(find(model, 'settings').shortcut, '⌘ ,');
   assert.equal(find(model, 'quit').shortcut, '⌘ Q');
 });
+
+test('the inspector row mirrors the app without accessing Mac assertions', () => {
+  const items = demo.menuModel(demo.initialState(), 0);
+  const item = find(items, 'inspector');
+  assert.equal(item?.label, 'Why is my Mac awake?');
+  assert.deepEqual(item?.action, { type: 'close' });
+  assert.ok(items.indexOf(item) < items.indexOf(find(items, 'settings')));
+});
