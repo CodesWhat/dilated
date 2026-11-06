@@ -273,14 +273,14 @@ import SystemConfiguration
     }
     if needsNetworkThroughput {
       let uptime = readUptime()
-      if lastNetworkReading == nil || uptime - lastNetworkReading!.at >= 5 {
+      if lastNetworkReading == nil || uptime - lastNetworkReading!.at >= 4 {
         lastNetworkReading = (uptime, networkSampler.sample(readNetworkCounters(), at: uptime))
       }
       input.networkBytesPerSecond = lastNetworkReading?.value
     }
     if needsDiskThroughput {
       let uptime = readUptime()
-      if lastDiskReading == nil || uptime - lastDiskReading!.at >= 5 {
+      if lastDiskReading == nil || uptime - lastDiskReading!.at >= 4 {
         lastDiskReading = (uptime, diskSampler.sample(readDiskCounters(), at: uptime))
       }
       input.diskBytesPerSecond = lastDiskReading?.value

@@ -126,15 +126,15 @@ Network throughput uses getifaddrs for interface identity and NET_RT_IFLIST2's
 64-bit byte counters. Loopback and down interfaces are excluded. The shared
 ThroughputSampler computes received-plus-sent deltas using monotonic elapsed time,
 warming up on failure, reset or newly seen interfaces. It shares the existing
-five-second poller, caches reads for five seconds and discards its baseline on
-wake or when no active criterion needs it. Dwell and grace supply temporal
+five-second poller, caches reads for four seconds to allow timer jitter, and
+discards its baseline on wake or when no active criterion needs it. Dwell and grace supply temporal
 hysteresis. No network traffic, addresses or interface names are persisted by
 the sampler. VPN interfaces can count the same traffic as their physical link.
 
 Disk throughput reads each IOBlockStorageDriver's Statistics registry property,
 keyed by registry entry identity. Counters require exact nonnegative integer
 values. Read failure keeps the aggregate unknown. It reuses ThroughputSampler,
-the existing poller, five-second cache and wake/disable reset lifecycle; network
+the existing poller, four-second cache and wake/disable reset lifecycle; network
 and disk criteria can share the one timer. This reads device metadata without
 opening files or issuing disk operations. Virtual devices and their backing
 physical drive may both contribute to the aggregate.

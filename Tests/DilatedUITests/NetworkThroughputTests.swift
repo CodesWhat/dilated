@@ -23,7 +23,7 @@ import Testing
     monitor.configure(rules: [rule])
     #expect(monitor.pollingInterval == 5)
     #expect(monitor.read().networkBytesPerSecond == nil && reads == 1)
-    uptime = 4.9
+    uptime = 3.9
     #expect(monitor.read().networkBytesPerSecond == nil && reads == 1)
     uptime = 5
     #expect(monitor.read().networkBytesPerSecond == 1_000 && reads == 2)
@@ -47,6 +47,38 @@ import Testing
     monitor.stop()
     uptime = 15
     #expect(monitor.read().networkBytesPerSecond == nil && reads == 3)
+  }
+
+  @Test(arguments: [false, true])
+  func timerJitterStillTakesANewSampleForNetworkAndDisk(disk: Bool) {
+    var uptime: TimeInterval = 0
+    var reads = 0
+    func counters() -> [String: ThroughputCounters]? {
+      reads += 1
+      return ["fixture": .init(readBytes: UInt64(uptime * 1_000), writtenBytes: 0)]
+    }
+    let monitor = TriggerMonitor(
+      readPower: { .init() }, readNetworkCounters: counters, readDiskCounters: counters,
+      readUptime: { uptime }, workspaceNotifications: NotificationCenter(), changed: {})
+    defer { monitor.stop() }
+    let criterion: TriggerCriterion =
+      disk
+      ? .diskThroughput(kilobytesPerSecond: 1, atLeast: true)
+      : .networkThroughput(kilobytesPerSecond: 1, atLeast: true)
+    monitor.configure(rules: [TriggerRule(name: "Transfer", criteria: [criterion])])
+    func rate() -> Double? {
+      let input = monitor.read()
+      return disk ? input.diskBytesPerSecond : input.networkBytesPerSecond
+    }
+    #expect(rate() == nil && reads == 1)
+    uptime = 3.9
+    #expect(rate() == nil && reads == 1)
+    for (index, tick) in [4.25, 9.25, 13.5].enumerated() {
+      uptime = tick
+      #expect(rate() == 1_000 && reads == index + 2)
+      #expect(rate() == 1_000 && reads == index + 2)
+    }
+    #expect(monitor.pollingInterval == 5)
   }
 
   @Test func failedNativeReadDoesNotMatchAnIdleNetworkCondition() {
