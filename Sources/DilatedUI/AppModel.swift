@@ -180,6 +180,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     if old.triggersEnabled != value.triggersEnabled { reconcileTriggers(lastTriggerInputs) }
     refreshPower()
   }
+  func applySettingsProfile(_ profile: SettingsProfile) throws {
+    guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
+    try applySettings(profile.applying(to: settings))
+    onChange?()
+  }
   public private(set) var history = SessionHistory()
   public private(set) var historyIssue: String?
   @ObservationIgnored private var historyAvailable = true

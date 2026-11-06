@@ -8,6 +8,44 @@ import ViewInspector
 @testable import DilatedUI
 
 @MainActor struct MountedSettingsTests {
+  @Test(arguments: [false, true])
+  func preferencesFilePreviewAppliesOnlyAfterConfirmation(apply: Bool) throws {
+    _ = NSApplication.shared
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    model.stopAll()
+    let before = model.settings
+    var imported = AppSettings()
+    imported.defaultMinutes = 45
+    imported.presets = [15, 45]
+    var closed = false
+    var mounted: SettingsProfilePreview?
+    var preview = SettingsProfilePreview(
+      model: model, profile: SettingsProfile(settings: imported), close: { closed = true })
+    preview.didAppear = { mounted = $0 }
+    let host = NSHostingView(rootView: preview.environment(\.colorScheme, .light))
+    host.appearance = NSAppearance(named: .aqua)
+    defer { mounted = nil }
+    try render(host)
+    let view = try #require(mounted)
+    _ = try view.inspect().find(text: "45 minutes")
+    #expect(model.settings == before && model.engine.automationPaused)
+    try view.inspect().find(button: apply ? "Apply preferences" : "Cancel").tap()
+    #expect(closed && model.engine.automationPaused && model.engine.holds.isEmpty)
+    #expect(model.settings.defaultMinutes == (apply ? 45 : before.defaultMinutes))
+    try render(host)
+    if let output = ProcessInfo.processInfo.environment["DILATED_SETTINGS_PREVIEWS"] {
+      let destination = URL(fileURLWithPath: output)
+      try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+      let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+      host.cacheDisplay(in: host.bounds, to: bitmap)
+      try #require(bitmap.representation(using: .png, properties: [:])).write(
+        to: destination.appendingPathComponent("preferences-preview-\(apply).png"))
+    }
+  }
+
   @Test func insertingARowPreservesTheExistingRowsStateAndFocus() throws {
     _ = NSApplication.shared
     FontRegistry.registerBundledFonts()
