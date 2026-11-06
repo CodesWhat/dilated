@@ -3,6 +3,7 @@ import Foundation
 
 public enum ControlAction: String, Codable, Sendable {
   case status, start, lease, runner, renew, release, stopAll, toggle
+  case leaving, cancelLeaving
   case helperStatus, helperSetup, helperRemove
   case lidPermissionStatus, lidPermissionInstall, lidPermissionRemove
   case prepareUpdate, prepareUninstall
@@ -51,6 +52,7 @@ public struct ControlRequest: Codable, Sendable {
 
 }
 public struct ControlResponse: Codable, Sendable {
+  public var leavingPending: Bool?
   public var ok: Bool
   public var id: UUID?
   public var snapshot: EngineSnapshot?
@@ -105,6 +107,8 @@ public enum ControlRouter {
       case .lidPermissionStatus, .lidPermissionInstall, .lidPermissionRemove:
         throw InputError("Closed-lid permission requires the Dilated app.")
       case .status: break
+      case .leaving: engine.leaveWhenIdle()
+      case .cancelLeaving: engine.cancelLeaving()
       case .stopAll: engine.stopAll(now: now)
       case .release:
         if let selected = request.id {
@@ -171,6 +175,15 @@ public struct CLIInput {
     if verb == "package-check" {
       guard arguments.count == 1 else { throw InputError("Use dilated package-check.") }
       return CLIInput(packageCheck: true)
+    }
+    if verb == "leaving" {
+      let flags = Array(arguments.dropFirst())
+      guard Set(flags).count == flags.count,
+        flags.allSatisfy({ ["--cancel", "--json"].contains($0) })
+      else { throw InputError("Use dilated leaving [--cancel] [--json].") }
+      return CLIInput(
+        request: .init(action: flags.contains("--cancel") ? .cancelLeaving : .leaving),
+        json: flags.contains("--json"))
     }
     if ["prepare-update", "prepare-uninstall"].contains(verb) {
       let flags = Array(arguments.dropFirst())
