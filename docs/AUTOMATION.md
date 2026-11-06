@@ -234,14 +234,14 @@ not record keys, move the pointer or promise another app's availability status.
 Both CPU and idle conditions are checked every five seconds only while a matching
 configured rule is enabled and unpaused. Unknown readings never match.
 
-Network throughput (next beta) adds **At least / At most N KB/s** using combined
+Network throughput adds **At least / At most N KB/s** using combined
 received and sent bytes across active, non-loopback interfaces. One KB is 1,000
 bytes. VPN traffic can appear on both tunnel and physical interfaces, so this is
 an aggregate activity measure. The first read and a failed read need a fresh
 baseline. New or reset interfaces contribute after two valid readings. Valid
 idle readings are zero. Older saved rules load unchanged.
 
-Disk throughput (next beta) measures combined reads and writes across block
+Disk throughput measures combined reads and writes across block
 devices using IOKit's numeric statistics. It includes other apps and can count
 virtual-device activity again on a backing physical drive. This is a global
 activity measure; it doesn't select a file, process or volume. At least / At most

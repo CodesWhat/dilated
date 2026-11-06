@@ -1,16 +1,16 @@
 # Installation and removal
 
-Dilated targets macOS 26 or later on Apple Silicon. 1.0.0-beta.11 (build 16) is
+Dilated targets macOS 26 or later on Apple Silicon. 1.0.0-beta.12 (build 17) is
 public as a beta. Download the signed, notarized DMG from
 https://dilated.app/download/file, or run
 `brew install --cask codeswhat/tap/dilated`. The fully qualified name trusts that
 cask. Running `brew info` or `brew fetch` on the bare tap may ask for
 `brew trust --cask codeswhat/tap/dilated`. The GitHub release at
-https://github.com/CodesWhat/dilated/releases/tag/v1.0.0-beta.11 carries the DMG,
+https://github.com/CodesWhat/dilated/releases/tag/v1.0.0-beta.12 carries the DMG,
 ZIP, source tarball, sha256 files and `release-manifest.json`.
 
 The notarized 1.0.0-beta.9 build passed these checks on the maintainer's Mac with
-macOS 27.2, and beta.10 and beta.11 don't change the direct closed-lid path: `macOS27ClosedLid`, `appCrashRecovery`, `heartbeatExpiry`,
+macOS 27.2, and beta.10 through beta.12 don't change the direct closed-lid path: `macOS27ClosedLid`, `appCrashRecovery`, `heartbeatExpiry`,
 `stopResume` and `sudoRuleIntegrity`. `macOS26ClosedLid` and `sparkleUpgrade`
 come from earlier betas. These hardware checks haven't run for this build and are
 listed in the cask caveats and `latest.json`: `sudoRuleRevoked`, `guardTransitions`,
