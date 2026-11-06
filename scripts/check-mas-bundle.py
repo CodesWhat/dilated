@@ -7,16 +7,22 @@ Entitlements are read from the signature with codesign unless --entitlements giv
 Exit 0 when the bundle is clean, 1 with one line per failure otherwise.
 """
 import argparse
+import importlib.util
 from pathlib import Path
 import plistlib
 import struct
 import subprocess
 import sys
 
+_spec = importlib.util.spec_from_file_location('controls_bundle', Path(__file__).with_name('controls-bundle.py'))
+controls = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(controls)
+
 BUNDLE_ID = 'com.codeswhat.dilated.appstore'
 MAIN_EXECUTABLE = 'DilatedApp'
 ENTITLEMENT_ALLOWLIST = frozenset({
     'com.apple.security.app-sandbox',
+    'com.apple.security.application-groups',
     'com.apple.security.network.client',
     'com.apple.security.personal-information.location',
     'com.apple.security.device.bluetooth',
@@ -83,6 +89,8 @@ def check_entitlements(entitlements, failures):
             failures.append(f'entitlement {key}: not in the MAS allowlist')
     if entitlements.get('com.apple.security.app-sandbox') is not True:
         failures.append('entitlement com.apple.security.app-sandbox must be true')
+    if entitlements.get('com.apple.security.application-groups') != [controls.APP_GROUP]:
+        failures.append('entitlement app group must be the exact Dilated controls group')
 
 
 def is_daemon_plist(relative, info):
@@ -121,6 +129,13 @@ def check_bundle(app, bundle_id, entitlements):
         failures.append(f'Contents/MacOS/{MAIN_EXECUTABLE}: architectures {[hex(a) for a in main_arches]}, '
                         'expected arm64 only')
 
+    control_executable = None
+    try:
+        controls.validate(app)
+        control_executable = app / 'Contents/PlugIns/DilatedControls.appex/Contents/MacOS/DilatedControls'
+    except ValueError as error:
+        failures.append(f'Control extension: {error}')
+
     for path in sorted(app.rglob('*')):
         relative = path.relative_to(app)
         if any('sparkle' in part.lower() for part in relative.parts):
@@ -130,7 +145,7 @@ def check_bundle(app, bundle_id, entitlements):
         arches = macho_architectures(path)
         with path.open('rb') as file:
             shebang = file.read(2) == b'#!'
-        if arches is not None or shebang or path.stat().st_mode & 0o111:
+        if path != control_executable and (arches is not None or shebang or path.stat().st_mode & 0o111):
             failures.append(f'{relative}: embedded executable (only Contents/MacOS/{MAIN_EXECUTABLE} may be one)')
         if arches is not None and arches != [CPU_ARM64]:
             failures.append(f'{relative}: architectures {[hex(a) for a in arches]}, expected arm64 only')
