@@ -16,15 +16,17 @@ import os
     self.reload = reload
   }
 
-  static func live() -> AwakeControlPublisher? {
-    guard
-      Bundle.main.bundleIdentifier == "com.codeswhat.dilated"
-        || Bundle.main.bundleIdentifier == "com.codeswhat.dilated.appstore",
-      let store = AwakeControlStateStore.shared()
-    else { return nil }
-    return Self(store: store, appPID: ProcessInfo.processInfo.processIdentifier) {
+  static func live(
+    bundleID: String? = Bundle.main.bundleIdentifier,
+    makeStore: () -> AwakeControlStateStore? = { AwakeControlStateStore.shared() },
+    reload: @escaping () -> Void = {
       ControlCenter.shared.reloadControls(ofKind: AwakeControlStateStore.controlKind)
     }
+  ) -> AwakeControlPublisher? {
+    guard bundleID == "com.codeswhat.dilated" || bundleID == "com.codeswhat.dilated.appstore",
+      let store = makeStore()
+    else { return nil }
+    return Self(store: store, appPID: ProcessInfo.processInfo.processIdentifier, reload: reload)
   }
 
   func publish(_ snapshot: EngineSnapshot) {

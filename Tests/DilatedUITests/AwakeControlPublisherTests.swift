@@ -5,6 +5,36 @@ import Testing
 @testable import DilatedUI
 
 @MainActor struct AwakeControlPublisherTests {
+  @Test func liveFactoryRejectsForeignHostsBeforeAccessingSharedContainer() {
+    var accesses = 0
+    let publisher = AwakeControlPublisher.live(
+      bundleID: "foreign.app",
+      makeStore: {
+        accesses += 1
+        return nil
+      }, reload: {})
+    #expect(publisher == nil)
+    #expect(accesses == 0)
+    #expect(
+      AwakeControlPublisher.live(bundleID: "com.codeswhat.dilated", makeStore: { nil }, reload: {})
+        == nil)
+  }
+
+  @Test func liveFactoryPublishesForBothDistributionChannels() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = AwakeControlStateStore(directory: directory)
+    for bundleID in ["com.codeswhat.dilated", "com.codeswhat.dilated.appstore"] {
+      var reloads = 0
+      let publisher = try #require(
+        AwakeControlPublisher.live(
+          bundleID: bundleID, makeStore: { store }, reload: { reloads += 1 }))
+      publisher.publish(.init())
+      #expect(store.read()?.appPID == ProcessInfo.processInfo.processIdentifier)
+      #expect(reloads == 1)
+    }
+  }
+
   @Test func publishesOnlyChangedStateAndRetainsStopPause() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
