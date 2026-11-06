@@ -494,6 +494,9 @@ import Testing
   }
   func drain(schedules expected: Int) async {
     let deadline = ContinuousClock.now + .seconds(5)
+    if schedules.count == expected {
+      try? await Task.sleep(for: .milliseconds(100))
+    }
     while schedules.count < expected && ContinuousClock.now < deadline {
       try? await Task.sleep(for: .milliseconds(2))
     }

@@ -87,7 +87,12 @@ import Testing
       await model.prepareForPackage(
         .uninstall, app: app, removeLoginItem: {}, removeCommandLine: {}))
     #expect(world.scripts.isEmpty && world.installed)
-    #expect(model.message?.contains("--remove-lid-permission") == true)
+    #if MAS_CHANNEL
+      #expect(model.message?.contains("Dilated Closed-Lid Setup") == true)
+      #expect(model.message?.contains("--remove-lid-permission") == false)
+    #else
+      #expect(model.message?.contains("--remove-lid-permission") == true)
+    #endif
   }
 
   @Test func packageRemovalExplainsTheAvailablePermissionRemovalPath() async throws {
@@ -104,6 +109,8 @@ import Testing
     #if MAS_CHANNEL
       #expect(!permission.canRemove)
       #expect(model.message?.contains("dilated lid-permission remove") == false)
+      #expect(model.message?.contains("--remove-lid-permission") == false)
+      #expect(model.message?.contains("Dilated Closed-Lid Setup") == true)
     #else
       #expect(model.message?.contains("dilated lid-permission remove") == true)
       #expect(model.message?.contains("Settings") == true)
