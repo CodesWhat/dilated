@@ -22,7 +22,8 @@ import DilatedCore
   }
 
   static func make(
-    model: AppModel, openSettings: @escaping () -> Void, openAbout: @escaping () -> Void = {}
+    model: AppModel, openSettings: @escaping () -> Void, openAbout: @escaping () -> Void = {},
+    openInspector: @escaping () -> Void = {}
   ) -> NSMenu {
     let menu = NSMenu()
     menu.autoenablesItems = false
@@ -112,6 +113,7 @@ import DilatedCore
       menu.addItem(action("Sleep now") { Task { await model.sleepNow() } })
     }
     menu.addItem(.separator())
+    menu.addItem(action("Why is my Mac awake?", body: openInspector))
     menu.addItem(action("Settings…", key: ",", body: openSettings))
     #if !MAS_CHANNEL
       if model.updater.isAvailable {

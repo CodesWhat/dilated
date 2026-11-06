@@ -117,6 +117,7 @@ export function menuModel(state, now) {
     });
   }
   items.push({ kind: 'separator' });
+  items.push({ kind: 'item', key: 'inspector', label: 'Why is my Mac awake?', action: close });
   items.push({ kind: 'item', key: 'settings', label: 'Settings…', shortcut: '⌘ ,', action: close });
   items.push({ kind: 'item', key: 'updates', label: 'Check for Updates…', action: close });
   items.push({ kind: 'item', key: 'about', label: 'About Dilated', action: close });

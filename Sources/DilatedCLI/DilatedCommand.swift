@@ -12,6 +12,19 @@ import Foundation
     if AgentRenewerCommand.matches(Array(CommandLine.arguments.dropFirst())) {
       exit(await AgentRenewerCommand.run(Array(CommandLine.arguments.dropFirst())))
     }
+    let arguments = Array(CommandLine.arguments.dropFirst())
+    if arguments.starts(with: ["agent", "claude-hook"]) {
+      // Hook failures must never block Claude or add text to its context.
+      do {
+        guard arguments.count == 4, arguments[2] == "--pid" else { return }
+        let data = FileHandle.standardInput.readDataToEndOfFile()
+        guard let pid = Int32(arguments[3]) else { return }
+        let command = try ClaudeHookInput.command(data: data, pid: pid)
+        if command.verb != .end { _ = try AgentCommand.validate(pid: arguments[3]) }
+        _ = try await runAgent(command)
+      } catch {}
+      return
+    }
     do {
       let input = try CLIInput.parse(Array(CommandLine.arguments.dropFirst()))
       if input.help {
@@ -178,13 +191,16 @@ import Foundation
         return try LocalSocketClient.send(request, to: endpoint)
       } catch let error as AppConnectionUnavailable {
         // begin and renew launch the app like hold does; end never wakes a closed app.
-        guard command.verb != .end, !launched else { throw error }
+        guard command.verb != .end, !launched,
+          !command.decidedByHook || command.verb == .begin
+        else { throw error }
         launched = true
         try await launchApp(endpoint: endpoint)
         return try LocalSocketClient.send(request, to: endpoint)
       }
     }
     let response = try await lifecycle.run(command)
+    if command.decidedByHook { return 0 }
     if command.json {
       print(String(decoding: try WireJSON.encode(response), as: UTF8.self))
     } else if response.ok {

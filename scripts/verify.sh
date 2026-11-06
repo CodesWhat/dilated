@@ -3,14 +3,19 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swift build --arch arm64 --jobs 4
 # Mounted views render synchronously on the main actor; keep deadline tests in a separate run.
-mounted_suites='Settings(ContentInteraction|GroupLayout|Render|Scroll)Tests|MountedSettingsTests|TriggerEditorInteractionTests|PackageSheetDismissalTests'
-# DILATED_COVERAGE=1 (set by CI) instruments both runs and exports Sources/ coverage to .build/coverage/lcov.info.
+process_suites='AgentRenewerProcessTests|ClaudeHookProcessTests'
+mounted_suites='AwakeInspectorTests|Settings(ContentInteraction|GroupLayout|Render|Scroll)Tests|MountedSettingsTests|TriggerEditorInteractionTests|PackageSheetDismissalTests'
+# DILATED_COVERAGE=1 (set by CI) instruments all three runs and exports Sources/ coverage to .build/coverage/lcov.info.
 coverage_args=()
 if [ -n "${DILATED_COVERAGE:-}" ]; then
   coverage_args=(--enable-code-coverage)
   rm -rf .build/coverage
 fi
-bash scripts/swift-test.sh --jobs 4 ${coverage_args[@]+"${coverage_args[@]}"} --skip "$mounted_suites"
+bash scripts/swift-test.sh --jobs 4 ${coverage_args[@]+"${coverage_args[@]}"} --skip "$mounted_suites|$process_suites"
+[ -z "${DILATED_COVERAGE:-}" ] || bash scripts/coverage-lcov.sh save
+# The real CLI/socket fixture needs cooperative-pool capacity for its server handler.
+# Run it outside the parallel app suites instead of extending the production socket timeout.
+bash scripts/swift-test.sh --jobs 4 ${coverage_args[@]+"${coverage_args[@]}"} --filter "$process_suites"
 [ -z "${DILATED_COVERAGE:-}" ] || bash scripts/coverage-lcov.sh save
 bash scripts/swift-test.sh --jobs 4 ${coverage_args[@]+"${coverage_args[@]}"} --filter "$mounted_suites"
 if [ -n "${DILATED_COVERAGE:-}" ]; then
