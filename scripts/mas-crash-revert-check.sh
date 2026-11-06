@@ -45,8 +45,8 @@ send_url() {
 # Opens the ad-hoc app and sets app_pid to the one process running from our temp build.
 launch_app() {
   /usr/bin/open -g -n "$app" || return 1
-  local i pids
-  for i in $(seq 1 40); do
+  local attempt pids
+  for ((attempt = 0; attempt < 40; attempt++)); do
     pids=$(/usr/bin/pgrep -f "^$exe\$" || true)
     if [ -n "$pids" ]; then
       if [ "$(echo "$pids" | /usr/bin/wc -l | tr -d ' ')" != 1 ]; then
@@ -65,14 +65,14 @@ launch_app() {
 quit_app() {
   pid_alive "$app_pid" || return 0
   /usr/bin/osascript -e 'with timeout of 10 seconds' -e "tell application id \"$bundle\" to quit" -e 'end timeout' >/dev/null 2>&1
-  local i
-  for i in $(seq 1 40); do
+  local attempt
+  for ((attempt = 0; attempt < 40; attempt++)); do
     pid_alive "$app_pid" || { say "  app $app_pid quit"; return 0; }
     /bin/sleep 0.25
   done
   say "  app $app_pid did not quit, killing that pid"
   kill "$app_pid" 2>/dev/null
-  for i in $(seq 1 20); do
+  for ((attempt = 0; attempt < 20; attempt++)); do
     pid_alive "$app_pid" || return 0
     /bin/sleep 0.25
   done
@@ -104,8 +104,8 @@ seed_settings() {
     say "  no settings.json yet: launch once to let the app create it"
     settings_created=1
     launch_app || return 1
-    local i
-    for i in $(seq 1 60); do
+    local attempt
+    for ((attempt = 0; attempt < 60; attempt++)); do
       [ -f "$settings_file" ] && break
       /bin/sleep 0.5
     done
