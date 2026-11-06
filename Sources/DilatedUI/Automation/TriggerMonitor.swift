@@ -67,6 +67,7 @@ import SystemConfiguration
   private var needsProcesses = false
   private var needsCPU = false
   private var needsNetworkThroughput = false
+  private var needsDiskThroughput = false
   private var needsIdle = false
   private var needsVolumes = false
   private var needsAudioOutput = false
@@ -78,6 +79,9 @@ import SystemConfiguration
   private var networkSampler = ThroughputSampler()
   private var lastNetworkReading: (at: TimeInterval, value: Double?)?
   private let readNetworkCounters: () -> [String: ThroughputCounters]?
+  private var diskSampler = ThroughputSampler()
+  private var lastDiskReading: (at: TimeInterval, value: Double?)?
+  private let readDiskCounters: () -> [String: ThroughputCounters]?
   private let readUptime: () -> TimeInterval
   var pollingInterval: TimeInterval? { pollTimer?.timeInterval }
   private var processNames: Set<String> = []
@@ -89,6 +93,7 @@ import SystemConfiguration
     makeBluetoothSession: (() -> any BluetoothSession)? = nil,
     readNetworkCounters: @escaping () -> [String: ThroughputCounters]? = NetworkThroughputSource
       .read,
+    readDiskCounters: @escaping () -> [String: ThroughputCounters]? = DiskThroughputSource.read,
     readUptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
     workspaceNotifications: NotificationCenter? = nil,
     changed: @escaping () -> Void
@@ -96,6 +101,7 @@ import SystemConfiguration
     self.changed = changed
     self.readPower = readPower
     self.readNetworkCounters = readNetworkCounters
+    self.readDiskCounters = readDiskCounters
     self.readUptime = readUptime
     audioOutput = AudioOutputObserver(changed: changed)
     usb = USBDeviceObserver(changed: changed)
@@ -158,6 +164,10 @@ import SystemConfiguration
       if case .networkThroughput = $0 { return true }
       return false
     }
+    needsDiskThroughput = criteria.contains {
+      if case .diskThroughput = $0 { return true }
+      return false
+    }
     needsIdle = criteria.contains {
       if case .idle = $0 { return true }
       return false
@@ -194,8 +204,12 @@ import SystemConfiguration
       networkSampler = ThroughputSampler()
       lastNetworkReading = nil
     }
+    if !needsDiskThroughput {
+      diskSampler = ThroughputSampler()
+      lastDiskReading = nil
+    }
     let needsPolling =
-      needsProcesses || needsCPU || needsNetworkThroughput || needsIdle
+      needsProcesses || needsCPU || needsNetworkThroughput || needsDiskThroughput || needsIdle
       || (needsWiFi && wifi.isAuthorized)
     if needsPolling && pollTimer == nil {
       let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
@@ -264,6 +278,13 @@ import SystemConfiguration
       }
       input.networkBytesPerSecond = lastNetworkReading?.value
     }
+    if needsDiskThroughput {
+      let uptime = readUptime()
+      if lastDiskReading == nil || uptime - lastDiskReading!.at >= 5 {
+        lastDiskReading = (uptime, diskSampler.sample(readDiskCounters(), at: uptime))
+      }
+      input.diskBytesPerSecond = lastDiskReading?.value
+    }
     #if !MAS_CHANNEL
       if needsProcesses {
         let processes = ProcessCatalog.read()
@@ -328,6 +349,9 @@ import SystemConfiguration
     networkSampler = ThroughputSampler()
     lastNetworkReading = nil
     needsNetworkThroughput = false
+    diskSampler = ThroughputSampler()
+    lastDiskReading = nil
+    needsDiskThroughput = false
     needsCPU = false
     needsIdle = false
     needsVolumes = false
@@ -349,6 +373,8 @@ import SystemConfiguration
               self?.lastCPUReading = nil
               self?.networkSampler = ThroughputSampler()
               self?.lastNetworkReading = nil
+              self?.diskSampler = ThroughputSampler()
+              self?.lastDiskReading = nil
             }
             self?.changed()
           }

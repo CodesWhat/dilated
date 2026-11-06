@@ -82,6 +82,7 @@ public enum TriggerCriterion: Codable, Equatable, Sendable {
   case bluetooth(device: BluetoothDeviceIdentity?, name: String)
   case cpu(percent: Int, atLeast: Bool)
   case networkThroughput(kilobytesPerSecond: Int, atLeast: Bool)
+  case diskThroughput(kilobytesPerSecond: Int, atLeast: Bool)
   case idle(seconds: TimeInterval, atLeast: Bool)
 }
 
@@ -104,6 +105,7 @@ public struct TriggerInputs: Sendable {
   public var connectedBluetoothDevices: Set<BluetoothDeviceIdentity>?
   public var cpuPercent: Double?
   public var networkBytesPerSecond: Double?
+  public var diskBytesPerSecond: Double?
   public var idleSeconds: TimeInterval?
   public init() {}
 }
@@ -194,6 +196,9 @@ public struct TriggerRule: Codable, Equatable, Identifiable, Sendable {
           return false
         }
         return atLeast ? value >= Double(kilobytes) * 1_000 : value <= Double(kilobytes) * 1_000
+      case .diskThroughput(let kilobytes, let atLeast):
+        guard let value = input.diskBytesPerSecond, value.isFinite, value >= 0 else { return false }
+        return atLeast ? value >= Double(kilobytes) * 1_000 : value <= Double(kilobytes) * 1_000
       case .idle(let seconds, let atLeast):
         guard let value = input.idleSeconds, value.isFinite, (0...315_576_000).contains(value)
         else { return false }
@@ -233,6 +238,7 @@ extension TriggerCriterion {
         && name.count <= 255
     case .cpu(let percent, _): return (0...100).contains(percent)
     case .networkThroughput(let kilobytes, _): return (0...10_000_000).contains(kilobytes)
+    case .diskThroughput(let kilobytes, _): return (0...10_000_000).contains(kilobytes)
     case .idle(let seconds, _): return seconds.isFinite && (0...315_576_000).contains(seconds)
     }
   }

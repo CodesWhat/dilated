@@ -8,11 +8,15 @@ import ViewInspector
 
 #if DEBUG
   @MainActor struct TriggerEditorInteractionTests {
-    @Test func networkThroughputEditorSavesDirectionAndThreshold() throws {
+    @Test(arguments: [false, true])
+    func networkAndDiskThroughputEditorSavesDirectionAndThreshold(disk: Bool) throws {
       _ = NSApplication.shared
       FontRegistry.registerBundledFonts()
-      let rule = TriggerRule(
-        name: "Transfer", criteria: [.networkThroughput(kilobytesPerSecond: 100, atLeast: true)])
+      let original: TriggerCriterion =
+        disk
+        ? .diskThroughput(kilobytesPerSecond: 100, atLeast: true)
+        : .networkThroughput(kilobytesPerSecond: 100, atLeast: true)
+      let rule = TriggerRule(name: "Transfer", criteria: [original])
       var saved: TriggerRule?
       var mounted: TriggerRuleEditor?
       var criterion: (any View)?
@@ -27,7 +31,7 @@ import ViewInspector
       try render(host)
       let liveCriterion = try #require(criterion)
       let picker = try liveCriterion.inspect().find(ViewType.Picker.self) {
-        try $0.labelView().text().string() == "Network throughput"
+        try $0.labelView().text().string() == (disk ? "Disk throughput" : "Network throughput")
       }
       try picker.select(value: false)
       try render(host)
@@ -38,7 +42,11 @@ import ViewInspector
       try field.setInput("250")
       try render(host)
       try #require(mounted).inspect().find(button: "Save").tap()
-      #expect(saved?.criteria == [.networkThroughput(kilobytesPerSecond: 250, atLeast: false)])
+      let expected: TriggerCriterion =
+        disk
+        ? .diskThroughput(kilobytesPerSecond: 250, atLeast: false)
+        : .networkThroughput(kilobytesPerSecond: 250, atLeast: false)
+      #expect(saved?.criteria == [expected])
     }
 
     @Test func removingTheFirstConditionSavesTheSurvivors() throws {

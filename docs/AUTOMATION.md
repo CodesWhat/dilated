@@ -220,7 +220,14 @@ an aggregate activity measure. The first read and a failed read need a fresh
 baseline. New or reset interfaces contribute after two valid readings. Valid
 idle readings are zero. Older saved rules load unchanged.
 
-Throughput shares the five-second trigger poller and uses 64-bit counters for
+Disk throughput (next beta) measures combined reads and writes across block
+devices using IOKit's numeric statistics. It includes other apps and can count
+virtual-device activity again on a backing physical drive. This is a global
+activity measure; it doesn't select a file, process or volume. At least / At most
+thresholds use the same KB/s units, warm-up, dwell and grace as network throughput.
+Unavailable or malformed counters can't match an idle condition.
+
+Both throughput conditions share the five-second trigger poller and use 64-bit counters for
 fast links. Reads are cached for five seconds, and sampling ends when its last
 enabled, unpaused rule is removed or automation is paused. New throughput
 conditions default to 30 seconds of dwell. Adjust dwell and grace to keep short
