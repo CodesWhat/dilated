@@ -110,7 +110,7 @@ public struct NativePowerRunner: PowerCommandRunning {
     }
   }
 
-  static func requestSystemSleep() throws {
+  public static func requestSystemSleep() throws {
     let connection = IOPMFindPowerManagement(mach_port_t(MACH_PORT_NULL))
     guard connection != 0 else { throw ClosedLidPowerError.sleepFailed(kIOReturnNotFound) }
     defer { IOServiceClose(connection) }

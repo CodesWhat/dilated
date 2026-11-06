@@ -92,7 +92,10 @@ import Foundation
       if input.json {
         print(String(decoding: try WireJSON.encode(response), as: UTF8.self))
       } else if response.ok {
-        if request.action == .lidPermissionStatus, let word = response.lidPermission {
+        if [.leaving, .cancelLeaving].contains(request.action) {
+          print(
+            request.action == .leaving ? "Sleep when idle is armed." : "Sleep when idle cancelled.")
+        } else if request.action == .lidPermissionStatus, let word = response.lidPermission {
           print(word)
         } else if [.lidPermissionInstall, .lidPermissionRemove].contains(request.action) {
           print(response.message ?? "Closed-lid permission updated.")
@@ -116,6 +119,7 @@ import Foundation
             }
           }
           if response.helper?.enabled == true { print("Closed-lid armed.") }
+          if response.leavingPending == true { print("Sleep when idle is armed.") }
         }
       }
       guard response.ok else {
@@ -333,6 +337,7 @@ import Foundation
   }
   private static let help = """
     Usage: dilated status [--json] [--assertions]
+           dilated leaving [--cancel] [--json]
            dilated on [--for 2h | --until 17:00] [--label NAME] [--display-awake] [--lid]
            dilated off [--id ID | --label NAME]
            dilated hold [--ttl 10m | --for "until 5pm"] [--label NAME] [--id ID | --lid]
