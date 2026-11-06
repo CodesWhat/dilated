@@ -8,6 +8,39 @@ import ViewInspector
 
 #if DEBUG
   @MainActor struct TriggerEditorInteractionTests {
+    @Test func networkThroughputEditorSavesDirectionAndThreshold() throws {
+      _ = NSApplication.shared
+      FontRegistry.registerBundledFonts()
+      let rule = TriggerRule(
+        name: "Transfer", criteria: [.networkThroughput(kilobytesPerSecond: 100, atLeast: true)])
+      var saved: TriggerRule?
+      var mounted: TriggerRuleEditor?
+      var criterion: (any View)?
+      defer {
+        mounted = nil
+        criterion = nil
+      }
+      var editor = TriggerRuleEditor(rule: rule, save: { saved = $0 }, remove: {})
+      editor.didAppear = { mounted = $0 }
+      editor.criterionDidAppear = { criterion = $0 }
+      let host = NSHostingView(rootView: editor)
+      try render(host)
+      let liveCriterion = try #require(criterion)
+      let picker = try liveCriterion.inspect().find(ViewType.Picker.self) {
+        try $0.labelView().text().string() == "Network throughput"
+      }
+      try picker.select(value: false)
+      try render(host)
+      let updatedCriterion = try #require(criterion)
+      let field = try updatedCriterion.inspect().find(ViewType.TextField.self) {
+        try $0.labelView().text().string() == "KB/s"
+      }
+      try field.setInput("250")
+      try render(host)
+      try #require(mounted).inspect().find(button: "Save").tap()
+      #expect(saved?.criteria == [.networkThroughput(kilobytesPerSecond: 250, atLeast: false)])
+    }
+
     @Test func removingTheFirstConditionSavesTheSurvivors() throws {
       _ = NSApplication.shared
       FontRegistry.registerBundledFonts()

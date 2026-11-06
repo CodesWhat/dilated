@@ -122,6 +122,15 @@ the CPU baseline. Mounted paths use Workspace mount/unmount/rename notifications
 and no file access. Global automation pause removes monitoring and polling. Network identity uses
 IP/subnet, gateway and DNS configuration without Location access.
 
+Network throughput uses getifaddrs for interface identity and NET_RT_IFLIST2's
+64-bit byte counters. Loopback and down interfaces are excluded. The shared
+ThroughputSampler computes received-plus-sent deltas using monotonic elapsed time,
+warming up on failure, reset or newly seen interfaces. It shares the existing
+five-second poller, caches reads for five seconds and discards its baseline on
+wake or when no active criterion needs it. Dwell and grace supply temporal
+hysteresis. No network traffic, addresses or interface names are persisted by
+the sampler. VPN interfaces can count the same traffic as their physical link.
+
 Wi-Fi SSID conditions store raw name bytes and read CoreWLAN only with Location
 authorization. A lazily created authorization source requests permission only
 from the condition editor's explicit button, never from trigger evaluation.

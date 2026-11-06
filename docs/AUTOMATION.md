@@ -213,6 +213,19 @@ not record keys, move the pointer or promise another app's availability status.
 Both CPU and idle conditions are checked every five seconds only while a matching
 configured rule is enabled and unpaused. Unknown readings never match.
 
+Network throughput (next beta) adds **At least / At most N KB/s** using combined
+received and sent bytes across active, non-loopback interfaces. One KB is 1,000
+bytes. VPN traffic can appear on both tunnel and physical interfaces, so this is
+an aggregate activity measure. The first read and a failed read need a fresh
+baseline. New or reset interfaces contribute after two valid readings. Valid
+idle readings are zero. Older saved rules load unchanged.
+
+Throughput shares the five-second trigger poller and uses 64-bit counters for
+fast links. Reads are cached for five seconds, and sampling ends when its last
+enabled, unpaused rule is removed or automation is paused. New throughput
+conditions default to 30 seconds of dwell. Adjust dwell and grace to keep short
+bursts from repeatedly starting and ending a hold. Stop-pause still wins.
+
 Wi-Fi conditions match the exact SSID bytes, including capitalization and spaces.
 Enter a network name or choose Get current Wi-Fi network in its condition editor.
 Only the explicit Allow Location access button requests macOS permission.
