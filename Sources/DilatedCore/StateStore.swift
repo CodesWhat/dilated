@@ -21,6 +21,18 @@ public struct StateStore: Sendable {
 }
 
 public enum TimeInput {
+  public static func sessionDuration(
+    _ text: String, now: Date = Date(), calendar: Calendar = .current
+  ) throws -> TimeInterval {
+    let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let legacy = try? duration(value) { return legacy }
+    switch DurationPhrase.parse(value, now: now, calendar: calendar) {
+    case .duration(let seconds): return seconds
+    case .deadline(let date): return date.timeIntervalSince(now)
+    case .rejected: throw WakeError.invalidDuration
+    }
+  }
+
   public static func duration(_ text: String) throws -> TimeInterval {
     guard text.range(of: #"^\d+(\.\d+)?[smh]$"#, options: .regularExpression) != nil,
       let amount = Double(text.dropLast())

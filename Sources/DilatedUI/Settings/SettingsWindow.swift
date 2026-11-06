@@ -750,6 +750,8 @@ struct PageIdentity: Hashable {
       }
       #if !MAS_CHANNEL
         ClaudeHooksSettings { model.message = $0 }
+        AgentHooksSettings(report: { model.message = $0 }, tool: .codex)
+        OpenCodeHooksSettings { model.message = $0 }
       #endif
       Text(
         "dilated on --for 2h\ndilated hold --label build --ttl 10m\ndilated hold --id ID --ttl 10m\ndilated release --id ID\ndilated run -- make test\ndilated status --json"

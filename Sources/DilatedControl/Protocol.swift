@@ -233,7 +233,8 @@ public struct CLIInput {
       case "off", "release": ["--id", "--label", "--json"]
       case "hold":
         [
-          "--id", "--ttl", "--label", "--display-awake", "--display-sleep", "--override-low-power",
+          "--id", "--ttl", "--for", "--label", "--display-awake", "--display-sleep",
+          "--override-low-power",
           "--lid", "--json",
         ]
       case "run":
@@ -265,7 +266,7 @@ public struct CLIInput {
         let value = arguments[index]
         index += 1
         switch flag {
-        case "--for", "--ttl": request.duration = try TimeInput.duration(value)
+        case "--for", "--ttl": request.duration = try TimeInput.sessionDuration(value)
         case "--until":
           _ = try TimeInput.until(value)
           request.until = value
@@ -284,6 +285,7 @@ public struct CLIInput {
       }
     }
     guard request.duration == nil || request.until == nil,
+      !(seen.contains("--for") && seen.contains("--ttl")),
       !(seen.contains("--display-awake") && seen.contains("--display-sleep"))
     else {
       throw InputError("Choose one duration and one display option.")
