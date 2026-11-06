@@ -33,8 +33,13 @@ Removal preserves other commands and the executable inside the app bundle.
 
 `dilated helper status|setup|remove` still work as deprecated aliases and go away in a later release.
 
-Durations use `s`, `m` or `h`, including decimals such as `1.5h`. Until-times use
-24-hour local time. A past time means tomorrow. `--override-low-power` permits a
+`on --for` and `hold --ttl` (also `hold --for`) accept `90m`, `2h30`,
+`for 1 hour 30 minutes` or `until 5pm`. The menu's duration field and the
+Shortcuts action's Duration phrase input accept the same phrases. Choose either
+minutes or a phrase in Shortcuts, not both. Ambiguous times such as `until 5`
+are rejected. New phrases are limited to seven days; existing single-unit
+numeric input keeps its ten-year limit. `--until` still accepts 24-hour local
+time. A past time means tomorrow. `--override-low-power` permits a
 new hold in Low Power Mode. The configured battery floor still applies. New
 requests also respect the explicit Low Power Mode override in Settings.
 `--lid` requires the app and the closed-lid sudo rule, even for `run`, and never bypasses

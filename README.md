@@ -84,7 +84,7 @@ Battery floor and Low Power Mode guards can end a hold before it drains your bat
 
 | Area | What it does |
 | --- | --- |
-| **Holds and timers** | Timed and indefinite awake holds from the menu. Downloads can drive a hold too: choose **While a file downloads…** or **While a folder downloads…**, with 5 to 3600 seconds of inactivity before it ends. |
+| **Holds and timers** | Timed and indefinite awake holds from the menu. Type `2h30` or `until 5pm` in the menu, CLI or Shortcuts. Downloads can drive a hold too: choose **While a file downloads…** or **While a folder downloads…**, with 5 to 3600 seconds of inactivity before it ends. |
 | **Display sleep** | Choose whether the display may sleep during a hold. |
 | **Guards** | A battery floor (ignored on AC by default, configurable in **Settings → Battery & Safety**) and Low Power Mode guards. **Start Anyway** overrides the floor for one hold. Closed-lid has its own safety limits. |
 | **Menu bar** | Four bundled glyphs, or your own static PNG icons (up to 512 × 512 pixels and 2 MB, separate idle image optional). Optional compact, clock or end-time text, with seconds shown or hidden, 12/24-hour choice and small or standard size. Indefinite holds show ∞. |
