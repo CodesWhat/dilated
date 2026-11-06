@@ -5,6 +5,11 @@ options:
 packages:
   Dilated:
     path: ../..
+settings:
+  base:
+    DILATED_HOST_BUNDLE_ID: com.codeswhat.dilated
+    DILATED_HOST_INFO_PLIST: ../../packaging/Info.plist
+    REGISTER_APP_WITH_LAUNCH_SERVICES: NO
 schemes:
   DilatedAutomationShell:
     build:
@@ -18,10 +23,10 @@ targets:
       - path: ../../Sources/Dilated
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.codeswhat.dilated
+        PRODUCT_BUNDLE_IDENTIFIER: "$(DILATED_HOST_BUNDLE_ID)"
         PRODUCT_NAME: DilatedApp
         EXECUTABLE_NAME: DilatedApp
-        INFOPLIST_FILE: ../../packaging/Info.plist
+        INFOPLIST_FILE: "$(DILATED_HOST_INFO_PLIST)"
         GENERATE_INFOPLIST_FILE: NO
         WRAPPER_EXTENSION: app
         MACH_O_TYPE: mh_execute
@@ -34,3 +39,30 @@ targets:
     dependencies:
       - package: Dilated
         product: DilatedUI
+      - target: DilatedControls
+        embed: true
+        codeSign: false
+  DilatedControls:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: ../../packaging/controls/DilatedControls.swift
+      - path: ../../Sources/Dilated/SetAwakeControlIntent.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(DILATED_HOST_BUNDLE_ID).controls"
+        PRODUCT_NAME: DilatedControls
+        INFOPLIST_FILE: ../../packaging/controls/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGNING_ALLOWED: NO
+        ENABLE_HARDENED_RUNTIME: YES
+        SWIFT_VERSION: "6.0"
+        ARCHS: arm64
+        ONLY_ACTIVE_ARCH: YES
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+        ENABLE_DEBUG_DYLIB: NO
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DILATED_CONTROL_EXTENSION $(DILATED_CHANNEL_FLAGS)"
+    dependencies:
+      - package: Dilated
+        product: DilatedCore

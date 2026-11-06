@@ -69,6 +69,7 @@ if [[ "$configuration" == "release" ]]; then shell_configuration="Release"; fi
 shell_app="build/automation-shell/DerivedData/Build/Products/$shell_configuration/DilatedApp.app"
 cp "$shell_app/Contents/MacOS/DilatedApp" "$app/Contents/MacOS/DilatedApp"
 ditto "$shell_app/Contents/Resources/Metadata.appintents" "$app/Contents/Resources/Metadata.appintents"
+ditto "$shell_app/Contents/PlugIns" "$app/Contents/PlugIns"
 cp "$bin_dir/dilated" "$app/Contents/MacOS/dilated"
 # The helper plist ships for one release so macOS can unregister the job older installs still
 # have. The helper executable is gone.
@@ -90,6 +91,11 @@ if updates not in ('0', '1'):
     raise SystemExit('DILATED_ENABLE_UPDATES must be 0 or 1')
 info['DilatedUpdatesEnabled'] = updates == '1'
 destination.write_bytes(plistlib.dumps(info))
+extension = destination.parent / 'PlugIns/DilatedControls.appex/Contents/Info.plist'
+control_info = plistlib.loads(extension.read_bytes())
+for key in ('CFBundleShortVersionString', 'CFBundleVersion'):
+    control_info[key] = info[key]
+extension.write_bytes(plistlib.dumps(control_info))
 PY
 cp packaging/Dilated.icns "$app/Contents/Resources/Dilated.icns"
 cp LICENSE "$app/Contents/Resources/LICENSE"
@@ -99,6 +105,7 @@ mkdir -p "$app/Contents/Frameworks"
 ditto "$sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
 cp "$sparkle/LICENSE" "$app/Contents/Resources/Sparkle-LICENSE"
 python3 scripts/package-release.py --check-automation "$app"
+python3 scripts/controls-bundle.py "$app"
 bundle="$bin_dir/Dilated_DilatedUI.bundle"
 test -d "$bundle"
 ditto "$bundle" "$app/Contents/Resources/$(basename "$bundle")"
@@ -122,8 +129,11 @@ for nested in "$app/Contents/Resources/"*.bundle; do
     codesign --force "${sign_options[@]}" "$timestamp" --sign "$sign_as" "$nested"
 done
 codesign --force "${sign_options[@]}" "$timestamp" --sign "$sign_as" "$app/Contents/MacOS/dilated"
+codesign --force "${sign_options[@]}" "$timestamp" --entitlements packaging/controls/DilatedControls.entitlements \
+    --sign "$sign_as" "$app/Contents/PlugIns/DilatedControls.appex"
 codesign --force "${sign_options[@]}" "$timestamp" --entitlements packaging/Dilated.entitlements --sign "$sign_as" "$app"
 codesign --verify --deep --strict "$app"
+python3 scripts/controls-bundle.py "$app" --signed
 echo "$app"
 if $verify; then
     open -n "$app"
