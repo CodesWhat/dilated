@@ -30,6 +30,7 @@ import DilatedCore
     menu.addItem(.sectionHeader(title: model.statusText))
     if model.closedLid.active { menu.addItem(information("Closed-lid armed")) }
     if model.engine.automationPaused { menu.addItem(information("Automation paused")) }
+    if model.engine.leavingPending { menu.addItem(information("Sleep when idle is armed")) }
     if let attention = model.attention { menu.addItem(information(attention)) }
     menu.addItem(.separator())
     menu.addItem(
@@ -111,6 +112,14 @@ import DilatedCore
     }
     if model.closedLid.active || model.closedLid.state?.readback.effectiveDisabled == true {
       menu.addItem(action("Sleep now") { Task { await model.sleepNow() } })
+    }
+    if model.engine.leavingPending {
+      menu.addItem(action("Cancel sleep when idle") { model.cancelLeaving() })
+    } else {
+      menu.addItem(
+        action("Sleep when holds finish") {
+          do { try model.leaveWhenIdle() } catch { model.message = error.localizedDescription }
+        })
     }
     menu.addItem(.separator())
     menu.addItem(action("Why is my Mac awake?", body: openInspector))
