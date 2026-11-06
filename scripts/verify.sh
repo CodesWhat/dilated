@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 swift build --arch arm64 --jobs 4
 # Mounted views render synchronously on the main actor; keep deadline tests in a separate run.
 process_suites='AgentRenewerProcessTests|ClaudeHookProcessTests'
-mounted_suites='Settings(ContentInteraction|GroupLayout|Render|Scroll)Tests|MountedSettingsTests|TriggerEditorInteractionTests|PackageSheetDismissalTests'
+mounted_suites='AwakeInspectorTests|Settings(ContentInteraction|GroupLayout|Render|Scroll)Tests|MountedSettingsTests|TriggerEditorInteractionTests|PackageSheetDismissalTests'
 # DILATED_COVERAGE=1 (set by CI) instruments all three runs and exports Sources/ coverage to .build/coverage/lcov.info.
 coverage_args=()
 if [ -n "${DILATED_COVERAGE:-}" ]; then

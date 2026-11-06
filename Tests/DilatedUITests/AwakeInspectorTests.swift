@@ -96,6 +96,33 @@ import ViewInspector
     #expect(reads == 2)
   }
 
+  @Test func settingsRoutePresentsTheProductionInspectorAndRefreshesOnReopen() throws {
+    _ = NSApplication.shared
+    FontRegistry.registerBundledFonts()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "inspector-window-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    let controller = SettingsWindow(model: model)
+    defer {
+      controller.stop()
+      controller.close()
+    }
+    let initial = controller.navigation.presentationEpoch
+    for expected in 1...2 {
+      controller.present(page: .inspector)
+      let host = controller.hostingViewForTesting
+      host.layoutSubtreeIfNeeded()
+      let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+      host.cacheDisplay(in: host.bounds, to: bitmap)
+      #expect(controller.navigation.presentationEpoch == initial + expected)
+      #expect(controller.window?.isVisible == true)
+      controller.close()
+    }
+    #expect(model.engine.holds.isEmpty)
+  }
+
   @Test func menuOpensTheInspector() throws {
     _ = NSApplication.shared
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
