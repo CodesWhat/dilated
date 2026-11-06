@@ -601,6 +601,8 @@ private enum TriggerKind: String, CaseIterable {
   }
   private func scheduleEditor(_ schedule: WeeklySchedule) -> some View {
     VStack(alignment: .leading, spacing: 10) {
+      WeeklyScheduleGrid(
+        schedule: Binding(get: { schedule }, set: { criterion = .schedule($0) }))
       HStack {
         ForEach(1...7, id: \.self) { day in
           Toggle(
