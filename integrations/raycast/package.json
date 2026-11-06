@@ -1,0 +1,84 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "dilated",
+  "title": "Dilated",
+  "description": "Start and stop Dilated keep-awake sessions",
+  "icon": "icon.png",
+  "author": "scttbnsn",
+  "license": "MIT",
+  "categories": [
+    "System",
+    "Productivity"
+  ],
+  "platforms": [
+    "macOS"
+  ],
+  "commands": [
+    {
+      "name": "start",
+      "title": "Start Awake Session",
+      "subtitle": "Dilated",
+      "description": "Keep the Mac awake until stopped; respects paused automation",
+      "mode": "no-view"
+    },
+    {
+      "name": "stop",
+      "title": "Stop All Awake Sessions",
+      "subtitle": "Dilated",
+      "description": "Stop every Dilated hold and pause automation",
+      "mode": "no-view"
+    },
+    {
+      "name": "status",
+      "title": "Show Awake Status",
+      "subtitle": "Dilated",
+      "description": "Show active holds and whether automation is paused",
+      "mode": "no-view"
+    },
+    {
+      "name": "hold",
+      "title": "Keep Awake for Minutes",
+      "subtitle": "Dilated",
+      "description": "Start a timed awake session",
+      "mode": "no-view",
+      "arguments": [
+        {
+          "name": "minutes",
+          "placeholder": "Minutes",
+          "type": "text",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "preferences": [
+    {
+      "name": "cliPath",
+      "title": "Dilated CLI Path",
+      "description": "Leave empty to use ~/.local/bin/dilated installed from Dilated Settings",
+      "type": "textfield",
+      "required": false
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "2.11.1"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "2.2.0",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "eslint": "10.14.0",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3"
+  },
+  "scripts": {
+    "build": "ray build -e dist",
+    "dev": "ray develop",
+    "lint": "ray lint",
+    "test": "node --experimental-strip-types --test tests/*.test.ts"
+  },
+  "type": "module",
+  "overrides": {
+    "minimatch": "11.0.5"
+  }
+}

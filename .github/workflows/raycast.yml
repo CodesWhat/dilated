@@ -1,0 +1,27 @@
+name: Raycast extension
+on:
+  push:
+    paths:
+      - 'integrations/raycast/**'
+      - '.github/workflows/raycast.yml'
+  pull_request:
+    paths:
+      - 'integrations/raycast/**'
+      - '.github/workflows/raycast.yml'
+permissions:
+  contents: read
+jobs:
+  raycast:
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: integrations/raycast/package-lock.json
+      - name: Check extension
+        run: bash integrations/raycast/scripts/check.sh

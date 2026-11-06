@@ -18,3 +18,8 @@ xcuserdata/
 /website/test-results/
 /website/playwright-report/
 .build-mas/
+
+# Raycast extension build artifacts
+/integrations/raycast/node_modules/
+/integrations/raycast/dist/
+/integrations/raycast/raycast-env.d.ts
