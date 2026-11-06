@@ -109,15 +109,26 @@ import ViewInspector
       controller.stop()
       controller.close()
     }
+    let host = try #require(controller.hostingViewForTesting as? NSHostingView<SettingsContent>)
+    var mounted: SettingsContent?
+    defer { mounted = nil }
+    var content = host.rootView
+    content.didAppear = { mounted = $0 }
+    host.rootView = content
     let initial = controller.navigation.presentationEpoch
     for expected in 1...2 {
       controller.present(page: .inspector)
-      let host = controller.hostingViewForTesting
       host.layoutSubtreeIfNeeded()
       let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
       host.cacheDisplay(in: host.bounds, to: bitmap)
       #expect(controller.navigation.presentationEpoch == initial + expected)
       #expect(controller.window?.isVisible == true)
+      let live = try #require(mounted)
+      let inspector = try live.inspect().find(AwakeInspectorView.self)
+      #expect(
+        try inspector.findAll(ViewType.Text.self).contains {
+          try $0.string() == "MACOS POWER ASSERTIONS"
+        })
       controller.close()
     }
     #expect(model.engine.holds.isEmpty)
