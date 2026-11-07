@@ -50,6 +50,10 @@ import Testing
     let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
     defer { model.shutdown() }
     #expect(model.triggerRules == [newer])
+    #expect(
+      FileManager.default.fileExists(
+        atPath: directory.appendingPathComponent("triggers-v2.json").path))
+    #expect(try JSONDecoder().decode([LegacyRule].self, from: Data(contentsOf: legacyFile)).isEmpty)
     let compatible = TriggerRule(name: "AC", criteria: [.power(onBattery: false)])
     try model.saveTrigger(compatible)
     #expect(

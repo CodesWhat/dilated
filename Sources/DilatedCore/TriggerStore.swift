@@ -9,7 +9,12 @@ public struct TriggerStore: Sendable {
 
   public func load() throws -> [TriggerRule] {
     let legacy = try readLegacy()
-    guard FileManager.default.fileExists(atPath: file.path) else { return legacy }
+    guard FileManager.default.fileExists(atPath: file.path) else {
+      if FileManager.default.fileExists(atPath: legacyFile.path) {
+        try persist(legacy, previous: legacy)
+      }
+      return legacy
+    }
     let record = try JSONDecoder().decode(Record.self, from: Data(contentsOf: file))
     guard record.schemaVersion == 1 else {
       throw StoreError(
@@ -49,6 +54,10 @@ public struct TriggerStore: Sendable {
     // Refuse to overwrite unreadable or conflicting data after a failed load.
     _ = try load()
     let previous = try readLegacy()
+    try persist(rules, previous: previous)
+  }
+
+  private func persist(_ rules: [TriggerRule], previous: [TriggerRule]) throws {
     let projection = rules.filter { rule in
       rule.criteria.allSatisfy { criterion in
         switch criterion {

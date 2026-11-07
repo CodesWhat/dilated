@@ -238,7 +238,8 @@ rules. Keep both files together. An unreadable file, an unsupported schema or
 conflicting edits after an interrupted save block further trigger saves and keep
 the original files. Restore the full backup before editing in that case.
 
-This protection starts after a build with versioned storage saves the triggers.
+A build with versioned storage migrates existing triggers on startup. This
+protection starts after that migration succeeds.
 It cannot recover rules already overwritten by an older build. Builds without
 versioned storage can still replace rules they cannot read, so a full backup is
 required before downgrading.
