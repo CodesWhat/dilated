@@ -442,6 +442,7 @@ struct PageIdentity: Hashable {
   }
   private var general: some View {
     VStack(spacing: 18) {
+      SettingsTransferSection(model: model)
       SettingsGroup(eyebrow: "STARTUP") {
         SettingsRow(title: "Launch at login", detail: loginDescription) {
           Button(

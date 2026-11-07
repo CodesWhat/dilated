@@ -180,6 +180,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     if old.triggersEnabled != value.triggersEnabled { reconcileTriggers(lastTriggerInputs) }
     refreshPower()
   }
+  func applySettingsProfile(_ profile: SettingsProfile) throws {
+    guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
+    try applySettings(profile.applying(to: settings))
+    onChange?()
+  }
   public private(set) var history = SessionHistory()
   public private(set) var historyIssue: String?
   @ObservationIgnored private var historyAvailable = true
@@ -326,21 +331,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
         loadMessage = "Couldn't read settings: \(error.localizedDescription)"
       }
     }
-    let triggerFile = endpoint.stateDirectory.appendingPathComponent("triggers.json")
-    if FileManager.default.fileExists(atPath: triggerFile.path) {
-      do {
-        let rules = try JSONDecoder().decode(
-          [TriggerRule].self, from: Data(contentsOf: triggerFile))
-        guard rules.count <= 100, Set(rules.map(\.id)).count == rules.count,
-          rules.allSatisfy({ $0.validationMessage == nil })
-        else { throw TriggerConfigurationError("Saved triggers contain invalid rules.") }
-        triggerRules = rules.map { rule in
-          var rule = rule
-          if rule.focusControlled { rule.enabled = false }
-          return rule
-        }
-      } catch { loadMessage = "Couldn't load triggers: \(error.localizedDescription)" }
-    }
+    do {
+      triggerRules = try TriggerStore(directory: endpoint.stateDirectory).load().map { rule in
+        var rule = rule
+        if rule.focusControlled { rule.enabled = false }
+        return rule
+      }
+    } catch { loadMessage = "Couldn't load triggers: \(error.localizedDescription)" }
     preferences = loadedSettings
     historyWasEnabled = loadedSettings.historyEnabled
     do { history = try historyStore.load(retentionDays: loadedSettings.historyRetentionDays) } catch
@@ -1695,12 +1692,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     if id != nil, selected == nil { throw InputError("The Dilated Focus rule no longer exists.") }
   }
   private func writeTriggers(_ rules: [TriggerRule]) throws {
-    try FileManager.default.createDirectory(
-      at: endpoint.stateDirectory, withIntermediateDirectories: true,
-      attributes: [.posixPermissions: 0o700])
-    let file = endpoint.stateDirectory.appendingPathComponent("triggers.json")
-    try JSONEncoder().encode(rules).write(to: file, options: .atomic)
-    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    try TriggerStore(directory: endpoint.stateDirectory).save(rules)
     let updated = Dictionary(uniqueKeysWithValues: rules.map { ($0.id, $0) })
     let changed = Set(triggerRules.filter { updated[$0.id] != $0 }.map(\.id))
     resetTriggerLidArming(ids: changed)

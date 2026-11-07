@@ -62,6 +62,30 @@ import ViewInspector
       }
     }
 
+    @Test func sidebarSymbolsStayHiddenFromAccessibility() throws {
+      _ = NSApplication.shared
+      FontRegistry.registerBundledFonts()
+      let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+        UUID().uuidString)
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+      defer { model.shutdown() }
+      var mounted: SettingsContent?
+      defer { mounted = nil }
+      var content = SettingsContent(model: model)
+      content.didAppear = { mounted = $0 }
+      let host = NSHostingView(rootView: content)
+      host.frame = NSRect(x: 0, y: 0, width: 760, height: 600)
+      try render(host)
+      let live = try #require(mounted)
+      for page in SettingsPage.allCases {
+        let button = try live.inspect().find(ViewType.Button.self) {
+          try $0.accessibilityLabel().string() == page.rawValue
+        }
+        #expect(try button.labelView().find(ViewType.Image.self).accessibilityHidden())
+      }
+    }
+
     private func descendants(of root: NSView) -> [NSView] {
       [root] + root.subviews.flatMap { descendants(of: $0) }
     }

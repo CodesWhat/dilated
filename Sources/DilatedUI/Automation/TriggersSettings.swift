@@ -84,7 +84,7 @@ import UniformTypeIdentifiers
         }
         SettingsNote(
           text:
-            "Agent presets combine a CLI process name with total Mac CPU load. Other work can raise that load while the agent is idle. Review the conditions before saving; Stop still pauses automation."
+            "Agent presets combine a CLI process name with total Mac CPU load. Other work can raise that load while the agent is idle. Older npm installs of Claude Code may run as node, so the claude preset will not match. Matching node includes other Node.js processes. Review the conditions before saving; Stop still pauses automation."
         )
       #endif
       SettingsNote(
@@ -237,15 +237,19 @@ import UniformTypeIdentifiers
     }
     .onChange(of: criteria.values) { old, new in
       rule.criteria = new
-      let hadCPU = old.contains {
-        if case .cpu = $0 { return true }
-        return false
+      let hadLoad = old.contains {
+        switch $0 {
+        case .cpu, .networkThroughput, .diskThroughput: true
+        default: false
+        }
       }
-      let hasCPU = new.contains {
-        if case .cpu = $0 { return true }
-        return false
+      let hasLoad = new.contains {
+        switch $0 {
+        case .cpu, .networkThroughput, .diskThroughput: true
+        default: false
+        }
       }
-      if hasCPU && !hadCPU && rule.dwellSeconds == 0 { rule.dwellSeconds = 30 }
+      if hasLoad && !hadLoad && rule.dwellSeconds == 0 { rule.dwellSeconds = 30 }
     }
     .padding(24).frame(width: 560, height: 600)
     .font(DesignFont.sans(13)).foregroundStyle(DesignPalette.ink).background(DesignPalette.bg)
@@ -273,6 +277,8 @@ private enum TriggerKind: String, CaseIterable {
   case usb = "USB device"
   case bluetooth = "Paired Bluetooth device"
   case cpu = "CPU load"
+  case networkThroughput = "Network throughput"
+  case diskThroughput = "Disk throughput"
   case idle = "Idle time"
   /// The kinds the picker lists. The Mac App Store build can't read the process list, so it offers neither process kind.
   static var offered: [TriggerKind] {
@@ -301,6 +307,8 @@ private enum TriggerKind: String, CaseIterable {
     case .usb: .usb(device: .init(vendorID: 0, productID: 0), name: "")
     case .bluetooth: .bluetooth(device: nil, name: "")
     case .cpu: .cpu(percent: 20, atLeast: true)
+    case .networkThroughput: .networkThroughput(kilobytesPerSecond: 100, atLeast: true)
+    case .diskThroughput: .diskThroughput(kilobytesPerSecond: 1_000, atLeast: true)
     case .idle: .idle(seconds: 300, atLeast: false)
     }
   }
@@ -335,6 +343,8 @@ private enum TriggerKind: String, CaseIterable {
     case .usb: .usb
     case .bluetooth: .bluetooth
     case .cpu: .cpu
+    case .networkThroughput: .networkThroughput
+    case .diskThroughput: .diskThroughput
     case .idle: .idle
     }
   }
@@ -511,6 +521,18 @@ private enum TriggerKind: String, CaseIterable {
         Text(
           "System-wide CPU use, sampled every five seconds. Use 30 seconds of dwell to avoid short spikes."
         ).font(.caption).foregroundStyle(.secondary)
+      case .networkThroughput(let kilobytes, let atLeast):
+        throughputEditor(
+          "Network throughput", kilobytes: kilobytes, atLeast: atLeast,
+          help:
+            "Combined received and sent bytes on active non-loopback interfaces. 1 KB = 1,000 bytes. VPN traffic may count on both tunnel and physical interfaces. Sampled every five seconds; use dwell and grace to filter bursts."
+        ) { .networkThroughput(kilobytesPerSecond: $0, atLeast: $1) }
+      case .diskThroughput(let kilobytes, let atLeast):
+        throughputEditor(
+          "Disk throughput", kilobytes: kilobytes, atLeast: atLeast,
+          help:
+            "Combined read and write bytes across block devices, including other apps. Virtual devices may also count on their backing drive. 1 KB = 1,000 bytes. Sampled every five seconds; use dwell and grace to filter bursts."
+        ) { .diskThroughput(kilobytesPerSecond: $0, atLeast: $1) }
       case .idle(let seconds, let atLeast):
         Picker(
           "Idle time",
@@ -560,6 +582,26 @@ private enum TriggerKind: String, CaseIterable {
     #if DEBUG
       .onAppear { didAppear?(self) }
     #endif
+  }
+  private func throughputEditor(
+    _ title: String, kilobytes: Int, atLeast: Bool, help: String,
+    make: @escaping (Int, Bool) -> TriggerCriterion
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Picker(title, selection: Binding(get: { atLeast }, set: { criterion = make(kilobytes, $0) }))
+      {
+        Text("At least").tag(true)
+        Text("At most").tag(false)
+      }
+      HStack {
+        TextField(
+          "KB/s", value: Binding(get: { kilobytes }, set: { criterion = make($0, atLeast) }),
+          format: .number.grouping(.never)
+        ).frame(width: 120).accessibilityLabel("\(title) in KB/s")
+        Text("KB/s")
+      }
+      Text(help).font(.caption).foregroundStyle(.secondary)
+    }
   }
   private func scheduleEditor(_ schedule: WeeklySchedule) -> some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -641,6 +683,10 @@ extension TriggerCriterion {
       "USB connected: \(name)" + (device.serialNumber == nil ? " (any matching model)" : "")
     case .bluetooth(_, let name): "Paired Bluetooth connected: \(name)"
     case .cpu(let percent, let atLeast): "CPU use \(atLeast ? "at least" : "at most") \(percent)%"
+    case .networkThroughput(let kilobytes, let atLeast):
+      "Network \(atLeast ? "at least" : "at most") \(kilobytes) KB/s"
+    case .diskThroughput(let kilobytes, let atLeast):
+      "Disk \(atLeast ? "at least" : "at most") \(kilobytes) KB/s"
     case .idle(let seconds, let atLeast):
       "Idle \(atLeast ? "at least" : "at most") \(seconds / 60) minutes"
     }

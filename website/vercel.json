@@ -86,7 +86,7 @@
     {
       "src": "/download/file",
       "headers": {
-        "Location": "/releases/1.0.0-beta.11/Dilated-1.0.0-beta.11-macos-arm64.dmg",
+        "Location": "/releases/1.0.0-beta.12/Dilated-1.0.0-beta.12-macos-arm64.dmg",
         "Cache-Control": "no-store"
       },
       "status": 302
@@ -94,7 +94,7 @@
     {
       "src": "/source",
       "headers": {
-        "Location": "/releases/1.0.0-beta.11/Dilated-1.0.0-beta.11-source.tar.gz",
+        "Location": "/releases/1.0.0-beta.12/Dilated-1.0.0-beta.12-source.tar.gz",
         "Cache-Control": "no-store"
       },
       "status": 302

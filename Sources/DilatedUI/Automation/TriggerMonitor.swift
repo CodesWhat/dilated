@@ -66,6 +66,8 @@ import SystemConfiguration
   private var network: SCDynamicStore?
   private var needsProcesses = false
   private var needsCPU = false
+  private var needsNetworkThroughput = false
+  private var needsDiskThroughput = false
   private var needsIdle = false
   private var needsVolumes = false
   private var needsAudioOutput = false
@@ -74,6 +76,13 @@ import SystemConfiguration
   private var needsBluetooth = false
   private var cpuSampler = CPUUsageSampler()
   private var lastCPUReading: (at: TimeInterval, value: Double?)?
+  private var networkSampler = ThroughputSampler()
+  private var lastNetworkReading: (at: TimeInterval, value: Double?)?
+  private let readNetworkCounters: () -> [String: ThroughputCounters]?
+  private var diskSampler = ThroughputSampler()
+  private var lastDiskReading: (at: TimeInterval, value: Double?)?
+  private let readDiskCounters: () -> [String: ThroughputCounters]?
+  private let readUptime: () -> TimeInterval
   var pollingInterval: TimeInterval? { pollTimer?.timeInterval }
   private var processNames: Set<String> = []
   private var processInstances: Set<ProcessIdentity> = []
@@ -81,16 +90,25 @@ import SystemConfiguration
   init(
     readPower: @escaping () -> PowerState, wifiAccess: WiFiAccess? = nil,
     readWiFi: (() -> Set<Data>?)? = nil, bluetoothAccess: BluetoothAccess? = nil,
-    makeBluetoothSession: (() -> any BluetoothSession)? = nil, changed: @escaping () -> Void
+    makeBluetoothSession: (() -> any BluetoothSession)? = nil,
+    readNetworkCounters: @escaping () -> [String: ThroughputCounters]? = NetworkThroughputSource
+      .read,
+    readDiskCounters: @escaping () -> [String: ThroughputCounters]? = DiskThroughputSource.read,
+    readUptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+    workspaceNotifications: NotificationCenter? = nil,
+    changed: @escaping () -> Void
   ) {
     self.changed = changed
     self.readPower = readPower
+    self.readNetworkCounters = readNetworkCounters
+    self.readDiskCounters = readDiskCounters
+    self.readUptime = readUptime
     audioOutput = AudioOutputObserver(changed: changed)
     usb = USBDeviceObserver(changed: changed)
     wifi = WiFiObserver(access: wifiAccess, readSSIDs: readWiFi, changed: changed)
     bluetooth = BluetoothObserver(
       access: bluetoothAccess, makeSession: makeBluetoothSession, changed: changed)
-    let workspace = NSWorkspace.shared.notificationCenter
+    let workspace = workspaceNotifications ?? NSWorkspace.shared.notificationCenter
     for name in [
       NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification,
       NSWorkspace.didActivateApplicationNotification, NSWorkspace.didWakeNotification,
@@ -142,6 +160,14 @@ import SystemConfiguration
       if case .cpu = $0 { return true }
       return false
     }
+    needsNetworkThroughput = criteria.contains {
+      if case .networkThroughput = $0 { return true }
+      return false
+    }
+    needsDiskThroughput = criteria.contains {
+      if case .diskThroughput = $0 { return true }
+      return false
+    }
     needsIdle = criteria.contains {
       if case .idle = $0 { return true }
       return false
@@ -174,7 +200,17 @@ import SystemConfiguration
       cpuSampler = CPUUsageSampler()
       lastCPUReading = nil
     }
-    let needsPolling = needsProcesses || needsCPU || needsIdle || (needsWiFi && wifi.isAuthorized)
+    if !needsNetworkThroughput {
+      networkSampler = ThroughputSampler()
+      lastNetworkReading = nil
+    }
+    if !needsDiskThroughput {
+      diskSampler = ThroughputSampler()
+      lastDiskReading = nil
+    }
+    let needsPolling =
+      needsProcesses || needsCPU || needsNetworkThroughput || needsDiskThroughput || needsIdle
+      || (needsWiFi && wifi.isAuthorized)
     if needsPolling && pollTimer == nil {
       let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
         MainActor.assumeIsolated { self?.changed() }
@@ -234,6 +270,20 @@ import SystemConfiguration
         lastCPUReading = (uptime, cpuSampler.sample(NativeActivityInputs.cpuTicks()))
       }
       input.cpuPercent = lastCPUReading?.value
+    }
+    if needsNetworkThroughput {
+      let uptime = readUptime()
+      if lastNetworkReading == nil || uptime - lastNetworkReading!.at >= 4 {
+        lastNetworkReading = (uptime, networkSampler.sample(readNetworkCounters(), at: uptime))
+      }
+      input.networkBytesPerSecond = lastNetworkReading?.value
+    }
+    if needsDiskThroughput {
+      let uptime = readUptime()
+      if lastDiskReading == nil || uptime - lastDiskReading!.at >= 4 {
+        lastDiskReading = (uptime, diskSampler.sample(readDiskCounters(), at: uptime))
+      }
+      input.diskBytesPerSecond = lastDiskReading?.value
     }
     #if !MAS_CHANNEL
       if needsProcesses {
@@ -296,6 +346,12 @@ import SystemConfiguration
     network = nil
     cpuSampler = CPUUsageSampler()
     lastCPUReading = nil
+    networkSampler = ThroughputSampler()
+    lastNetworkReading = nil
+    needsNetworkThroughput = false
+    diskSampler = ThroughputSampler()
+    lastDiskReading = nil
+    needsDiskThroughput = false
     needsCPU = false
     needsIdle = false
     needsVolumes = false
@@ -315,6 +371,10 @@ import SystemConfiguration
             if name == NSWorkspace.didWakeNotification {
               self?.cpuSampler = CPUUsageSampler()
               self?.lastCPUReading = nil
+              self?.networkSampler = ThroughputSampler()
+              self?.lastNetworkReading = nil
+              self?.diskSampler = ThroughputSampler()
+              self?.lastDiskReading = nil
             }
             self?.changed()
           }

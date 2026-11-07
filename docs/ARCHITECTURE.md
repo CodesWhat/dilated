@@ -30,6 +30,12 @@ unexpired timed holds are restored; agent leases and runner IDs aren't replayed
 as work after a crash. Explicit Quit clears saved holds. Broken state is reported
 and automation starts paused. Settings decode missing keys with safe defaults.
 
+`TriggerStore` keeps a versioned rule set plus a legacy projection for beta.11
+readers. The versioned record includes the last projected rules, so changes made
+by an older build can be reconciled without discarding newer-only conditions.
+A pending projection records both sides of the write; ambiguous edits, future
+schemas and unreadable files block saves instead of replacing saved rules.
+
 There is no privileged helper. Closed-lid power changes run inside the app
 through `sudo -n /usr/bin/pmset -a disablesleep 0|1`, allowed by a fixed sudoers
 rule at `/private/etc/sudoers.d/dilated` (root:wheel, 0440, `%admin` only, those
@@ -121,6 +127,23 @@ avoid sampling more often than four seconds during event bursts. Wake resets
 the CPU baseline. Mounted paths use Workspace mount/unmount/rename notifications
 and no file access. Global automation pause removes monitoring and polling. Network identity uses
 IP/subnet, gateway and DNS configuration without Location access.
+
+Network throughput uses getifaddrs for interface identity and NET_RT_IFLIST2's
+64-bit byte counters. Loopback and down interfaces are excluded. The shared
+ThroughputSampler computes received-plus-sent deltas using monotonic elapsed time,
+warming up on failure, reset or newly seen interfaces. It shares the existing
+five-second poller, caches reads for four seconds to allow timer jitter, and
+discards its baseline on wake or when no active criterion needs it. Dwell and grace supply temporal
+hysteresis. No network traffic, addresses or interface names are persisted by
+the sampler. VPN interfaces can count the same traffic as their physical link.
+
+Disk throughput reads each IOBlockStorageDriver's Statistics registry property,
+keyed by registry entry identity. Counters require exact nonnegative integer
+values. Read failure keeps the aggregate unknown. It reuses ThroughputSampler,
+the existing poller, four-second cache and wake/disable reset lifecycle; network
+and disk criteria can share the one timer. This reads device metadata without
+opening files or issuing disk operations. Virtual devices and their backing
+physical drive may both contribute to the aggregate.
 
 Wi-Fi SSID conditions store raw name bytes and read CoreWLAN only with Location
 authorization. A lazily created authorization source requests permission only
