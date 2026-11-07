@@ -126,7 +126,11 @@ codesign --force "${sign_options[@]}" "$timestamp" --entitlements packaging/Dila
 codesign --verify --deep --strict "$app"
 echo "$app"
 if $verify; then
-    open -n "$app"
+    launch_args=(-n)
+    if [[ -n "${DILATED_STATE_DIR:-}" ]]; then
+        launch_args+=(--env "DILATED_STATE_DIR=$DILATED_STATE_DIR")
+    fi
+    open "${launch_args[@]}" "$app"
     for ((attempt=0; attempt<50; attempt++)); do
         running="$(dev_pids)"
         if [[ -n "$running" ]]; then break; fi

@@ -105,6 +105,16 @@ class BuildRunTests(unittest.TestCase):
         self.assertIn(f'open:-n {self.root}/build/Dilated.app', self.calls.read_text())
         self.assertNotIn('log:', self.calls.read_text())
 
+    def test_verify_passes_the_isolated_state_directory_to_the_launched_app(self):
+        self.successful_build_fixture()
+        state = self.root / 'private state'
+        self.stub('open', 'printf "%s\\n" "$@" > "$CALLS.args"; touch "$CALLS.running"')
+        result = self.run_script('debug', '--verify', DILATED_STATE_DIR=str(state))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(pathlib.Path(str(self.calls) + '.args').read_text().splitlines(),
+                         ['-n', '--env', f'DILATED_STATE_DIR={state}',
+                          str(self.root / 'build/Dilated.app')])
+
     def test_logs_streams_only_after_verified_launch_with_a_deadline(self):
         self.successful_build_fixture()
         result = self.run_script('debug', '--verify', '--logs')
