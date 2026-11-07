@@ -29,6 +29,7 @@ public struct TriggerStore: Sendable {
           "Trigger files changed during an interrupted save. Restore a full data backup before editing; both files were kept."
         )
       }
+      try persist(record.rules, previous: legacy)
       return record.rules
     }
     let baseline = Dictionary(uniqueKeysWithValues: record.legacy.map { ($0.id, $0) })

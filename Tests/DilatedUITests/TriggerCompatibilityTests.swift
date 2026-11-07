@@ -83,6 +83,18 @@ import Testing
     let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
     defer { model.shutdown() }
     #expect(model.triggerRules == [updated, newer])
+    let recovered = try JSONDecoder().decode(
+      CompatibilityRecord.self,
+      from: Data(contentsOf: directory.appendingPathComponent("triggers-v2.json")))
+    #expect(recovered.pendingLegacy == nil)
+    #expect(
+      try JSONDecoder().decode(
+        [LegacyRule].self, from: Data(contentsOf: directory.appendingPathComponent("triggers.json"))
+      ).first?.name == "After")
+    #expect(
+      try JSONDecoder().decode(
+        [LegacyRule].self, from: Data(contentsOf: directory.appendingPathComponent("triggers.json"))
+      ).map(\.id) == [updated.id])
     try model.saveTrigger(updated)
     let saved = try JSONDecoder().decode(
       CompatibilityRecord.self,
@@ -183,6 +195,7 @@ import Testing
 }
 
 private struct LegacyRule: Decodable {
+  let name: String
   let id: UUID
   let criteria: [LegacyCriterion]
 }
