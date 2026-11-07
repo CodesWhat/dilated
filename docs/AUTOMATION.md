@@ -524,3 +524,9 @@ evaluation when either condition stops matching. Stop-pause still wins.
 CPU here is system-wide, not per-process. Other work can keep the condition true
 while an agent is idle, so use lifecycle hooks when available. Review process
 name and threshold before saving. These presets are direct-build only.
+
+Older npm installations of Claude Code may run as `node`, so the `claude` CPU
+preset will not match them. Matching `node` also matches other Node.js processes.
+Install Dilated in Applications before installing hooks or the OpenCode plugin.
+After moving the app, use Repair hooks or Repair plugin in Settings to update
+the stored CLI path.

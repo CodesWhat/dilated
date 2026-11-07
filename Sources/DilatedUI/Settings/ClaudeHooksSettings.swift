@@ -47,6 +47,10 @@
             : "Keeps your Mac awake during a Claude Code turn. After an interruption, the hold can last up to 70 minutes without more hook activity. Stop pauses automation. Existing Claude settings and hooks are kept; edits get a private backup. Restart existing Claude sessions after changing hooks."
         )
         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        Text(
+          "Install Dilated in Applications before installing hooks. After moving the app, use Repair hooks to update their paths."
+        )
+        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
       }
       .onAppear(perform: refresh)
       .onReceive(

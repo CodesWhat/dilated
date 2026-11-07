@@ -80,7 +80,7 @@ import UniformTypeIdentifiers
         }
         SettingsNote(
           text:
-            "Agent presets combine a CLI process name with total Mac CPU load. Other work can raise that load while the agent is idle. Review the conditions before saving; Stop still pauses automation."
+            "Agent presets combine a CLI process name with total Mac CPU load. Other work can raise that load while the agent is idle. Older npm installs of Claude Code may run as node, so the claude preset will not match. Matching node includes other Node.js processes. Review the conditions before saving; Stop still pauses automation."
         )
       #endif
       SettingsNote(
