@@ -60,15 +60,16 @@ public struct TriggerStore: Sendable {
 
   private func persist(_ rules: [TriggerRule], previous: [TriggerRule]) throws {
     let projection = rules.filter { rule in
-      rule.criteria.allSatisfy { criterion in
-        switch criterion {
-        case .networkThroughput, .diskThroughput: false
-        case .application, .process, .processInstance, .schedule, .power, .battery, .displays,
-          .mirrored, .network, .gateway, .dns, .wifi, .volume, .audioOutput, .usb, .bluetooth,
-          .cpu, .idle:
-          true
+      !rule.focusControlled
+        && rule.criteria.allSatisfy { criterion in
+          switch criterion {
+          case .networkThroughput, .diskThroughput: false
+          case .application, .process, .processInstance, .schedule, .power, .battery, .displays,
+            .mirrored, .network, .gateway, .dns, .wifi, .volume, .audioOutput, .usb, .bluetooth,
+            .cpu, .idle:
+            true
+          }
         }
-      }
     }
     try FileManager.default.createDirectory(
       at: directory, withIntermediateDirectories: true,
