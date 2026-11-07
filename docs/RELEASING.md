@@ -104,13 +104,15 @@ The store can't carry a beta. Ship prereleases through TestFlight only, and subm
 
 ### Build
 
-The signing identities and profile live in the login Keychain and `~/Library/MobileDevice/Provisioning Profiles/`. Look the profile up by name, not by UUID:
+The signing identities and profiles live in the login Keychain and `~/Library/MobileDevice/Provisioning Profiles/`. Look each profile up by name, not by UUID:
 
 ```sh
 for f in "$HOME/Library/MobileDevice/Provisioning Profiles/"*.provisionprofile; do
   [ "$(security cms -D -i "$f" | plutil -extract Name raw -o - -)" = "Dilated App Store" ] && DILATED_MAS_PROFILE="$f"
+  [ "$(security cms -D -i "$f" | plutil -extract Name raw -o - -)" = "Dilated Controls App Store" ] && DILATED_MAS_CONTROL_PROFILE="$f"
 done
 export DILATED_MAS_PROFILE
+export DILATED_MAS_CONTROL_PROFILE
 export DILATED_SIGN_IDENTITY="Apple Distribution: Scott Benson (3524374A2S)"
 export DILATED_INSTALLER_IDENTITY="3rd Party Mac Developer Installer: Scott Benson (3524374A2S)"
 export DILATED_TEAM_ID=3524374A2S
@@ -118,9 +120,9 @@ bash scripts/build-mas.sh --output-dir /absolute/path/to/mas-output
 python3 -I scripts/check-mas-bundle.py /absolute/path/to/mas-output/Dilated.app
 ```
 
-The script embeds the profile, adds the application and team identifiers to the signing entitlements, and runs `productbuild` to write `Dilated.pkg`. For a certificate-free check, `bash scripts/build-mas.sh --adhoc --output-dir ...` signs with `DILATED_SIGN_IDENTITY=-` and skips the `.pkg`. CI runs that and the checker on every push.
+The script embeds separate profiles for `com.codeswhat.dilated.appstore` and `com.codeswhat.dilated.appstore.controls`, adds their application and team identifiers to the signing entitlements, signs the extension before the host, and runs `productbuild` to write `Dilated.pkg`. Both share the Mac Team-ID app group `3524374A2S.com.codeswhat.dilated.controls`. For a certificate-free check, `bash scripts/build-mas.sh --adhoc --output-dir ...` signs with `DILATED_SIGN_IDENTITY=-` and skips the `.pkg`. CI runs that and the checker on every push.
 
-The checker exits 1 on a key containing `temporary-exception`, an entitlement outside the allowlist, any embedded executable besides `DilatedApp`, Sparkle or `SU*` keys, a daemon or LaunchAgent plist, a non-arm64 slice, a missing `LSApplicationCategoryType` or a wrong bundle ID. Run it on the real build before upload, not only the ad-hoc one.
+The checker exits 1 on a key containing `temporary-exception`, an entitlement outside the allowlist, a foreign app group, an embedded executable besides the host and validated controls extension, Sparkle or `SU*` keys, a daemon or LaunchAgent plist, a non-arm64 slice, a missing `LSApplicationCategoryType` or a wrong bundle ID. The controls checker also verifies metadata, version and signatures during assembly. Run the checks on the real build before upload, not only the ad-hoc one.
 
 ### Validate and upload
 

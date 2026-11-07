@@ -84,6 +84,9 @@ class BuildRunTests(unittest.TestCase):
         app = self.root / 'build/Dilated.app'
         (app / 'Contents').mkdir(parents=True)
         (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({}))
+        control = app / 'Contents/PlugIns/DilatedControls.appex/Contents'
+        control.mkdir(parents=True)
+        (control / 'Info.plist').write_bytes(plistlib.dumps({}))
         packaging = self.root / 'packaging'
         packaging.mkdir()
         shutil.copy(ROOT / 'packaging/Version.plist', packaging / 'Version.plist')

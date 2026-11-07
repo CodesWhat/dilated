@@ -88,11 +88,22 @@ including macOS 26/27. Publication remains gated on that evidence.
 See [installation and removal](INSTALLATION.md) for the supported lifecycle and
 current limits.
 
-A thin XcodeGen bundle target compiles the AppKit entry point and four App Intents,
+A thin XcodeGen bundle target compiles the AppKit entry point and App Intents,
 linking the SwiftPM UI product. Its executable and extracted Metadata.appintents
 are preserved during final assembly. Packaging validates the metadata and SDEF
 before signing and again when verifying release bundles. Xcode shell builds do
 not register the app with Launch Services.
+
+The embedded DilatedControls extension exposes a Keep Awake toggle on macOS 26+.
+Its foreground SetValueIntent belongs to both targets and dispatches to the host's
+AutomationService. On is an idempotent 15-minute Shortcut hold; Off uses global Stop.
+The app publishes only PID, pause, indefinite state and latest expiry to its Mac
+Team-ID app group. Direct and MAS snapshots use separate directories. The existing
+model change callback writes and reloads only changed snapshots, with no new timer.
+The provider checks host identity/liveness and expiry before reporting On. Normal
+quit clears the snapshot; after a crash the provider reports Off on its next reload.
+Publishing failures never prevent Stop. Packaging checks the exact extension ID,
+version, arm64 executable, intent metadata, sandbox, group and matching signing team.
 
 One main-actor AutomationService binds the delegate's existing model after startup
 and rejects unavailable/quitting work. Shortcuts uses AppDependency; the command-only
