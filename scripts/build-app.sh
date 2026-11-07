@@ -2,7 +2,6 @@
 # Adapted from Mouthtype's build-app.sh (Scott Benson) and Parrot, MIT,
 # Copyright (c) 2026 Humanitas Labs. See docs/THIRD-PARTY.md.
 set -euo pipefail
-cd "$(dirname "$0")/.."
 configuration="${1:-debug}"
 if [[ $# -gt 0 ]]; then shift; fi
 case "$configuration" in debug|release) ;; *) echo "Use debug or release" >&2; exit 1 ;; esac
@@ -19,6 +18,11 @@ if $logs && ! $verify; then
     echo "--logs requires --verify" >&2
     exit 1
 fi
+if $verify && [[ -n "${DILATED_STATE_DIR:-}" ]]; then
+    DILATED_STATE_DIR="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$DILATED_STATE_DIR")"
+    export DILATED_STATE_DIR
+fi
+cd "$(dirname "$0")/.."
 app="${DILATED_BUILD_DIR:-$PWD/build}/Dilated.app"
 dev_pids() {
     ps -axo pid=,comm= | while read -r pid executable; do

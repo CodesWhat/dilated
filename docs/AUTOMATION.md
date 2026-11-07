@@ -451,6 +451,7 @@ socket. Messages are one JSON object per line, limited to 64 KiB, with bounded
 socket reads/writes. A minimal status request is `{"action":"status"}`.
 
 `DILATED_STATE_DIR` selects an isolated state directory for development/testing.
+Use an absolute path when running CLI commands from different directories.
 Normal app state lives in `~/Library/Application Support/Dilated`. Tests do not
 read local planning files. This is a single-user local app, not a network service.
 

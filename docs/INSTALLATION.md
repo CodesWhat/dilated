@@ -224,6 +224,9 @@ passed.
 Accepted release staging also generates `dilated.rb` with the exact version and
 DMG digest as a versioned release asset. It does not publish the Homebrew tap.
 
-Back up your Dilated data before downgrading to an older beta. Older builds may
-not read newly added trigger conditions. Saving triggers in such a build can
-replace rules it could not load.
+Before downgrading to an older beta, quit Dilated and back up the entire
+`~/Library/Application Support/Dilated` folder, including `triggers.json`.
+If you set `DILATED_STATE_DIR`, back up that directory instead. Export preferences
+does not include trigger rules. Older builds may not read newly added trigger
+conditions; saving triggers there can replace rules they could not load. Quit
+Dilated before restoring the folder from your backup.
