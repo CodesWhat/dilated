@@ -16,6 +16,46 @@ import Testing
     return (directory, model, service)
   }
 
+  @Test func controlStartsOnceAndOffDurablyStopsAllReasons() async throws {
+    let (directory, model, service) = fixture()
+    defer {
+      model.shutdown()
+      try? FileManager.default.removeItem(at: directory)
+    }
+    try await service.setAwakeFromControl(true)
+    let hold = try #require(model.engine.holds.first)
+    #expect(hold.label == "Control Center")
+    #expect(hold.source == .shortcut)
+    #expect(abs(try #require(hold.expiry).timeIntervalSince(hold.createdAt) - 900) < 0.01)
+    try await service.setAwakeFromControl(true)
+    #expect(model.engine.holds == [hold])
+    model.start(duration: 60)
+    #expect(model.engine.holds.count == 2)
+    try await service.setAwakeFromControl(false)
+    #expect(model.engine.holds.isEmpty)
+    #expect(model.engine.automationPaused)
+    await #expect(throws: (any Error).self) { try await service.setAwakeFromControl(true) }
+    #expect(model.engine.holds.isEmpty)
+    model.start(duration: 120)
+    let manual = model.engine.holds
+    try await service.setAwakeFromControl(true)
+    #expect(model.engine.holds == manual)
+    #expect(model.engine.automationPaused)
+  }
+
+  @Test func controlOnReplacesExpiredHoldBeforeNextPeriodicTick() async throws {
+    let (directory, model, service) = fixture()
+    defer {
+      model.shutdown()
+      try? FileManager.default.removeItem(at: directory)
+    }
+    _ = try await service.start(duration: 0.001)
+    try await Task.sleep(for: .milliseconds(20))
+    try await service.setAwakeFromControl(true)
+    #expect(model.engine.holds.count == 1)
+    #expect(model.engine.holds.first?.label == "Control Center")
+  }
+
   @Test func shortcutPhrasesCreateTimedHoldsAndStopStillWins() async throws {
     let (directory, model, service) = fixture()
     defer {

@@ -86,7 +86,7 @@ def validate_automation_bundle(app):
         focus = actions.get('SetAwakeFocusFilterIntent', {})
         parameters = focus.get('parameters', [])
         if (not info.get('NSAppleScriptEnabled') or info.get('OSAScriptingDefinition') != 'Dilated.sdef'
-                or set(actions) != expected | {'SetAwakeFocusFilterIntent'}
+                or set(actions) != expected | {'SetAwakeFocusFilterIntent', 'SetAwakeControlIntent'}
                 or not metadata.get('autoShortcutProviderMangledName')
                 or {item['actionIdentifier'] for item in metadata['autoShortcuts']} != expected
                 or focus.get('systemProtocols') != ['com.apple.link.systemProtocol.FocusConfiguration']
@@ -95,7 +95,7 @@ def validate_automation_bundle(app):
                 or parameters[0].get('valueType') != {'entity': {'wrapper': {'typeName': 'FocusTriggerEntity'}}}
                 or 'FocusTriggerEntity' not in metadata.get('entities', {})
                 or any(action.get('supportedModes') != 1 or not action.get('isDiscoverable')
-                       for action in actions.values())):
+                       for name, action in actions.items() if name != 'SetAwakeControlIntent')):
             raise ValueError('Invalid intent or scripting configuration')
         codes = {'amph' + code for code in ['cAct', 'cmOn', 'cOff', 'STRm', 'DSOK', 'AWDS', 'PTDS',
                                           'CDMK', 'ECDM', 'DCDM', 'SisT', 'TrEn', 'EnTr', 'DsTr']}
@@ -115,6 +115,7 @@ def verify_requirement(executable, requirement):
 def verify_app(app, output, label):
     validate_retired_helper_bundle(app)
     validate_automation_bundle(app)
+    run([sys.executable, str(Path(__file__).with_name('controls-bundle.py')), str(app), '--signed'])
     run(['codesign', '--verify', '--deep', '--strict', str(app)])
     requirement = 'identifier "com.codeswhat.dilated" and anchor apple generic and certificate leaf[subject.OU] = "3524374A2S"'
     verify_requirement(app, requirement)

@@ -10,6 +10,7 @@ import os
   private var menu: MenuBarController?
   private var settings: SettingsWindow?
   private var dock: DockPresence?
+  private var awakeControlPublisher: AwakeControlPublisher?
   private let shortcuts = GlobalShortcuts()
   private lazy var shortcutBindings = ShortcutBindings(registrar: shortcuts)
   private var powerSource: CFRunLoopSource?
@@ -66,10 +67,12 @@ import os
       DockIconMode(rawValue: model.settings.dockMode) ?? .whileWindowOpen
     })
     dock?.start()
-    model.onChange = { [weak self] in
+    awakeControlPublisher = AwakeControlPublisher.live()
+    model.onChange = { [weak self, weak model] in
       self?.menu?.refresh()
       self?.dock?.refresh()
       self?.refreshShortcuts()
+      if let model { self?.awakeControlPublisher?.publish(model.engine.snapshot) }
     }
     model.onBatteryOverrideNeeded = { [weak model] duration in
       guard let model else { return }
@@ -137,6 +140,7 @@ import os
     ) { [weak self] in self?.menu?.refresh() }
     model.begin()
     AutomationService.shared.bind(model)
+    awakeControlPublisher?.publish(model.engine.snapshot)
     if !model.settings.onboardingComplete || CommandLine.arguments.contains("--settings") {
       showSettings()
     }
@@ -233,6 +237,7 @@ import os
     AutomationService.shared.unavailable()
     guard started else { return }
     model?.shutdown()
+    if let model { awakeControlPublisher?.publish(model.engine.snapshot) }
     server?.stop()
     shortcutBindings.stop()
     menu?.stop()

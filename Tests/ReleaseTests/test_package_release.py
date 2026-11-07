@@ -86,6 +86,13 @@ class ReleaseGuardsTests(unittest.TestCase):
         entitlements = plistlib.loads(signed.stdout)
         self.assertTrue(entitlements['com.apple.security.personal-information.location'])
         self.assertNotIn('com.apple.wifi.events', entitlements)
+        self.assertEqual(entitlements['com.apple.security.application-groups'],
+                         ['3524374A2S.com.codeswhat.dilated.controls'])
+        control = app / 'Contents/PlugIns/DilatedControls.appex'
+        self.assertTrue((control / 'Contents/MacOS/DilatedControls').is_file())
+        control_info = plistlib.loads((control / 'Contents/Info.plist').read_bytes())
+        self.assertEqual(control_info['CFBundleIdentifier'], 'com.codeswhat.dilated.controls')
+        self.assertEqual(control_info['CFBundleVersion'], metadata['CFBundleVersion'])
         for binary in ['dilated']:
             signed_child = subprocess.run(
                 ['codesign', '-d', '--entitlements', ':-', str(app / 'Contents/MacOS' / binary)],

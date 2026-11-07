@@ -133,6 +133,19 @@ public struct FocusRuleChoice: Sendable {
     let model = try await ready()
     try requireSuccess(await model.control(.init(action: .stopAll)))
   }
+  public func setAwakeFromControl(_ awake: Bool) async throws {
+    let model = try await ready()
+    if !awake {
+      try requireSuccess(await model.control(.init(action: .stopAll)))
+    } else {
+      try requireSuccess(await model.control(.init(action: .status)))
+      if model.engine.holds.isEmpty {
+        try requireSuccess(
+          await model.control(
+            .init(action: .start, label: "Control Center", duration: 900), origin: .shortcut))
+      }
+    }
+  }
   public func status() async throws -> String {
     let model = try await ready()
     let response = await model.control(.init(action: .status))
