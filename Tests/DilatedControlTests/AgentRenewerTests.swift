@@ -169,6 +169,69 @@ struct AgentRenewerTests {
     #expect(await task.value == .agentExited)
   }
 
+  @Test func interruptedHookTurnEventuallyStopsEvenWhileClaudeLives() async throws {
+    let rig = RenewerRig()
+    var begin = rig.command(.begin)
+    begin.decidedByHook = true
+    _ = try await rig.lifecycle().run(begin, now: rig.app.now)
+    let task = await rig.start()
+    for expected in 1...29 {
+      #expect(await rig.tickAndWait(renewals: expected))
+    }
+    #expect(rig.app.holdCount == 1)
+    rig.app.advance(120)
+    rig.world.tick()
+    #expect(await settle { !rig.world.registered })
+    rig.world.kill(rig.agentPID)
+    #expect(await task.value == .holdEnded)
+    rig.app.advance(AgentLifecycle.leaseSeconds)
+    #expect(rig.app.holdCount == 0)
+  }
+
+  @Test func toolHookRestartsAnExpiredRenewerBeforeTheLeaseLapses() async throws {
+    let rig = RenewerRig()
+    let lifecycle = rig.lifecycle(spawning: true)
+    let begin = try ClaudeHookInput.command(
+      data: Data(#"{"session_id":"r1","hook_event_name":"UserPromptSubmit"}"#.utf8),
+      pid: rig.agentPID)
+    _ = try await lifecycle.run(begin, now: rig.app.now)
+    let task = await rig.start()
+    for expected in 1...29 {
+      #expect(await rig.tickAndWait(renewals: expected))
+    }
+    rig.app.advance(120)
+    rig.world.tick()
+    #expect(await settle { !rig.world.registered })
+    #expect(await task.value == .holdEnded)
+    rig.world.kill(5001)
+    #expect(rig.app.holdCount == 1)
+    let hook = try ClaudeHookInput.command(
+      data: Data(#"{"session_id":"r1","hook_event_name":"PreToolUse"}"#.utf8), pid: rig.agentPID)
+    #expect(hook.pid == rig.agentPID)
+    #expect(try await lifecycle.run(hook, now: rig.app.now).ok)
+    #expect(rig.spawned.count == 2)
+  }
+
+  @Test func realHookActivityExtendsTheQuietTurnWindow() async throws {
+    let rig = RenewerRig()
+    var begin = rig.command(.begin)
+    begin.decidedByHook = true
+    _ = try await rig.lifecycle().run(begin, now: rig.app.now)
+    let task = await rig.start()
+    for expected in 1...20 {
+      #expect(await rig.tickAndWait(renewals: expected))
+    }
+    var hook = rig.command(.renew)
+    hook.decidedByHook = true
+    #expect(try await rig.lifecycle().run(hook, now: rig.app.now).ok)
+    for expected in 22...41 {
+      #expect(await rig.tickAndWait(renewals: expected))
+    }
+    #expect(rig.app.holdCount == 1)
+    rig.world.kill(rig.agentPID)
+    #expect(await task.value == .agentExited)
+  }
+
   @Test func stopsRenewingOnceEndRemovesTheRecord() async throws {
     let rig = RenewerRig()
     let lifecycle = rig.lifecycle()

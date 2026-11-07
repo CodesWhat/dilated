@@ -1,4 +1,5 @@
 import DilatedControl
+import DilatedCore
 import Foundation
 
 enum ScriptOperation: String, CaseIterable, Sendable {
@@ -65,6 +66,21 @@ enum ScriptValue: Equatable, Sendable {
     guard let id = response.id else { throw InputError("Dilated didn't return a hold ID.") }
     return id
   }
+  @discardableResult public func start(
+    phrase: String?, minutes: Double? = nil, displayAwake: Bool? = nil
+  ) async throws -> UUID {
+    let text = phrase?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard text.isEmpty || minutes == nil else {
+      throw InputError("Choose a duration phrase or minutes, not both.")
+    }
+    if let minutes, !minutes.isFinite || minutes <= 0 || minutes > 5_259_600 {
+      throw InputError(
+        "Duration must be positive and no more than ten years. Leave it empty for indefinite.")
+    }
+    let seconds = text.isEmpty ? minutes.map { $0 * 60 } : try TimeInput.sessionDuration(text)
+    return try await start(duration: seconds, displayAwake: displayAwake)
+  }
+
   @discardableResult public func startScript(_ options: ScriptStartOptions) async throws -> UUID {
     try await ready().startScript(options)
   }

@@ -60,7 +60,8 @@ import os
     settings = SettingsWindow(model: model)
     menu = MenuBarController(
       model: model, openSettings: { [weak self] in self?.showSettings() },
-      openAbout: { [weak self] in self?.showAbout() })
+      openAbout: { [weak self] in self?.showAbout() },
+      openInspector: { [weak self] in self?.showInspector() })
     dock = DockPresence(mode: {
       DockIconMode(rawValue: model.settings.dockMode) ?? .whileWindowOpen
     })
@@ -207,6 +208,10 @@ import os
   }
   @objc private func showSettings() {
     settings?.present()
+    dock?.refresh()
+  }
+  private func showInspector() {
+    settings?.present(page: .inspector)
     dock?.refresh()
   }
   private func showAbout() {

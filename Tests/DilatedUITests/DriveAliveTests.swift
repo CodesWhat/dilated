@@ -100,20 +100,20 @@ import Testing
       id: "awake", name: "Awake", path: "/Volumes/Awake", mode: .awakeOnly)
     settings.volumes = [always, awake]
     controller.configure(settings, awake: false, paused: false)
-    await fixture.drain()
+    await fixture.drain(schedules: 1)
     #expect(fixture.pulses == [always.id])
     fixture.now += 10
     controller.configure(settings, awake: true, paused: false)
-    await fixture.drain()
+    await fixture.drain(schedules: 2)
     #expect(fixture.pulses == [always.id, awake.id])
     #expect(fixture.schedules.last?.0 == 50)
     fixture.now += 5
     controller.configure(settings, awake: false, paused: false)
-    await fixture.drain()
+    await fixture.drain(schedules: 3)
     #expect(fixture.pulses == [always.id, awake.id])
     #expect(fixture.schedules.last?.0 == 45)
     fixture.fire(at: fixture.schedules.count - 1)
-    await fixture.drain()
+    await fixture.drain(schedules: 4)
     #expect(fixture.pulses == [always.id, awake.id, always.id])
     #expect(fixture.schedules.last?.0 == 60)
     #expect(controller.statuses[awake.id] == nil)
@@ -147,7 +147,7 @@ import Testing
         schedules += 1
         completed.continuation.yield(())
         return {}
-      })
+      }, watchMounts: false)
     defer { controller.stop() }
     var settings = DriveFixture.configuration
     var always = DriveFixture.volume
@@ -198,26 +198,26 @@ import Testing
     let fixture = DriveFixture()
     let controller = fixture.controller()
     controller.configure(.init(), awake: true, paused: false)
-    await fixture.drain()
+    await fixture.drain(schedules: 0)
     #expect(fixture.pulses.isEmpty && fixture.schedules.isEmpty)
     let settings = DriveFixture.configuration
     controller.configure(settings, awake: false, paused: false)
-    await fixture.drain()
+    await fixture.drain(schedules: 0)
     #expect(fixture.pulses.isEmpty)
     controller.configure(settings, awake: true, paused: false)
-    await fixture.drain()
+    await fixture.drain(schedules: 1)
     #expect(fixture.pulses == [DriveFixture.volume.id])
     #expect(fixture.schedules.count == 1 && fixture.schedules[0].0 == 60)
     for _ in 0..<10 { controller.configure(settings, awake: true, paused: false) }
-    await fixture.drain()
+    await fixture.drain(schedules: 1)
     #expect(fixture.pulses.count == 1 && fixture.schedules.count == 1)
     controller.configure(settings, awake: true, paused: true)
     #expect(fixture.cancellations == 1)
     fixture.fire(at: 0)
-    await fixture.drain()
+    await fixture.drain(schedules: 1)
     #expect(fixture.pulses.count == 1)
     controller.configure(settings, awake: true, paused: false)
-    await fixture.drain()
+    await fixture.drain(schedules: 2)
     #expect(fixture.pulses.count == 2)
     controller.stop()
     #expect(fixture.cancellations == 2)
@@ -229,12 +229,12 @@ import Testing
     var settings = DriveFixture.configuration
     settings.onlyWhileAwake = false
     controller.configure(settings, awake: false, paused: false)
-    await fixture.drain()
+    await fixture.drain(schedules: 1)
     #expect(fixture.pulses.count == 1)
     controller.stop()
     fixture.fire(at: 0)
     controller.configure(settings, awake: true, paused: false)
-    await fixture.drain()
+    await fixture.drain(schedules: 1)
     #expect(fixture.pulses.count == 1)
   }
 
@@ -244,12 +244,12 @@ import Testing
     let controller = fixture.controller()
     defer { controller.stop() }
     controller.configure(DriveFixture.configuration, awake: true, paused: false)
-    await fixture.drain()
+    await fixture.drain(schedules: 1)
     #expect(fixture.pulses.count == 1 && fixture.schedules.count == 1)
     #expect(controller.statuses[DriveFixture.volume.id]?.contains("read-only") == true)
     fixture.failed = false
     fixture.fire(at: 0)
-    await fixture.drain()
+    await fixture.drain(schedules: 2)
     #expect(fixture.pulses.count == 2 && fixture.schedules.count == 2)
     #expect(controller.statuses[DriveFixture.volume.id] == "Active")
   }
@@ -275,7 +275,7 @@ import Testing
       schedule: { _, _ in
         schedules += 1
         return {}
-      })
+      }, watchMounts: false)
     var settings = DriveFixture.configuration
     settings.volumes.append(.init(id: "second", name: "Second", path: "/Volumes/Second"))
     controller.configure(settings, awake: true, paused: false)
@@ -311,7 +311,7 @@ import Testing
         delays.append(seconds)
         scheduled.fire()
         return {}
-      })
+      }, watchMounts: false)
     defer { controller.stop() }
     var settings = DriveFixture.configuration
     controller.configure(settings, awake: true, paused: false)
@@ -368,7 +368,7 @@ import Testing
           scheduled = fire
           didSchedule.fire()
           return {}
-        })
+        }, watchMounts: false)
       defer { controller.stop() }
       var settings = DriveAliveSettings()
       settings.enabled = true
@@ -446,15 +446,15 @@ import Testing
     settings.volumes[0].mode = mode
     model.settings.driveAlive = settings
     model.start(duration: 60)
-    await fixture.drain()
+    await fixture.drain(schedules: 1)
     #expect(fixture.pulses.count == 1)
     _ = await model.control(.init(action: .stopAll))
     #expect(fixture.cancellations == 1)
     model.start(duration: 60)
-    await fixture.drain()
+    await fixture.drain(schedules: 1)
     #expect(fixture.pulses.count == 1 && model.engine.automationPaused)
     model.resumeAutomation()
-    await fixture.drain()
+    await fixture.drain(schedules: 2)
     #expect(fixture.pulses.count == 2 && model.engine.holds.count == 1)
     model.shutdown()
     #expect(fixture.cancellations == 2)
@@ -486,11 +486,20 @@ import Testing
       schedule: { [self] seconds, fire in
         schedules.append((seconds, fire))
         return { [self] in cancellations += 1 }
-      })
+      }, watchMounts: false)
   }
   func fire(at index: Int) {
     now += schedules[index].0
     schedules[index].1()
   }
-  func drain() async { for _ in 0..<20 { await Task.yield() } }
+  func drain(schedules expected: Int) async {
+    let deadline = ContinuousClock.now + .seconds(5)
+    if schedules.count == expected {
+      try? await Task.sleep(for: .milliseconds(100))
+    }
+    while schedules.count < expected && ContinuousClock.now < deadline {
+      try? await Task.sleep(for: .milliseconds(2))
+    }
+    #expect(schedules.count == expected)
+  }
 }

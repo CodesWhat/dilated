@@ -8,14 +8,23 @@ private struct NeverRunsScripts: PrivilegedScriptRunning {
   func run(script: String) async -> PrivilegedScriptOutcome { .failed("not expected") }
 }
 
-/// A permission model whose rule is installed and whose `sudo -n -l` probe passes.
+private struct FixtureUserScript: UserScriptLaunching {
+  let result: UserScriptRun
+  func run(arguments: [String]) async -> UserScriptRun {
+    result
+  }
+}
+
+/// A permission model whose channel-specific permission probe passes.
 @MainActor func readyPermissionModel() -> ClosedLidPermissionModel {
   ClosedLidPermissionModel(
     permission: ClosedLidPermission(
       seams: .init(
         stat: { _ in ClosedLidFileInfo(isRegularFile: true, owner: 0, group: 0, mode: 0o440) },
         readFile: { _ in ClosedLidPermission.ruleContent }, probe: { true }, isAdmin: { true }),
-      runner: NeverRunsScripts()))
+      runner: NeverRunsScripts()),
+    scriptPermission: ClosedLidScriptPermission(
+      launcher: FixtureUserScript(result: .finished(output: "ok\n", failureStatus: nil))))
 }
 
 /// A permission model with no rule installed. Any admin prompt it tries to run fails the test.
@@ -24,7 +33,8 @@ private struct NeverRunsScripts: PrivilegedScriptRunning {
     permission: ClosedLidPermission(
       seams: .init(
         stat: { _ in nil }, readFile: { _ in nil }, probe: { false }, isAdmin: { true }),
-      runner: NeverRunsScripts()))
+      runner: NeverRunsScripts()),
+    scriptPermission: ClosedLidScriptPermission(launcher: FixtureUserScript(result: .missing)))
 }
 
 #if MAS_CHANNEL

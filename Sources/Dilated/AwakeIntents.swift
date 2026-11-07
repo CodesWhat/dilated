@@ -12,20 +12,21 @@ struct StartAwakeIntent: AppIntent {
   @AppDependency var service: AutomationService
   @Parameter(title: "Duration in minutes", description: "Leave empty to keep awake indefinitely.")
   var minutes: Double?
+  @Parameter(
+    title: "Duration phrase",
+    description: "For example 2h30 or until 5pm. Choose either this or minutes.")
+  var durationPhrase: String?
   @Parameter(title: "Allow display sleep", default: true) var allowDisplaySleep: Bool
   static var parameterSummary: some ParameterSummary {
     Summary("Keep the Mac awake") {
       \.$minutes
+      \.$durationPhrase
       \.$allowDisplaySleep
     }
   }
   @MainActor func perform() async throws -> some IntentResult & ReturnsValue<String> {
-    if let minutes, !minutes.isFinite || minutes <= 0 || minutes > 5_259_600 {
-      throw InputError(
-        "Duration must be positive and no more than ten years. Leave it empty for indefinite.")
-    }
     let id = try await service.start(
-      duration: minutes.map { $0 * 60 }, displayAwake: !allowDisplaySleep)
+      phrase: durationPhrase, minutes: minutes, displayAwake: !allowDisplaySleep)
     return .result(value: id.uuidString)
   }
 }

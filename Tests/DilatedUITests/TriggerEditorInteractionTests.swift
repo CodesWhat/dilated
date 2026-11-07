@@ -8,11 +8,52 @@ import ViewInspector
 
 #if DEBUG
   @MainActor struct TriggerEditorInteractionTests {
+    @Test(arguments: [false, true])
+    func networkAndDiskThroughputEditorSavesDirectionAndThreshold(disk: Bool) throws {
+      _ = NSApplication.shared
+      FontRegistry.registerBundledFonts()
+      let original: TriggerCriterion =
+        disk
+        ? .diskThroughput(kilobytesPerSecond: 100, atLeast: true)
+        : .networkThroughput(kilobytesPerSecond: 100, atLeast: true)
+      let rule = TriggerRule(name: "Transfer", criteria: [original])
+      var saved: TriggerRule?
+      var mounted: TriggerRuleEditor?
+      var criterion: (any View)?
+      defer {
+        mounted = nil
+        criterion = nil
+      }
+      var editor = TriggerRuleEditor(rule: rule, save: { saved = $0 }, remove: {})
+      editor.didAppear = { mounted = $0 }
+      editor.criterionDidAppear = { criterion = $0 }
+      let host = NSHostingView(rootView: editor)
+      try render(host)
+      let liveCriterion = try #require(criterion)
+      let picker = try liveCriterion.inspect().find(ViewType.Picker.self) {
+        try $0.labelView().text().string() == (disk ? "Disk throughput" : "Network throughput")
+      }
+      try picker.select(value: false)
+      try render(host)
+      let updatedCriterion = try #require(criterion)
+      let field = try updatedCriterion.inspect().find(ViewType.TextField.self) {
+        try $0.labelView().text().string() == "KB/s"
+      }
+      try field.setInput("250")
+      try render(host)
+      try #require(mounted).inspect().find(button: "Save").tap()
+      let expected: TriggerCriterion =
+        disk
+        ? .diskThroughput(kilobytesPerSecond: 250, atLeast: false)
+        : .networkThroughput(kilobytesPerSecond: 250, atLeast: false)
+      #expect(saved?.criteria == [expected])
+    }
+
     @Test func removingTheFirstConditionSavesTheSurvivors() throws {
       _ = NSApplication.shared
       FontRegistry.registerBundledFonts()
       let criteria: [TriggerCriterion] = [
-        .power(onBattery: true), .process(name: "Xcode"), .cpu(percent: 50, atLeast: true),
+        .power(onBattery: true), .network(address: "192.0.2.1"), .cpu(percent: 50, atLeast: true),
       ]
       let rule = TriggerRule(name: "Three conditions", criteria: criteria)
       var saved: TriggerRule?
@@ -30,12 +71,12 @@ import ViewInspector
       try render(host)
       let field = try #require(
         descendants(of: host).compactMap { $0 as? NSTextField }.first {
-          $0.placeholderString == "Executable name or full path"
+          $0.placeholderString == "IPv4, IPv6 or CIDR range"
         })
       try #require(window.makeFirstResponder(field))
       let fieldEditor = try #require(field.currentEditor() as? NSTextView)
       fieldEditor.insertText(
-        "swift-build",
+        "192.0.2.2",
         replacementRange: NSRange(location: 0, length: fieldEditor.string.utf16.count))
       try render(host)
       let live = try #require(mounted)
@@ -46,11 +87,11 @@ import ViewInspector
       try remove[0].tap()
       try render(host)
       #expect(descendants(of: host).contains { $0 === field })
-      #expect(fieldEditor.string == "swift-build")
+      #expect(fieldEditor.string == "192.0.2.2")
       #expect(window.firstResponder === fieldEditor)
       try live.inspect().find(button: "Save").tap()
       let result = try #require(saved)
-      #expect(result.criteria == [.process(name: "swift-build"), criteria[2]])
+      #expect(result.criteria == [.network(address: "192.0.2.2"), criteria[2]])
       #expect(!window.isVisible)
     }
 

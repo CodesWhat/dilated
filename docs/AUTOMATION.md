@@ -33,8 +33,13 @@ Removal preserves other commands and the executable inside the app bundle.
 
 `dilated helper status|setup|remove` still work as deprecated aliases and go away in a later release.
 
-Durations use `s`, `m` or `h`, including decimals such as `1.5h`. Until-times use
-24-hour local time. A past time means tomorrow. `--override-low-power` permits a
+`on --for` and `hold --ttl` (also `hold --for`) accept `90m`, `2h30`,
+`for 1 hour 30 minutes` or `until 5pm`. The menu's duration field and the
+Shortcuts action's Duration phrase input accept the same phrases. Choose either
+minutes or a phrase in Shortcuts, not both. Ambiguous times such as `until 5`
+are rejected. New phrases are limited to seven days; existing single-unit
+numeric input keeps its ten-year limit. `--until` still accepts 24-hour local
+time. A past time means tomorrow. `--override-low-power` permits a
 new hold in Low Power Mode. The configured battery floor still applies. New
 requests also respect the explicit Low Power Mode override in Settings.
 `--lid` requires the app and the closed-lid sudo rule, even for `run`, and never bypasses
@@ -83,6 +88,20 @@ Use Dilated → Open Menu Bar Menu to open the same native menu from the keyboar
 or while Settings is visible. A display-sleep shortcut changes current holds;
 it reports when there are no active holds. Starts use manual hold semantics and
 remain available during the durable automation pause.
+
+## Preferences file
+
+General > Preferences file exports a JSON file for moving timer and appearance
+choices to another Mac. It includes the default duration, presets, display-sleep
+default, built-in menu bar icon, motion, countdown choices, menu clicks, idle
+opacity and Dock mode. Import shows the current and proposed values before
+**Apply preferences** saves them. Cancel leaves preferences as they were.
+
+Safety limits, startup behavior, triggers, hotkeys, permissions, local PNGs and
+sounds, drive bookmarks and history stay local. Current holds and the durable
+Stop/pause state are preserved. Custom icon files aren't exported; the file uses
+the selected built-in icon. Imports are limited to regular files up to 64 KB and
+reject unsupported versions, invalid choices and inconsistent duration presets.
 
 ## Shortcuts actions
 
@@ -165,6 +184,13 @@ it, and a pause that existed before you switched stays in place.
 
 ## Conditions and triggers
 
+The weekly schedule editor includes a seven-day hourly grid. Drag a block to
+replace the schedule's days and hours, or focus the grid and use arrow keys and
+Space to select an hour. Clear schedule removes the selected days. The weekday
+buttons and precise From/Until fields edit the same schedule, including overnight
+windows and minute-level times. The grid highlights any hour touched by that
+window; selecting a grid block uses whole hours.
+
 A trigger's saved **Work with the lid closed** choice requires **Arm closed-lid**
 in Settings for the current app run. Saving a rule or launching Dilated cannot
 arm it. Stop, safety stops, rule edits, permission changes and relaunch revoke that
@@ -207,6 +233,26 @@ workloads. Idle time reads Quartz's combined-session elapsed input time. It does
 not record keys, move the pointer or promise another app's availability status.
 Both CPU and idle conditions are checked every five seconds only while a matching
 configured rule is enabled and unpaused. Unknown readings never match.
+
+Network throughput adds **At least / At most N KB/s** using combined
+received and sent bytes across active, non-loopback interfaces. One KB is 1,000
+bytes. VPN traffic can appear on both tunnel and physical interfaces, so this is
+an aggregate activity measure. The first read and a failed read need a fresh
+baseline. New or reset interfaces contribute after two valid readings. Valid
+idle readings are zero. Older saved rules load unchanged.
+
+Disk throughput measures combined reads and writes across block
+devices using IOKit's numeric statistics. It includes other apps and can count
+virtual-device activity again on a backing physical drive. This is a global
+activity measure; it doesn't select a file, process or volume. At least / At most
+thresholds use the same KB/s units, warm-up, dwell and grace as network throughput.
+Unavailable or malformed counters can't match an idle condition.
+
+Both throughput conditions share the five-second trigger poller and use 64-bit counters for
+fast links. Reads are cached for five seconds, and sampling ends when its last
+enabled, unpaused rule is removed or automation is paused. New throughput
+conditions default to 30 seconds of dwell. Adjust dwell and grace to keep short
+bursts from repeatedly starting and ending a hold. Stop-pause still wins.
 
 Wi-Fi conditions match the exact SSID bytes, including capitalization and spaces.
 Enter a network name or choose Get current Wi-Fi network in its condition editor.
@@ -405,5 +451,83 @@ socket. Messages are one JSON object per line, limited to 64 KiB, with bounded
 socket reads/writes. A minimal status request is `{"action":"status"}`.
 
 `DILATED_STATE_DIR` selects an isolated state directory for development/testing.
+Use an absolute path when running CLI commands from different directories.
 Normal app state lives in `~/Library/Application Support/Dilated`. Tests do not
 read local planning files. This is a single-user local app, not a network service.
+
+## Why is my Mac awake?
+
+Choose Why is my Mac awake? from the menu, or Why Awake in Settings. The page
+shows Dilated's awake reasons followed by macOS power assertions, with Dilated's
+assertions first. Each assertion lists its process, PID, type and name. The page
+reads a fresh snapshot when opened and doesn't poll or save other apps' history.
+It can't change another process's assertions. Closed-lid settings and other macOS
+behavior can also affect sleep without appearing in this list.
+
+## Claude Code hooks
+
+In the direct build, Settings → Automation → Claude Code hooks installs, verifies,
+repairs or removes Dilated's hooks in `~/.claude/settings.json`. Existing settings
+and unrelated hooks are preserved. Each edit of an existing file saves a private
+`dilated-settings-<ID>.backup` beside it. Invalid JSON is refused without changing
+the file. Restart existing Claude sessions after changing hooks.
+
+The health check reports Missing, Installed or Drifted. Drifted includes partial
+hooks, a changed app path, or Claude's `disableAllHooks` setting. Install and repair
+refuse to write while hooks are disabled, with an explanation. Enable hooks in
+Claude settings, then repair. Removal remains available and preserves that setting.
+
+A prompt starts one ten-minute hold per Claude session, with a detached renewer
+while the agent process lives, for up to one hour after the last prompt or tool
+hook. Tool calls renew the hold and extend that window. Stop, StopFailure and
+SessionEnd release it. Claude does not send Stop after a user interruption, so
+an interrupted turn can retain the hold until that one-hour renewal window ends
+and the remaining ten-minute lease expires. No hook activity means at most
+70 minutes of awake time; use Dilated's Stop to release it immediately. Quiet
+turns longer than an hour need an explicit timed hold. The menu and history label reads `decided by: hook`.
+Dilated's Stop pauses automation, so later hooks cannot recreate an awake hold
+until Resume automation. Hook errors stay quiet and never block Claude.
+
+The hook protocol follows [Claude Code's hook reference](https://code.claude.com/docs/en/hooks).
+
+## Other coding agents
+
+Settings → Automation also configures Codex hooks and installs an OpenCode local
+plugin. All adapters use separate run identities, stay quiet on errors and respect
+Dilated's Stop pause. Automatic quiet-turn renewal is bounded to one hour since
+actual hook activity, followed by at most the remaining ten-minute lease.
+
+| Tool | Default file | Lifecycle and activation |
+| --- | --- | --- |
+| Codex | `~/.codex/hooks.json` | Prompt begins; tool hooks renew; Stop, Interrupt and SessionEnd release. Review and trust the new hooks in Codex `/hooks` or Settings > Hooks. Configured does not mean trusted or enabled by policy. |
+| OpenCode | `~/.config/opencode/plugins/dilated.js` | Busy starts; tools renew; idle, error, deletion and plugin disposal release. Restart OpenCode after changing plugins. Other plugin files are untouched; an unrelated file at this exact path is never overwritten or removed. |
+
+Install/repair preserves existing hooks and private backups. Removal deletes only
+Dilated's entries or owned plugin. These controls target the default user paths;
+custom configuration locations need the equivalent integration in that location.
+They do not change Codex trust, managed policy or feature flags. Hooks require a
+local runtime capable of executing the installed Dilated CLI.
+
+Contracts: [Codex hooks](https://learn.chatgpt.com/docs/hooks),
+[OpenCode plugins](https://opencode.ai/docs/plugins/) and the
+[OpenCode 1.19.5 session status schema](https://github.com/anomalyco/opencode/blob/v1.19.5/packages/schema/src/session-status-event.ts).
+Fixture configuration, actual CLI/socket isolation and generated plugin execution
+are tested; these checks do not claim a live Codex or OpenCode model turn.
+
+### CPU fallback presets
+
+In Triggers, Agent preset creates an editable rule for the Claude Code, Codex or
+OpenCode CLI. It combines the exact process name with total Mac CPU at least
+20%, using the existing process and CPU monitors. It adds no monitor or polling
+loop. The reason includes `decided by: CPU`; the hold ends on the next trigger
+evaluation when either condition stops matching. Stop-pause still wins.
+
+CPU here is system-wide, not per-process. Other work can keep the condition true
+while an agent is idle, so use lifecycle hooks when available. Review process
+name and threshold before saving. These presets are direct-build only.
+
+Older npm installations of Claude Code may run as `node`, so the `claude` CPU
+preset will not match them. Matching `node` also matches other Node.js processes.
+Install Dilated in Applications before installing hooks or the OpenCode plugin.
+After moving the app, use Repair hooks or Repair plugin in Settings to update
+the stored CLI path.
