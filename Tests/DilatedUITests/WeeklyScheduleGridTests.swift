@@ -1,4 +1,5 @@
 import DilatedCore
+import Foundation
 import Testing
 
 @testable import DilatedUI
@@ -33,6 +34,29 @@ struct WeeklyScheduleGridTests {
     let cleared = ScheduleGridSelection.clearing(schedule)
     #expect(cleared.weekdays.isEmpty && !cleared.isValid)
     #expect(cleared.startMinute == schedule.startMinute && cleared.endMinute == schedule.endMinute)
+  }
+
+  @Test(arguments: [
+    WeeklySchedule(weekdays: [1, 3, 7], startMinute: 0, endMinute: 0),
+    WeeklySchedule(weekdays: [2, 4], startMinute: 9 * 60 + 17, endMinute: 17 * 60 + 43),
+    WeeklySchedule(weekdays: [1, 7], startMinute: 22 * 60 + 30, endMinute: 75),
+  ])
+  func eachCellMatchesTheSchedulesActualMinutes(schedule: WeeklySchedule) throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+    let sunday = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 1)))
+    for day in 1...7 {
+      for hour in 0..<24 {
+        let expected = (0..<60).contains { minute in
+          let date = sunday.addingTimeInterval(
+            Double((day - 1) * 86400 + hour * 3600 + minute * 60))
+          return schedule.contains(date, calendar: calendar)
+        }
+        #expect(
+          ScheduleGridSelection.contains(.init(day: day, hour: hour), in: schedule) == expected,
+          "Day \(day), hour \(hour), schedule \(schedule)")
+      }
+    }
   }
 
   @Test func arrowsMoveFocusAndSpaceSelectsTheFocusedHour() {
