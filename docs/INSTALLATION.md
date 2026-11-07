@@ -225,8 +225,20 @@ Accepted release staging also generates `dilated.rb` with the exact version and
 DMG digest as a versioned release asset. It does not publish the Homebrew tap.
 
 Before downgrading to an older beta, quit Dilated and back up the entire
-`~/Library/Application Support/Dilated` folder, including `triggers.json`.
-If you set `DILATED_STATE_DIR`, back up that directory instead. Export preferences
-does not include trigger rules. Older builds may not read newly added trigger
-conditions; saving triggers there can replace rules they could not load. Quit
+`~/Library/Application Support/Dilated` folder, including both `triggers.json`
+and `triggers-v2.json` when present. If you set `DILATED_STATE_DIR`, back up that
+directory instead. Export preferences does not include trigger rules. Quit
 Dilated before restoring the folder from your backup.
+
+Versioned trigger storage keeps all rules in `triggers-v2.json` and writes a
+beta.11-compatible subset to `triggers.json`. Network and disk throughput rules
+stay in the versioned file while an older build runs. On returning, edits,
+additions and deletions made in the older build are reconciled with the preserved
+rules. Keep both files together. An unreadable file, an unsupported schema or
+conflicting edits after an interrupted save block further trigger saves and keep
+the original files. Restore the full backup before editing in that case.
+
+This protection starts after a build with versioned storage saves the triggers.
+It cannot recover rules already overwritten by an older build. Builds without
+versioned storage can still replace rules they cannot read, so a full backup is
+required before downgrading.

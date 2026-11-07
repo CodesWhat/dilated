@@ -30,6 +30,12 @@ unexpired timed holds are restored; agent leases and runner IDs aren't replayed
 as work after a crash. Explicit Quit clears saved holds. Broken state is reported
 and automation starts paused. Settings decode missing keys with safe defaults.
 
+`TriggerStore` keeps a versioned rule set plus a legacy projection for beta.11
+readers. The versioned record includes the last projected rules, so changes made
+by an older build can be reconciled without discarding newer-only conditions.
+A pending projection records both sides of the write; ambiguous edits, future
+schemas and unreadable files block saves instead of replacing saved rules.
+
 There is no privileged helper. Closed-lid power changes run inside the app
 through `sudo -n /usr/bin/pmset -a disablesleep 0|1`, allowed by a fixed sudoers
 rule at `/private/etc/sudoers.d/dilated` (root:wheel, 0440, `%admin` only, those
