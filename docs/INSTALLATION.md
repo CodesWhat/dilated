@@ -1,16 +1,16 @@
 # Installation and removal
 
-Dilated targets macOS 26 or later on Apple Silicon. 1.0.0-beta.11 (build 16) is
-public as a beta. Download the signed, notarized DMG from
+Dilated targets macOS 26 or later on Apple Silicon. Download the current public
+beta as a signed, notarized DMG from
 https://dilated.app/download/file, or run
 `brew install --cask codeswhat/tap/dilated`. The fully qualified name trusts that
 cask. Running `brew info` or `brew fetch` on the bare tap may ask for
 `brew trust --cask codeswhat/tap/dilated`. The GitHub release at
-https://github.com/CodesWhat/dilated/releases/tag/v1.0.0-beta.11 carries the DMG,
+https://github.com/CodesWhat/dilated/releases carries the DMG,
 ZIP, source tarball, sha256 files and `release-manifest.json`.
 
 The notarized 1.0.0-beta.9 build passed these checks on the maintainer's Mac with
-macOS 27.2, and beta.10 and beta.11 don't change the direct closed-lid path: `macOS27ClosedLid`, `appCrashRecovery`, `heartbeatExpiry`,
+macOS 27.2, and beta.10 through beta.12 don't change the direct closed-lid path: `macOS27ClosedLid`, `appCrashRecovery`, `heartbeatExpiry`,
 `stopResume` and `sudoRuleIntegrity`. `macOS26ClosedLid` and `sparkleUpgrade`
 come from earlier betas. These hardware checks haven't run for this build and are
 listed in the cask caveats and `latest.json`: `sudoRuleRevoked`, `guardTransitions`,
@@ -223,3 +223,23 @@ any are open. A GA version keeps the full gate above, with every required check
 passed.
 Accepted release staging also generates `dilated.rb` with the exact version and
 DMG digest as a versioned release asset. It does not publish the Homebrew tap.
+
+Before downgrading to an older beta, quit Dilated and back up the entire
+`~/Library/Application Support/Dilated` folder, including both `triggers.json`
+and `triggers-v2.json` when present. If you set `DILATED_STATE_DIR`, back up that
+directory instead. Export preferences does not include trigger rules. Quit
+Dilated before restoring the folder from your backup.
+
+Versioned trigger storage keeps all rules in `triggers-v2.json` and writes a
+beta.11-compatible subset to `triggers.json`. Network and disk throughput rules
+stay in the versioned file while an older build runs. On returning, edits,
+additions and deletions made in the older build are reconciled with the preserved
+rules. Keep both files together. An unreadable file, an unsupported schema or
+conflicting edits after an interrupted save block further trigger saves and keep
+the original files. Restore the full backup before editing in that case.
+
+A build with versioned storage migrates existing triggers on startup. This
+protection starts after that migration succeeds.
+It cannot recover rules already overwritten by an older build. Builds without
+versioned storage can still replace rules they cannot read, so a full backup is
+required before downgrading.

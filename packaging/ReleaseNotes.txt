@@ -1,4 +1,5 @@
-Updates now come from dilated.app.
-New dilated agent begin, renew and end commands let a coding agent keep the Mac awake for a run, and --pid keeps the hold alive through a long quiet turn.
-dilated status --assertions lists every process holding the Mac awake.
+Install and check Claude Code, Codex and OpenCode keep-awake hooks in Settings. Stop keeps automation paused until you resume it.
+Why Awake shows Dilated holds and the processes asking macOS to stay awake.
+Type durations such as 2h30 or until 5pm in the menu, CLI and Shortcuts. Edit schedules in a weekly grid and match aggregate network or disk throughput.
+Export and preview timer and appearance preferences for another Mac while keeping local safety settings and active holds.
 Closed-lid mode remains experimental.

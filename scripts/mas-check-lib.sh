@@ -12,7 +12,6 @@ agent_plist="$HOME/Library/LaunchAgents/$label.plist"
 session_dir="$HOME/Library/Application Support/dilated-power"
 
 installed=0
-created_scripts_dir=0
 failures=0
 uninstall_status=0
 
@@ -81,11 +80,12 @@ mas_preflight() {
 # Sets installed=1 first so cleanup removes whatever got installed.
 mas_install_agent() {
   local t0
+  # shellcheck disable=SC2034 # Read by the sourcing script during cleanup.
   installed=1
   if [ ! -d "$scripts_dir" ]; then
     /bin/mkdir -p "$scripts_dir" || return 1
-    created_scripts_dir=1
   fi
+  # shellcheck disable=SC2154 # The sourcing script sets its repository root.
   /bin/cp "$repo/packaging/mas/dilated-power" "$installed_script" || return 1
   /bin/chmod 755 "$installed_script"
   /usr/bin/sed "s|__HOME__|$HOME|g" "$repo/packaging/mas/$label.plist" >"$agent_plist" || return 1
@@ -101,7 +101,7 @@ mas_uninstall_agent() {
   uninstall_status=0
   launchctl bootout "gui/$uid/$label" 2>/dev/null
   /bin/rm -f "$agent_plist" "$installed_script"
-  # rmdir only takes an empty folder; the sandboxed app can create it on launch, so don't gate on created_scripts_dir.
+  # rmdir only takes an empty folder; the sandboxed app can create it on launch.
   /bin/rmdir "$scripts_dir" 2>/dev/null
   /bin/rm -rf "$session_dir"
   if /usr/bin/env -i /usr/bin/sudo -n /usr/bin/pmset -a disablesleep 0; then
@@ -117,6 +117,7 @@ mas_uninstall_agent() {
   fi
   if launchctl print "gui/$uid/$label" >/dev/null 2>&1; then
     say "FAIL: $label is still loaded"
+    # shellcheck disable=SC2034 # Returned through shared state to the sourcing script.
     uninstall_status=1
   fi
 }

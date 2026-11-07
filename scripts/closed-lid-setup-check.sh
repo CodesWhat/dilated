@@ -9,7 +9,6 @@
 # Usage: bash scripts/closed-lid-setup-check.sh
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 set -u
-# shellcheck disable=SC2154  # paths, label and counters come from mas-check-lib.sh
 
 # shellcheck source=scripts/mas-check-lib.sh
 source "$repo/scripts/mas-check-lib.sh"

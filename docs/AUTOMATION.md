@@ -101,6 +101,20 @@ or while Settings is visible. A display-sleep shortcut changes current holds;
 it reports when there are no active holds. Starts use manual hold semantics and
 remain available during the durable automation pause.
 
+## Preferences file
+
+General > Preferences file exports a JSON file for moving timer and appearance
+choices to another Mac. It includes the default duration, presets, display-sleep
+default, built-in menu bar icon, motion, countdown choices, menu clicks, idle
+opacity and Dock mode. Import shows the current and proposed values before
+**Apply preferences** saves them. Cancel leaves preferences as they were.
+
+Safety limits, startup behavior, triggers, hotkeys, permissions, local PNGs and
+sounds, drive bookmarks and history stay local. Current holds and the durable
+Stop/pause state are preserved. Custom icon files aren't exported; the file uses
+the selected built-in icon. Imports are limited to regular files up to 64 KB and
+reject unsupported versions, invalid choices and inconsistent duration presets.
+
 ## Shortcuts actions
 
 The signed app exposes four actions in the Mac's Shortcuts action library:
@@ -182,6 +196,13 @@ it, and a pause that existed before you switched stays in place.
 
 ## Conditions and triggers
 
+The weekly schedule editor includes a seven-day hourly grid. Drag a block to
+replace the schedule's days and hours, or focus the grid and use arrow keys and
+Space to select an hour. Clear schedule removes the selected days. The weekday
+buttons and precise From/Until fields edit the same schedule, including overnight
+windows and minute-level times. The grid highlights any hour touched by that
+window; selecting a grid block uses whole hours.
+
 A trigger's saved **Work with the lid closed** choice requires **Arm closed-lid**
 in Settings for the current app run. Saving a rule or launching Dilated cannot
 arm it. Stop, safety stops, rule edits, permission changes and relaunch revoke that
@@ -224,6 +245,26 @@ workloads. Idle time reads Quartz's combined-session elapsed input time. It does
 not record keys, move the pointer or promise another app's availability status.
 Both CPU and idle conditions are checked every five seconds only while a matching
 configured rule is enabled and unpaused. Unknown readings never match.
+
+Network throughput adds **At least / At most N KB/s** using combined
+received and sent bytes across active, non-loopback interfaces. One KB is 1,000
+bytes. VPN traffic can appear on both tunnel and physical interfaces, so this is
+an aggregate activity measure. The first read and a failed read need a fresh
+baseline. New or reset interfaces contribute after two valid readings. Valid
+idle readings are zero. Older saved rules load unchanged.
+
+Disk throughput measures combined reads and writes across block
+devices using IOKit's numeric statistics. It includes other apps and can count
+virtual-device activity again on a backing physical drive. This is a global
+activity measure; it doesn't select a file, process or volume. At least / At most
+thresholds use the same KB/s units, warm-up, dwell and grace as network throughput.
+Unavailable or malformed counters can't match an idle condition.
+
+Both throughput conditions share the five-second trigger poller and use 64-bit counters for
+fast links. Reads are cached for five seconds, and sampling ends when its last
+enabled, unpaused rule is removed or automation is paused. New throughput
+conditions default to 30 seconds of dwell. Adjust dwell and grace to keep short
+bursts from repeatedly starting and ending a hold. Stop-pause still wins.
 
 Wi-Fi conditions match the exact SSID bytes, including capitalization and spaces.
 Enter a network name or choose Get current Wi-Fi network in its condition editor.
@@ -422,6 +463,7 @@ socket. Messages are one JSON object per line, limited to 64 KiB, with bounded
 socket reads/writes. A minimal status request is `{"action":"status"}`.
 
 `DILATED_STATE_DIR` selects an isolated state directory for development/testing.
+Use an absolute path when running CLI commands from different directories.
 Normal app state lives in `~/Library/Application Support/Dilated`. Tests do not
 read local planning files. This is a single-user local app, not a network service.
 
@@ -495,3 +537,9 @@ evaluation when either condition stops matching. Stop-pause still wins.
 CPU here is system-wide, not per-process. Other work can keep the condition true
 while an agent is idle, so use lifecycle hooks when available. Review process
 name and threshold before saving. These presets are direct-build only.
+
+Older npm installations of Claude Code may run as `node`, so the `claude` CPU
+preset will not match them. Matching `node` also matches other Node.js processes.
+Install Dilated in Applications before installing hooks or the OpenCode plugin.
+After moving the app, use Repair hooks or Repair plugin in Settings to update
+the stored CLI path.

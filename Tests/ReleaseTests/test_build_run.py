@@ -21,6 +21,7 @@ class BuildRunTests(unittest.TestCase):
         self.bin.mkdir()
         self.calls = self.root / 'calls'
         self.env = dict(os.environ, PATH=f'{self.bin}:{os.environ["PATH"]}', CALLS=str(self.calls))
+        self.env.pop('DILATED_STATE_DIR', None)
         self.stub('swift', 'echo swift >> "$CALLS"; exit 71')
 
     def stub(self, name, body):
@@ -107,6 +108,39 @@ class BuildRunTests(unittest.TestCase):
         self.assertIn('Running Dilated PID: 456', result.stdout)
         self.assertIn(f'open:-n {self.root}/build/Dilated.app', self.calls.read_text())
         self.assertNotIn('log:', self.calls.read_text())
+
+    def test_verify_passes_the_isolated_state_directory_to_the_launched_app(self):
+        self.successful_build_fixture()
+        state = self.root / 'private state'
+        self.stub('open', 'printf "%s\\n" "$@" > "$CALLS.args"; touch "$CALLS.running"')
+        result = self.run_script('debug', '--verify', DILATED_STATE_DIR=str(state))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(pathlib.Path(str(self.calls) + '.args').read_text().splitlines(),
+                         ['-n', '--env', f'DILATED_STATE_DIR={state}',
+                          str(self.root / 'build/Dilated.app')])
+
+    def test_verify_resolves_relative_state_from_the_invoking_directory(self):
+        self.successful_build_fixture()
+        relative = 'private state/../shared state'
+        self.stub('open', 'printf "%s\\n" "$@" > "$CALLS.args"; touch "$CALLS.running"')
+        result = self.run_script('debug', '--verify', DILATED_STATE_DIR=relative)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expected = str((pathlib.Path.cwd() / relative).resolve())
+        self.assertEqual(pathlib.Path(str(self.calls) + '.args').read_text().splitlines(),
+                         ['-n', '--env', f'DILATED_STATE_DIR={expected}',
+                          str(self.root / 'build/Dilated.app')])
+
+    def test_running_app_preparation_uses_the_same_absolute_state(self):
+        app = self.root / 'build/Dilated.app/Contents/MacOS'
+        app.mkdir(parents=True)
+        cli = app / 'dilated'
+        cli.write_text('#!/bin/bash\necho "state:$DILATED_STATE_DIR" >> "$CALLS"\n')
+        cli.chmod(0o755)
+        self.stub('ps', f'if [ ! -f "$CALLS" ]; then echo "123 {app}/DilatedApp"; fi')
+        result = self.run_script('debug', '--verify', DILATED_STATE_DIR='private state')
+        self.assertEqual(result.returncode, 71, result.stderr)
+        self.assertEqual(self.calls.read_text().splitlines(),
+                         [f'state:{pathlib.Path.cwd() / "private state"}', 'swift'])
 
     def test_logs_streams_only_after_verified_launch_with_a_deadline(self):
         self.successful_build_fixture()

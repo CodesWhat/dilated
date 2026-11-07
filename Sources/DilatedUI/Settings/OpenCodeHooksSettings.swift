@@ -27,6 +27,10 @@
           "Keeps awake while a session is busy and releases its hold when idle. Quiet turns need an event within one hour. Other plugins are kept; edits save a private backup. Restart OpenCode after changes."
         )
         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        Text(
+          "Install Dilated in Applications before installing the plugin. After moving the app, use Repair plugin to update its path."
+        )
+        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
       }
       .onAppear(perform: refresh)
       .onReceive(

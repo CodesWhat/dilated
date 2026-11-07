@@ -180,6 +180,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     if old.triggersEnabled != value.triggersEnabled { reconcileTriggers(lastTriggerInputs) }
     refreshPower()
   }
+  func applySettingsProfile(_ profile: SettingsProfile) throws {
+    guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
+    try applySettings(profile.applying(to: settings))
+    onChange?()
+  }
   public private(set) var history = SessionHistory()
   public private(set) var historyIssue: String?
   @ObservationIgnored private var historyAvailable = true
@@ -326,17 +331,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         loadMessage = "Couldn't read settings: \(error.localizedDescription)"
       }
     }
-    let triggerFile = endpoint.stateDirectory.appendingPathComponent("triggers.json")
-    if FileManager.default.fileExists(atPath: triggerFile.path) {
-      do {
-        let rules = try JSONDecoder().decode(
-          [TriggerRule].self, from: Data(contentsOf: triggerFile))
-        guard rules.count <= 100, Set(rules.map(\.id)).count == rules.count,
-          rules.allSatisfy({ $0.validationMessage == nil })
-        else { throw TriggerConfigurationError("Saved triggers contain invalid rules.") }
-        triggerRules = rules
-      } catch { loadMessage = "Couldn't load triggers: \(error.localizedDescription)" }
-    }
+    do {
+      triggerRules = try TriggerStore(directory: endpoint.stateDirectory).load()
+    } catch { loadMessage = "Couldn't load triggers: \(error.localizedDescription)" }
     preferences = loadedSettings
     historyWasEnabled = loadedSettings.historyEnabled
     do { history = try historyStore.load(retentionDays: loadedSettings.historyRetentionDays) } catch
@@ -844,14 +841,21 @@ public struct AppSettings: Codable, Equatable, Sendable {
       savedForUpdate = true
       historyShutdownReason = intent == .update ? .update : .packageRemoval
       shutdown()
-      message =
-        intent == .update
-        ? "Prepared for update. Unexpired timers will keep their original deadlines."
-        : removeLidPermission
+      #if MAS_CHANNEL
+        let removalMessage =
+          "Prepared for removal. Use Dilated Closed-Lid Setup to remove its closed-lid components. Shared permissions may remain."
+      #else
+        let removalMessage =
+          removeLidPermission
           ? "Prepared for removal. Closed-lid permission, login item and owned command line link are removed."
           : closedLidPermission.canRemove
             ? "Prepared for removal. Login item and owned command line link are removed. The closed-lid permission stays until you run prepare-uninstall --remove-lid-permission, dilated lid-permission remove, or the Remove button in Settings."
             : "Prepared for removal. Login item and owned command line link are removed. The closed-lid permission stays until you run prepare-uninstall --remove-lid-permission."
+      #endif
+      message =
+        intent == .update
+        ? "Prepared for update. Unexpired timers will keep their original deadlines."
+        : removalMessage
       return true
     } catch {
       try? handoff.clear()
@@ -1659,12 +1663,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     } catch { message = error.localizedDescription }
   }
   private func writeTriggers(_ rules: [TriggerRule]) throws {
-    try FileManager.default.createDirectory(
-      at: endpoint.stateDirectory, withIntermediateDirectories: true,
-      attributes: [.posixPermissions: 0o700])
-    let file = endpoint.stateDirectory.appendingPathComponent("triggers.json")
-    try JSONEncoder().encode(rules).write(to: file, options: .atomic)
-    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    try TriggerStore(directory: endpoint.stateDirectory).save(rules)
     let updated = Dictionary(uniqueKeysWithValues: rules.map { ($0.id, $0) })
     let changed = Set(triggerRules.filter { updated[$0.id] != $0 }.map(\.id))
     resetTriggerLidArming(ids: changed)
