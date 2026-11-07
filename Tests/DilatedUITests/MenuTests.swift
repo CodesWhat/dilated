@@ -200,21 +200,28 @@ import Testing
     defer { controller.stop() }
 
     model.stopAll()
-    controller.showMenu()
-    let first = try #require(presented.pointee.last)
-    first.delegate?.menuDidClose?(first)
-    // Reopen before the first close's deferred release runs.
-    controller.showMenu()
-    let second = try #require(presented.pointee.last)
-    let box = WeakBox(second.items.first { $0.title == "Resume automation" }?.target as AnyObject?)
-    let action = try #require(second.items.first { $0.title == "Resume automation" }?.action)
-    presented.pointee.removeAll()
+    let (box, action) = try autoreleasepool {
+      controller.showMenu()
+      let first = try #require(presented.pointee.last)
+      first.delegate?.menuDidClose?(first)
+      // Reopen before the first close's deferred release runs.
+      controller.showMenu()
+      let second = try #require(presented.pointee.last)
+      let box = WeakBox(
+        second.items.first { $0.title == "Resume automation" }?.target as AnyObject?)
+      let action = try #require(second.items.first { $0.title == "Resume automation" }?.action)
+      presented.pointee.removeAll()
+      return (box, action)
+    }
     await flushMainQueue()
+    autoreleasepool {
+      if let second = controller.statusItem.menu { second.delegate?.menuDidClose?(second) }
+    }
     #expect(box.value != nil)
     _ = (box.value as? NSObject)?.perform(action)
     #expect(!model.engine.automationPaused)
-    second.delegate?.menuDidClose?(second)
     await flushMainQueue()
+    #expect(box.value == nil)
   }
 
   @Test func statusAndPauseUseNativeMenuRows() throws {

@@ -27,11 +27,19 @@ import Testing
     #expect(hold.source == .shortcut)
     #expect(abs(try #require(hold.expiry).timeIntervalSince(hold.createdAt) - 5400) < 0.01)
     let before = model.engine.holds
-    await #expect(throws: (any Error).self) { try await service.start(phrase: "until 5") }
-    await #expect(throws: (any Error).self) { try await service.start(phrase: "30m", minutes: 20) }
+    await #expect(throws: WakeError.invalidDuration) { try await service.start(phrase: "until 5") }
+    await #expect {
+      try await service.start(phrase: "30m", minutes: 20)
+    } throws: {
+      ($0 as? InputError)?.text == "Choose a duration phrase or minutes, not both."
+    }
     #expect(model.engine.holds == before)
     try await service.stop()
-    await #expect(throws: (any Error).self) { try await service.start(phrase: "2h30") }
+    await #expect {
+      try await service.start(phrase: "2h30")
+    } throws: {
+      ($0 as? InputError)?.text == WakeError.automationPaused.errorDescription
+    }
     #expect(model.engine.holds.isEmpty)
   }
 
