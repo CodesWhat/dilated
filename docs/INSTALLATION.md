@@ -1,12 +1,12 @@
 # Installation and removal
 
-Dilated targets macOS 26 or later on Apple Silicon. 1.0.0-beta.12 (build 17) is
-public as a beta. Download the signed, notarized DMG from
+Dilated targets macOS 26 or later on Apple Silicon. Download the current public
+beta as a signed, notarized DMG from
 https://dilated.app/download/file, or run
 `brew install --cask codeswhat/tap/dilated`. The fully qualified name trusts that
 cask. Running `brew info` or `brew fetch` on the bare tap may ask for
 `brew trust --cask codeswhat/tap/dilated`. The GitHub release at
-https://github.com/CodesWhat/dilated/releases/tag/v1.0.0-beta.12 carries the DMG,
+https://github.com/CodesWhat/dilated/releases carries the DMG,
 ZIP, source tarball, sha256 files and `release-manifest.json`.
 
 The notarized 1.0.0-beta.9 build passed these checks on the maintainer's Mac with
@@ -223,3 +223,10 @@ any are open. A GA version keeps the full gate above, with every required check
 passed.
 Accepted release staging also generates `dilated.rb` with the exact version and
 DMG digest as a versioned release asset. It does not publish the Homebrew tap.
+
+Before downgrading to an older beta, quit Dilated and back up the entire
+`~/Library/Application Support/Dilated` folder, including `triggers.json`.
+If you set `DILATED_STATE_DIR`, back up that directory instead. Export preferences
+does not include trigger rules. Older builds may not read newly added trigger
+conditions; saving triggers there can replace rules they could not load. Quit
+Dilated before restoring the folder from your backup.

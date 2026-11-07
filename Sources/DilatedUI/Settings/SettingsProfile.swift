@@ -39,7 +39,6 @@ struct SettingsProfile: Codable, Equatable, Sendable {
     }
     guard (0...10080).contains(defaultMinutes), (1...10).contains(presets.count),
       Set(presets).count == presets.count, presets.allSatisfy({ (1...10080).contains($0) }),
-      defaultMinutes == 0 || presets.contains(defaultMinutes),
       DockIconMode(rawValue: dockMode) != nil
     else {
       throw InputError("The preferences file contains invalid durations or appearance settings.")

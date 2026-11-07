@@ -96,43 +96,46 @@ import ViewInspector
     #expect(reads == 2)
   }
 
-  @Test func settingsRoutePresentsTheProductionInspectorAndRefreshesOnReopen() throws {
-    _ = NSApplication.shared
-    FontRegistry.registerBundledFonts()
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-      "inspector-window-\(UUID().uuidString)")
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
-    defer { model.shutdown() }
-    let controller = SettingsWindow(model: model)
-    defer {
-      controller.stop()
-      controller.close()
+  #if DEBUG
+    @Test func settingsRoutePresentsTheProductionInspectorAndRefreshesOnReopen() throws {
+      _ = NSApplication.shared
+      FontRegistry.registerBundledFonts()
+      let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "inspector-window-\(UUID().uuidString)")
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+      defer { model.shutdown() }
+      let controller = SettingsWindow(model: model)
+      defer {
+        controller.stop()
+        controller.close()
+      }
+      let host = try #require(controller.hostingViewForTesting as? NSHostingView<SettingsContent>)
+      var mounted: SettingsContent?
+      defer { mounted = nil }
+      var content = host.rootView
+      content.didAppear = { mounted = $0 }
+      host.rootView = content
+      let initial = controller.navigation.presentationEpoch
+      for expected in 1...2 {
+        controller.present(page: .inspector)
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        #expect(controller.navigation.presentationEpoch == initial + expected)
+        #expect(controller.window?.isVisible == true)
+        let live = try #require(mounted)
+        let inspector = try live.inspect().find(AwakeInspectorView.self)
+        #expect(
+          try inspector.findAll(ViewType.Text.self).contains {
+            try $0.string() == "MACOS POWER ASSERTIONS"
+          })
+        controller.close()
+      }
+      #expect(model.engine.holds.isEmpty)
     }
-    let host = try #require(controller.hostingViewForTesting as? NSHostingView<SettingsContent>)
-    var mounted: SettingsContent?
-    defer { mounted = nil }
-    var content = host.rootView
-    content.didAppear = { mounted = $0 }
-    host.rootView = content
-    let initial = controller.navigation.presentationEpoch
-    for expected in 1...2 {
-      controller.present(page: .inspector)
-      host.layoutSubtreeIfNeeded()
-      let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-      host.cacheDisplay(in: host.bounds, to: bitmap)
-      #expect(controller.navigation.presentationEpoch == initial + expected)
-      #expect(controller.window?.isVisible == true)
-      let live = try #require(mounted)
-      let inspector = try live.inspect().find(AwakeInspectorView.self)
-      #expect(
-        try inspector.findAll(ViewType.Text.self).contains {
-          try $0.string() == "MACOS POWER ASSERTIONS"
-        })
-      controller.close()
-    }
-    #expect(model.engine.holds.isEmpty)
-  }
+
+  #endif
 
   @Test func menuOpensTheInspector() throws {
     _ = NSApplication.shared
