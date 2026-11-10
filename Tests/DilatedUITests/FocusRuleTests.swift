@@ -2,6 +2,7 @@ import DilatedControl
 import DilatedCore
 import Foundation
 import Testing
+import ViewInspector
 
 @testable import DilatedUI
 
@@ -14,6 +15,21 @@ import Testing
     var rule = TriggerRule(name: name, criteria: [.power(onBattery: false)])
     rule.enabled = false
     return rule
+  }
+
+  @Test(arguments: [false, true])
+  func focusCaptionReflectsWhetherTheOwnedRuleIsEnabled(enabled: Bool) throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = model(directory)
+    defer { model.shutdown() }
+    var rule = disabled("Focus")
+    rule.focusControlled = true
+    rule.enabled = enabled
+    try model.saveTrigger(rule)
+    let text = try TriggersSettings(model: model).inspect().findAll(ViewType.Text.self)
+      .compactMap { try? $0.string() }
+    #expect(text.contains("Enabled by the current Focus filter") == enabled)
   }
 
   @Test func filterSwitchesOnlyItsSelectedRuleAndExitPreservesOtherHolds() async throws {

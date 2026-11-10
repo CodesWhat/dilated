@@ -59,7 +59,7 @@ import UniformTypeIdentifiers
               Button("Turn off") { change(rule) { $0.enabled = false } }
             }.fixedSize().accessibilityLabel("Pause \(rule.name)")
           }
-          if rule.focusControlled {
+          if rule.focusControlled && rule.enabled {
             Text("Enabled by the current Focus filter")
               .font(.caption).foregroundStyle(.secondary)
           }
