@@ -33,6 +33,8 @@ and automation starts paused. Settings decode missing keys with safe defaults.
 `TriggerStore` keeps a versioned rule set plus a legacy projection for beta.11
 readers. The versioned record includes the last projected rules, so changes made
 by an older build can be reconciled without discarding newer-only conditions.
+Focus-owned rules stay in the versioned store and are omitted from the legacy
+projection, so an older build cannot run them outside their Focus.
 A pending projection records both sides of the write; ambiguous edits, future
 schemas and unreadable files block saves instead of replacing saved rules.
 

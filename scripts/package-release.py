@@ -83,11 +83,19 @@ def validate_automation_bundle(app):
         dictionary = ET.parse(resources / 'Dilated.sdef')
         expected = {'StartAwakeIntent', 'StopAwakeIntent', 'AwakeStatusIntent', 'SetClosedLidIntent'}
         actions = metadata['actions']
+        focus = actions.get('SetAwakeFocusFilterIntent', {})
+        parameters = focus.get('parameters', [])
         if (not info.get('NSAppleScriptEnabled') or info.get('OSAScriptingDefinition') != 'Dilated.sdef'
-                or set(actions) != expected | {'SetAwakeControlIntent'} or not metadata.get('autoShortcutProviderMangledName')
+                or set(actions) != expected | {'SetAwakeFocusFilterIntent', 'SetAwakeControlIntent'}
+                or not metadata.get('autoShortcutProviderMangledName')
                 or {item['actionIdentifier'] for item in metadata['autoShortcuts']} != expected
+                or focus.get('systemProtocols') != ['com.apple.link.systemProtocol.FocusConfiguration']
+                or len(parameters) != 1 or parameters[0].get('name') != 'rule'
+                or parameters[0].get('isOptional') is not True
+                or parameters[0].get('valueType') != {'entity': {'wrapper': {'typeName': 'FocusTriggerEntity'}}}
+                or 'FocusTriggerEntity' not in metadata.get('entities', {})
                 or any(action.get('supportedModes') != 1 or not action.get('isDiscoverable')
-                       for name, action in actions.items() if name in expected)):
+                       for name, action in actions.items() if name != 'SetAwakeControlIntent')):
             raise ValueError('Invalid intent or scripting configuration')
         codes = {'amph' + code for code in ['cAct', 'cmOn', 'cOff', 'STRm', 'DSOK', 'AWDS', 'PTDS',
                                           'CDMK', 'ECDM', 'DCDM', 'SisT', 'TrEn', 'EnTr', 'DsTr']}

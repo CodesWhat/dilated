@@ -59,6 +59,10 @@ import UniformTypeIdentifiers
               Button("Turn off") { change(rule) { $0.enabled = false } }
             }.fixedSize().accessibilityLabel("Pause \(rule.name)")
           }
+          if rule.focusControlled && rule.enabled {
+            Text("Enabled by the current Focus filter")
+              .font(.caption).foregroundStyle(.secondary)
+          }
           ForEach(Array(rule.criteria.enumerated()), id: \.offset) { _, criterion in
             Text(criterion.summary).foregroundStyle(.secondary).fixedSize(
               horizontal: false, vertical: true

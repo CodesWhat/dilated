@@ -25,11 +25,18 @@ enum ScriptValue: Equatable, Sendable {
   case integer(Int)
 }
 
+public struct FocusRuleChoice: Sendable {
+  public let id: UUID
+  public let name: String
+}
+
 @MainActor public final class AutomationService {
   public static let shared = AutomationService()
   private weak var model: AppModel?
   private var isUnavailable = false
   private let readinessTimeout: Duration
+  private var focusGeneration: UInt64 = 0
+  private var focusRestoration: Task<Void, Never>?
 
   public init(readinessTimeout: Duration = .seconds(5)) {
     self.readinessTimeout = readinessTimeout
@@ -39,8 +46,46 @@ enum ScriptValue: Equatable, Sendable {
     isUnavailable = false
   }
   public func unavailable() {
+    focusGeneration &+= 1
+    focusRestoration?.cancel()
+    focusRestoration = nil
     model = nil
     isUnavailable = true
+  }
+  public func focusRuleChoices() async throws -> [FocusRuleChoice] {
+    try await ready().triggerRules.map { FocusRuleChoice(id: $0.id, name: $0.name) }
+      .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+  }
+  public func setFocusRule(id: UUID?) async throws {
+    focusGeneration &+= 1
+    let generation = focusGeneration
+    focusRestoration?.cancel()
+    focusRestoration = nil
+    let model = try await ready()
+    guard generation == focusGeneration else { return }
+    try model.applyFocusRule(id: id)
+  }
+  @discardableResult public func restoreFocusFilter(
+    using load: @escaping @MainActor @Sendable () async throws -> UUID?
+  ) -> Task<Void, Never> {
+    focusRestoration?.cancel()
+    focusGeneration &+= 1
+    let generation = focusGeneration
+    let task = Task { [weak self] in
+      guard let self else { return }
+      do {
+        let model = try await ready()
+        let id = try await load()
+        try Task.checkCancellation()
+        guard generation == focusGeneration else { return }
+        try model.applyFocusRule(id: id)
+      } catch {
+        guard !Task.isCancelled, generation == focusGeneration else { return }
+        model?.message = "Couldn't restore the Dilated Focus filter: \(error.localizedDescription)"
+      }
+    }
+    focusRestoration = task
+    return task
   }
   private func ready() async throws -> AppModel {
     let deadline = ContinuousClock.now.advanced(by: readinessTimeout)
