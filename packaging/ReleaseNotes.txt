@@ -1,5 +1,4 @@
-Install and check Claude Code, Codex and OpenCode keep-awake hooks in Settings. Stop keeps automation paused until you resume it.
-Why Awake shows Dilated holds and the processes asking macOS to stay awake.
-Type durations such as 2h30 or until 5pm in the menu, CLI and Shortcuts. Edit schedules in a weekly grid and match aggregate network or disk throughput.
-Export and preview timer and appearance preferences for another Mac while keeping local safety settings and active holds.
+Start a 15-minute hold from Control Center. Turning the control off ends all holds and pauses automation until you resume in Dilated.
+Trigger storage preserves newer rules across older builds and reconciles edits when you return.
+Fix shared menu icon mutation.
 Closed-lid mode remains experimental.

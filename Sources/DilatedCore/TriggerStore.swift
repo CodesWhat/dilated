@@ -32,6 +32,7 @@ public struct TriggerStore: Sendable {
       try persist(record.rules, previous: legacy)
       return record.rules
     }
+    guard FileManager.default.fileExists(atPath: legacyFile.path) else { return record.rules }
     let baseline = Dictionary(uniqueKeysWithValues: record.legacy.map { ($0.id, $0) })
     let current = Dictionary(uniqueKeysWithValues: legacy.map { ($0.id, $0) })
     var rules = record.rules.filter { baseline[$0.id] == nil || current[$0.id] != nil }

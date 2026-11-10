@@ -11,7 +11,7 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 </div>
 
 <p align="center">
-  <a href="https://dilated.app/download/file"><img src="https://img.shields.io/badge/version-1.0.0--beta.12-2ea44f" alt="Version 1.0.0-beta.12"></a>
+  <a href="https://dilated.app/download/file"><img src="https://img.shields.io/badge/version-1.0.0--beta.13-2ea44f" alt="Version 1.0.0-beta.13"></a>
   <a href="https://dilated.app/"><img src="https://img.shields.io/badge/macOS-26%2B-000000?logo=apple&amp;logoColor=white" alt="macOS 26 or later"></a>
   <a href="https://dilated.app/"><img src="https://img.shields.io/badge/Apple_Silicon-arm64-000000?logo=apple&amp;logoColor=white" alt="Apple Silicon"></a>
   <a href="https://github.com/CodesWhat/dilated/releases"><img src="https://img.shields.io/github/v/release/CodesWhat/dilated?include_prereleases" alt="Latest release"></a>
@@ -22,7 +22,7 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 <hr>
 
 > [!IMPORTANT]
-> **1.0.0-beta.12 is a public beta.** Closed-lid mode is experimental. If Dilated quits or stops responding during a closed-lid session, normal sleep comes back on its own. Reboot recovery hasn't been verified on hardware yet. Report problems on [GitHub](https://github.com/CodesWhat/dilated/issues).
+> **1.0.0-beta.13 is a public beta.** Closed-lid mode is experimental. If Dilated quits or stops responding during a closed-lid session, normal sleep comes back on its own. Reboot recovery hasn't been verified on hardware yet. Report problems on [GitHub](https://github.com/CodesWhat/dilated/issues).
 
 <h2 align="center">Contents</h2>
 
@@ -58,7 +58,7 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 
 <h2 align="center" id="quick-start">Quick Start</h2>
 
-Dilated needs **macOS 26 or later on Apple Silicon**. The current release is 1.0.0-beta.12, a public beta.
+Dilated needs **macOS 26 or later on Apple Silicon**. The current release is 1.0.0-beta.13, a public beta.
 
 1. Download the signed, notarized DMG from [dilated.app](https://dilated.app/download/file).
 2. Open the DMG, drag Dilated to Applications and open it.
@@ -99,8 +99,9 @@ Battery floor and Low Power Mode guards can end a hold before it drains your bat
 
 The [automation reference](docs/AUTOMATION.md) has every command, trigger condition and safety rule.
 
-The next beta adds a macOS 26 Control Center **Keep Awake** toggle. On starts a
-15-minute hold; Off stops all holds and pauses automation. It isn't in beta.11.
+Beta.13 adds a macOS 26 Control Center **Keep Awake** toggle. On starts a
+15-minute hold; Off stops all holds and pauses automation. Choose **Resume
+automation** in Dilated before using On again.
 
 <hr>
 
