@@ -99,8 +99,8 @@ Battery floor and Low Power Mode guards can end a hold before it drains your bat
 
 The [automation reference](docs/AUTOMATION.md) has every command, trigger condition and safety rule.
 
-The next beta adds a macOS 26 Control Center **Keep Awake** toggle. On starts a
-15-minute hold; Off stops all holds and pauses automation. It isn't in beta.11.
+Beta.13 adds a macOS 26 Control Center **Keep Awake** toggle. On starts a
+15-minute hold; Off stops all holds and pauses automation.
 
 <hr>
 

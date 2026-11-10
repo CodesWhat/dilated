@@ -3,7 +3,7 @@
 All app, CLI and URL requests use the same hold engine. Each hold has a unique
 ID; labels are descriptive and do not merge ownership.
 
-## Control Center (next beta)
+## Control Center (beta.13)
 
 On macOS 26 or later, add Dilated's **Keep Awake** control through Control Center's
 Edit Controls gallery. Turning it on starts a 15-minute hold if none is active.
@@ -13,7 +13,7 @@ before starting another automated hold. A manual timer can still run while pause
 The control uses the same power guards as Shortcuts and never enables closed-lid mode.
 It shows Paused after Stop. The app must be running for an awake state to be valid;
 the control checks the host and deadline when it reloads. It doesn't add a background
-polling timer. This control isn't included in beta.11.
+polling timer.
 
 ## Command line tool
 
