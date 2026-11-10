@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import plistlib
 import struct
@@ -39,6 +40,8 @@ class CheckMasBundleTests(unittest.TestCase):
         self.info = {
             'CFBundleIdentifier': BUNDLE_ID,
             'CFBundleExecutable': 'DilatedApp',
+            'CFBundleVersion': '17',
+            'CFBundleShortVersionString': '1.0.0',
             'LSApplicationCategoryType': 'public.app-category.utilities',
             'DilatedUpdatesEnabled': False,
         }
@@ -46,10 +49,26 @@ class CheckMasBundleTests(unittest.TestCase):
             'com.apple.security.app-sandbox': True,
             'com.apple.security.network.client': True,
             'com.apple.security.files.bookmarks.app-scope': True,
+            'com.apple.security.application-groups': ['3524374A2S.com.codeswhat.dilated.controls'],
         }
         self.write_info()
         self.write_binary(self.app / 'Contents/MacOS/DilatedApp', thin_macho())
         (self.app / 'Contents/Resources/Dilated.sdef').write_text('<dictionary/>')
+        control = self.app / 'Contents/PlugIns/DilatedControls.appex'
+        control_info = dict(self.info, CFBundleIdentifier=BUNDLE_ID + '.controls',
+                            CFBundleExecutable='DilatedControls', LSMinimumSystemVersion='26.0',
+                            NSExtension={'NSExtensionPointIdentifier': 'com.apple.widgetkit-extension'})
+        (control / 'Contents').mkdir(parents=True)
+        (control / 'Contents/Info.plist').write_bytes(plistlib.dumps(control_info))
+        self.write_binary(control / 'Contents/MacOS/DilatedControls', thin_macho())
+        action = {'supportedModes': 2, 'isDiscoverable': False,
+                  'systemProtocols': ['com.apple.link.systemProtocol.SetValue'],
+                  'parameters': [{'name': 'value', 'isOptional': False,
+                                  'valueType': {'primitive': {'wrapper': {'typeIdentifier': 1}}}}]}
+        for bundle in (self.app, control):
+            metadata = bundle / 'Contents/Resources/Metadata.appintents'
+            metadata.mkdir(parents=True, exist_ok=True)
+            (metadata / 'extract.actionsdata').write_text(json.dumps({'actions': {'SetAwakeControlIntent': action}}))
 
     def write_info(self):
         (self.app / 'Contents/Info.plist').write_bytes(plistlib.dumps(self.info))
@@ -68,6 +87,14 @@ class CheckMasBundleTests(unittest.TestCase):
 
     def test_clean_fixture_passes(self):
         self.assertEqual(self.check(), [])
+
+    def test_foreign_app_group_fails(self):
+        self.entitlements['com.apple.security.application-groups'] = ['foreign']
+        self.assert_fails_with('app group')
+
+    def test_missing_control_executable_fails(self):
+        (self.app / 'Contents/PlugIns/DilatedControls.appex/Contents/MacOS/DilatedControls').unlink()
+        self.assert_fails_with('Control extension')
 
     def test_fat_arm64_only_slice_list_passes(self):
         self.write_binary(self.app / 'Contents/MacOS/DilatedApp', fat_macho(ARM64))

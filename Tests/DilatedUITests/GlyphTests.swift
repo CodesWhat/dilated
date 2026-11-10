@@ -59,14 +59,39 @@ import Testing
     }
   }
 
-  @Test func repeatedImageRequestsReturnTheSameInstance() throws {
+  @Test func repeatedImageRequestsReturnIndependentImages() throws {
     for glyph in Glyph.allCases {
       for frame in glyph.frames {
         let first = try #require(glyph.image(frame: frame))
         let second = try #require(glyph.image(frame: frame))
-        #expect(first === second)
+        #expect(first !== second)
       }
     }
+  }
+
+  @Test func callerMutationCannotChangeTheCachedGlyph() throws {
+    let first = try #require(Glyph.can.image(frame: "off"))
+    let bitmap = try #require(first.representations.first as? NSBitmapImageRep)
+    let pixels = try #require(bitmap.bitmapData)
+    let originalByte = pixels[0]
+    let originalSize = first.size
+    let representationSize = bitmap.size
+    defer {
+      first.size = originalSize
+      first.isTemplate = true
+      bitmap.size = representationSize
+      pixels[0] = originalByte
+    }
+    first.size = NSSize(width: 50, height: 40)
+    first.isTemplate = false
+    bitmap.size = NSSize(width: 25, height: 20)
+    pixels[0] ^= 0xff
+    let next = try #require(Glyph.can.image(frame: "off"))
+    let nextBitmap = try #require(next.representations.first as? NSBitmapImageRep)
+    #expect(next.isTemplate)
+    #expect(next.size == originalSize)
+    #expect(nextBitmap.size == representationSize)
+    #expect(nextBitmap.bitmapData?[0] == originalByte)
   }
 
   @Test func animatesOnlyWhenMotionIsOnAndTheGlyphHasMoreThanOneAwakeFrame() {

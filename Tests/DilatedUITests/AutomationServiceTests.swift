@@ -16,6 +16,46 @@ import Testing
     return (directory, model, service)
   }
 
+  @Test func controlStartsOnceAndOffDurablyStopsAllReasons() async throws {
+    let (directory, model, service) = fixture()
+    defer {
+      model.shutdown()
+      try? FileManager.default.removeItem(at: directory)
+    }
+    try await service.setAwakeFromControl(true)
+    let hold = try #require(model.engine.holds.first)
+    #expect(hold.label == "Control Center")
+    #expect(hold.source == .shortcut)
+    #expect(abs(try #require(hold.expiry).timeIntervalSince(hold.createdAt) - 900) < 0.01)
+    try await service.setAwakeFromControl(true)
+    #expect(model.engine.holds == [hold])
+    model.start(duration: 60)
+    #expect(model.engine.holds.count == 2)
+    try await service.setAwakeFromControl(false)
+    #expect(model.engine.holds.isEmpty)
+    #expect(model.engine.automationPaused)
+    await #expect(throws: (any Error).self) { try await service.setAwakeFromControl(true) }
+    #expect(model.engine.holds.isEmpty)
+    model.start(duration: 120)
+    let manual = model.engine.holds
+    try await service.setAwakeFromControl(true)
+    #expect(model.engine.holds == manual)
+    #expect(model.engine.automationPaused)
+  }
+
+  @Test func controlOnReplacesExpiredHoldBeforeNextPeriodicTick() async throws {
+    let (directory, model, service) = fixture()
+    defer {
+      model.shutdown()
+      try? FileManager.default.removeItem(at: directory)
+    }
+    _ = try await service.start(duration: 0.001)
+    try await Task.sleep(for: .milliseconds(20))
+    try await service.setAwakeFromControl(true)
+    #expect(model.engine.holds.count == 1)
+    #expect(model.engine.holds.first?.label == "Control Center")
+  }
+
   @Test func shortcutPhrasesCreateTimedHoldsAndStopStillWins() async throws {
     let (directory, model, service) = fixture()
     defer {
@@ -27,11 +67,19 @@ import Testing
     #expect(hold.source == .shortcut)
     #expect(abs(try #require(hold.expiry).timeIntervalSince(hold.createdAt) - 5400) < 0.01)
     let before = model.engine.holds
-    await #expect(throws: (any Error).self) { try await service.start(phrase: "until 5") }
-    await #expect(throws: (any Error).self) { try await service.start(phrase: "30m", minutes: 20) }
+    await #expect(throws: WakeError.invalidDuration) { try await service.start(phrase: "until 5") }
+    await #expect {
+      try await service.start(phrase: "30m", minutes: 20)
+    } throws: {
+      ($0 as? InputError)?.text == "Choose a duration phrase or minutes, not both."
+    }
     #expect(model.engine.holds == before)
     try await service.stop()
-    await #expect(throws: (any Error).self) { try await service.start(phrase: "2h30") }
+    await #expect {
+      try await service.start(phrase: "2h30")
+    } throws: {
+      ($0 as? InputError)?.text == WakeError.automationPaused.errorDescription
+    }
     #expect(model.engine.holds.isEmpty)
   }
 

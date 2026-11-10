@@ -27,7 +27,7 @@ public enum Glyph: String, Codable, CaseIterable, Sendable {
   @MainActor private static var imageCache: [String: NSImage] = [:]
   @MainActor public func image(frame: String) -> NSImage? {
     let key = "\(rawValue)/\(frame)"
-    if let cached = Self.imageCache[key] { return cached }
+    if let cached = Self.imageCache[key] { return Self.independentImage(cached) }
     let image = NSImage(size: NSSize(width: 16, height: 15))
     for suffix in ["", "@2x"] {
       guard
@@ -42,6 +42,16 @@ public enum Glyph: String, Codable, CaseIterable, Sendable {
     image.isTemplate = true
     image.accessibilityDescription = "Dilated, \(label)"
     Self.imageCache[key] = image
+    return Self.independentImage(image)
+  }
+  @MainActor private static func independentImage(_ prototype: NSImage) -> NSImage? {
+    let image = NSImage(size: prototype.size)
+    for representation in prototype.representations {
+      guard let copy = representation.copy() as? NSImageRep else { return nil }
+      image.addRepresentation(copy)
+    }
+    image.isTemplate = prototype.isTemplate
+    image.accessibilityDescription = prototype.accessibilityDescription
     return image
   }
   public func previewFrame(elapsed: TimeInterval, reduceMotion: Bool) -> String {

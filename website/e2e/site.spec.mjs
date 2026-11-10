@@ -282,7 +282,7 @@ test.describe('release metadata', () => {
     await expect(page.locator('#availability [data-release-label]')).toHaveText('Download beta for Mac');
     await expect(page.locator('[data-release-version]')).toHaveText('Version 1.2.3-beta.4 · Build 42');
     const caveat = page.locator('[data-release-caveat]');
-    await expect(caveat).toContainText('closed-lid mode on macOS 27, recovery after the sudo rule is revoked, and in-app updates');
+    await expect(caveat).toHaveText('Closed-lid mode is experimental in this beta. Not yet verified on hardware: closed-lid mode on macOS 27, recovery after the sudo rule is revoked, and in-app updates.');
     expect((await caveat.textContent()).replaceAll('macOS', '')).not.toMatch(/[a-z][A-Z]/);
     await page.locator('.release-details summary').click();
     await expect(page.locator('[data-release-checksum]')).toHaveText(releaseJson.sha256.toLowerCase());

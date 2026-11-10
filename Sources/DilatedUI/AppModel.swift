@@ -331,17 +331,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         loadMessage = "Couldn't read settings: \(error.localizedDescription)"
       }
     }
-    let triggerFile = endpoint.stateDirectory.appendingPathComponent("triggers.json")
-    if FileManager.default.fileExists(atPath: triggerFile.path) {
-      do {
-        let rules = try JSONDecoder().decode(
-          [TriggerRule].self, from: Data(contentsOf: triggerFile))
-        guard rules.count <= 100, Set(rules.map(\.id)).count == rules.count,
-          rules.allSatisfy({ $0.validationMessage == nil })
-        else { throw TriggerConfigurationError("Saved triggers contain invalid rules.") }
-        triggerRules = rules
-      } catch { loadMessage = "Couldn't load triggers: \(error.localizedDescription)" }
-    }
+    do {
+      triggerRules = try TriggerStore(directory: endpoint.stateDirectory).load()
+    } catch { loadMessage = "Couldn't load triggers: \(error.localizedDescription)" }
     preferences = loadedSettings
     historyWasEnabled = loadedSettings.historyEnabled
     do { history = try historyStore.load(retentionDays: loadedSettings.historyRetentionDays) } catch
@@ -1671,12 +1663,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     } catch { message = error.localizedDescription }
   }
   private func writeTriggers(_ rules: [TriggerRule]) throws {
-    try FileManager.default.createDirectory(
-      at: endpoint.stateDirectory, withIntermediateDirectories: true,
-      attributes: [.posixPermissions: 0o700])
-    let file = endpoint.stateDirectory.appendingPathComponent("triggers.json")
-    try JSONEncoder().encode(rules).write(to: file, options: .atomic)
-    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    try TriggerStore(directory: endpoint.stateDirectory).save(rules)
     let updated = Dictionary(uniqueKeysWithValues: rules.map { ($0.id, $0) })
     let changed = Set(triggerRules.filter { updated[$0.id] != $0 }.map(\.id))
     resetTriggerLidArming(ids: changed)
