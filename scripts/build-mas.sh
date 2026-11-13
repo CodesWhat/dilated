@@ -77,6 +77,7 @@ import sys
 destination = Path(sys.argv[1])
 info = plistlib.loads(destination.read_bytes())
 info.update(plistlib.loads(Path('packaging/Version.plist').read_bytes()))
+info['DilatedDisplayVersion'] = info['CFBundleShortVersionString']
 info['DilatedSourceRevision'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
 destination.write_bytes(plistlib.dumps(info))
 extension = destination.parent / 'PlugIns/DilatedControls.appex/Contents/Info.plist'
@@ -102,9 +103,9 @@ if [[ "$sign_as" == "-" ]]; then timestamp="--timestamp=none"; fi
 entitlements="$root/packaging/mas/Dilated-MAS.entitlements"
 control_entitlements="$root/packaging/controls/DilatedControls.entitlements"
 if [[ "$sign_as" != "-" ]]; then
-    cp "$DILATED_MAS_PROFILE" "$app/Contents/embedded.provisionprofile"
+    install -m 644 "$DILATED_MAS_PROFILE" "$app/Contents/embedded.provisionprofile"
     entitlements="$output_dir/Dilated-MAS.signing.entitlements"
-    cp "$DILATED_MAS_CONTROL_PROFILE" "$app/Contents/PlugIns/DilatedControls.appex/Contents/embedded.provisionprofile"
+    install -m 644 "$DILATED_MAS_CONTROL_PROFILE" "$app/Contents/PlugIns/DilatedControls.appex/Contents/embedded.provisionprofile"
     control_entitlements="$output_dir/DilatedControls-MAS.signing.entitlements"
     python3 - "$root/packaging/mas/Dilated-MAS.entitlements" "$entitlements" "$DILATED_TEAM_ID" "$bundle_id" <<'PY'
 from pathlib import Path
@@ -135,6 +136,7 @@ done
 codesign --force "$timestamp" --entitlements "$entitlements" --sign "$sign_as" "$app"
 codesign --verify --deep --strict "$app"
 python3 scripts/controls-bundle.py "$app" --signed
+python3 -I scripts/check-mas-bundle.py "$app"
 echo "app: $app"
 
 if [[ "$sign_as" == "-" ]]; then

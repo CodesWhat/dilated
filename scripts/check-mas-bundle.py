@@ -111,6 +111,8 @@ def check_bundle(app, bundle_id, entitlements):
 
     if info.get('CFBundleIdentifier') != bundle_id:
         failures.append(f'CFBundleIdentifier is {info.get("CFBundleIdentifier")!r}, expected {bundle_id!r}')
+    if info.get('DilatedDisplayVersion', info.get('CFBundleShortVersionString')) != info.get('CFBundleShortVersionString'):
+        failures.append('MAS display version must match CFBundleShortVersionString')
     if not info.get('LSApplicationCategoryType'):
         failures.append('LSApplicationCategoryType is missing from Info.plist')
     if info.get('CFBundleExecutable') != MAIN_EXECUTABLE:
@@ -138,6 +140,8 @@ def check_bundle(app, bundle_id, entitlements):
 
     for path in sorted(app.rglob('*')):
         relative = path.relative_to(app)
+        if not path.is_symlink() and path.is_file() and not path.stat().st_mode & 0o004:
+            failures.append(f'{relative}: bundled files must be readable by all users')
         if any('sparkle' in part.lower() for part in relative.parts):
             failures.append(f'{relative}: Sparkle must not be in the bundle')
         if path.is_symlink() or not path.is_file() or path == main:
