@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en" data-concept="gas-station" data-font="barlow">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Optional closed-lid setup for the Mac App Store edition of Dilated.">
+  <link rel="canonical" href="https://dilated.app/closed-lid-setup">
+  <meta name="theme-color" content="#ffdf24">
+  <title>Closed-Lid Setup · Dilated</title>
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Closed-Lid Setup · Dilated">
+  <meta property="og:description" content="Download the optional, signed and notarized closed-lid companion for Dilated.">
+  <meta property="og:url" content="https://dilated.app/closed-lid-setup">
+  <meta property="og:site_name" content="Dilated">
+  <meta property="og:image" content="https://dilated.app/assets/social-card.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://dilated.app/assets/social-card.png">
+  <link rel="icon" href="/assets/icon-gas-station.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="masthead page-width">
+    <a class="brand" href="/" aria-label="Dilated home"><img src="/assets/icon-gas-station.svg" alt="" width="43" height="43"><span>dilated</span></a>
+    <nav aria-label="Main navigation"><a href="/">Home</a><a class="nav-source" href="https://github.com/CodesWhat/dilated"><span>Source</span> <span aria-hidden="true">↗</span></a></nav>
+  </header>
+  <main id="main" class="page-width legal">
+    <p class="eyebrow">MAC APP STORE COMPANION</p>
+    <h1>Closed-lid setup.</h1>
+    <p class="legal-lede">This optional companion sets up closed-lid mode for the Mac App Store edition of Dilated. Timers, triggers and Control Center work without it.</p>
+    <p><a href="https://github.com/CodesWhat/dilated/releases/download/v1.0.0-beta.13/Dilated-Closed-Lid-Setup-1.0.0-beta.13-macos-arm64.zip">Download Closed-Lid Setup for Mac</a></p>
+    <p>Free. Requires macOS 26 or later on Apple Silicon. Signed with Developer ID and notarized by Apple.</p>
+    <h2>Set it up</h2>
+    <ol>
+      <li>Open the ZIP, then open Dilated Closed-Lid Setup.</li>
+      <li>Review the setup details and choose Install. macOS asks for administrator approval.</li>
+      <li>Return to Dilated and open Closed Lid. Enable closed-lid mode for the awake session you want to keep running.</li>
+    </ol>
+    <h2>What it installs</h2>
+    <p>A sudo rule permits only <code>/usr/bin/pmset -a disablesleep 0</code> and <code>/usr/bin/pmset -a disablesleep 1</code>. The companion also installs a script for the sandboxed app and a LaunchAgent that restores normal sleep if the app stops responding. The App Store app never downloads or installs the companion itself.</p>
+    <p>Open Closed-Lid Setup again to remove its setup. The direct-download edition of Dilated handles its own closed-lid setup and doesn't need this companion.</p>
+    <h2>Keep your Mac ventilated</h2>
+    <p>Closed-lid mode is experimental. Keep the Mac on a hard, ventilated surface. Don't put it in a bag while it is running. Battery, temperature and time limits can end a session.</p>
+    <p><a href="/privacy">Privacy policy</a> · <a href="https://github.com/CodesWhat/dilated/issues">Report a problem</a></p>
+  </main>
+  <footer class="page-width"><a class="footer-brand" href="/">dilated</a><p>Made by <a href="https://codeswhat.com">CodesWhat</a>.<br>small, sharp tools from one developer and a lot of agents</p><div><a href="https://mouthtype.app">Also from CodesWhat: Mouthtype ↗</a><a href="https://codeswhat.com/support">SUPPORT</a><a href="/privacy">PRIVACY</a></div><span>FREE SOFTWARE<br>MIT LICENSE</span></footer>
+</body>
+</html>
