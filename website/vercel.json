@@ -7,7 +7,12 @@
   "routes": [
     {
       "src": "^/(?!(?:updates|releases|download)/|source/?$)(.*)$",
-      "has": [{ "type": "host", "value": "dilated.codeswhat.com" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "dilated.codeswhat.com"
+        }
+      ],
       "headers": {
         "Location": "https://dilated.app/$1"
       },
@@ -82,6 +87,10 @@
     {
       "src": "^/privacy/?$",
       "dest": "/privacy.html"
+    },
+    {
+      "src": "^/closed-lid-setup/?$",
+      "dest": "/closed-lid-setup.html"
     },
     {
       "src": "/download/file",

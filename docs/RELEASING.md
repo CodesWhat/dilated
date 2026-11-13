@@ -96,11 +96,13 @@ The Mac App Store build is a separate sandboxed bundle (`com.codeswhat.dilated.a
 
 ### Versions
 
-The MAS build reads the same `packaging/Version.plist` as the direct build, so `DilatedDisplayVersion` and `CFBundleShortVersionString` are the same on both channels. A MAS build is only cut from a tag the direct build already shipped.
+The MAS build reads `packaging/Version.plist` and uses its numeric `CFBundleShortVersionString` for both version fields in the store bundle. The direct channel keeps its own display label, including prerelease suffixes.
+
+The store release can ship before direct-channel GA. Build from a clean, reviewed `main` revision with a signed tag such as `mas/v1.0.0-build18`. Keep the source revision in the bundle, preserve signing and bundle validation, and verify the uploaded build before submitting it. A store release does not mark the direct channel's hardware acceptance checks passed.
 
 `CFBundleVersion` is one global counter shared with the direct build, not a second MAS-only series. App Store Connect rejects an upload whose build number isn't higher than every earlier upload, and a direct hotfix bumps the number too, so a single counter can't fall behind in either channel. Gaps are fine. A number that App Store Connect has already processed is spent even if the build is rejected: bump `CFBundleVersion` and rebuild instead of re-uploading.
 
-The store can't carry a beta. Ship prereleases through TestFlight only, and submit to the store from GA onward.
+The store can't carry a beta. Test the store release through TestFlight before submitting that build for review. The direct channel can remain in public beta while the store release uses its numeric version.
 
 ### Build
 

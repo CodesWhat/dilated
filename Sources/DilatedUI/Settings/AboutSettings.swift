@@ -6,6 +6,7 @@ enum AboutInfo {
   static let repository = "https://github.com/CodesWhat/dilated"
   static let links: [(title: String, detail: String, url: URL)] = [
     ("Website", "dilated.app", URL(string: "https://dilated.app")!),
+    ("Privacy policy", "dilated.app/privacy", URL(string: "https://dilated.app/privacy")!),
     ("Source on GitHub", "CodesWhat/dilated", URL(string: repository)!),
     ("Report an issue", "Bugs and requests on GitHub.", URL(string: repository + "/issues")!),
     ("License", "MIT.", URL(string: repository + "/blob/main/LICENSE")!),
