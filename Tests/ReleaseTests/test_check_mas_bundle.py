@@ -88,6 +88,25 @@ class CheckMasBundleTests(unittest.TestCase):
     def test_clean_fixture_passes(self):
         self.assertEqual(self.check(), [])
 
+    def test_store_display_version_must_match_the_numeric_version(self):
+        self.info['DilatedDisplayVersion'] = '1.0.0-beta.13'
+        self.write_info()
+        self.assert_fails_with('display version')
+        self.info['DilatedDisplayVersion'] = '1.0.0'
+        self.write_info()
+        self.assertEqual(self.check(), [])
+
+    def test_embedded_profiles_must_be_readable_by_other_users(self):
+        for bundle in (self.app, self.app / 'Contents/PlugIns/DilatedControls.appex'):
+            for mode in (0o600, 0o604):
+                with self.subTest(bundle=bundle.relative_to(self.app), mode=oct(mode)):
+                    profile = bundle / 'Contents/embedded.provisionprofile'
+                    profile.write_bytes(b'public signing profile')
+                    profile.chmod(mode)
+                    self.assert_fails_with('readable by all users')
+                    profile.chmod(0o644)
+                    self.assertEqual(self.check(), [])
+
     def test_foreign_app_group_fails(self):
         self.entitlements['com.apple.security.application-groups'] = ['foreign']
         self.assert_fails_with('app group')
