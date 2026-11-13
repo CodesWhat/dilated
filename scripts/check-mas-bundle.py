@@ -140,7 +140,7 @@ def check_bundle(app, bundle_id, entitlements):
 
     for path in sorted(app.rglob('*')):
         relative = path.relative_to(app)
-        if not path.is_symlink() and path.is_file() and not path.stat().st_mode & 0o004:
+        if not path.is_symlink() and path.is_file() and path.stat().st_mode & 0o444 != 0o444:
             failures.append(f'{relative}: bundled files must be readable by all users')
         if any('sparkle' in part.lower() for part in relative.parts):
             failures.append(f'{relative}: Sparkle must not be in the bundle')

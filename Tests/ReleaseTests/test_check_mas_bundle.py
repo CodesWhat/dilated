@@ -98,13 +98,14 @@ class CheckMasBundleTests(unittest.TestCase):
 
     def test_embedded_profiles_must_be_readable_by_other_users(self):
         for bundle in (self.app, self.app / 'Contents/PlugIns/DilatedControls.appex'):
-            with self.subTest(bundle=bundle.relative_to(self.app)):
-                profile = bundle / 'Contents/embedded.provisionprofile'
-                profile.write_bytes(b'public signing profile')
-                profile.chmod(0o600)
-                self.assert_fails_with('readable by all users')
-                profile.chmod(0o644)
-                self.assertEqual(self.check(), [])
+            for mode in (0o600, 0o604):
+                with self.subTest(bundle=bundle.relative_to(self.app), mode=oct(mode)):
+                    profile = bundle / 'Contents/embedded.provisionprofile'
+                    profile.write_bytes(b'public signing profile')
+                    profile.chmod(mode)
+                    self.assert_fails_with('readable by all users')
+                    profile.chmod(0o644)
+                    self.assertEqual(self.check(), [])
 
     def test_foreign_app_group_fails(self):
         self.entitlements['com.apple.security.application-groups'] = ['foreign']
