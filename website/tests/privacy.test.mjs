@@ -29,6 +29,7 @@ test('privacy.html discloses the cookieless PostHog page analytics and keeps the
   assert.match(prose, /cookieless PostHog page analytics/);
   assert.match(prose, /e\.codeswhat\.com/);
   assert.match(prose, /The app itself sends nothing to PostHog/);
+  assert.match(prose, /Global Privacy Control/);
   assert.match(prose, /The Dilated app doesn't collect anything/);
   assert.doesNotMatch(prose, /no third-party scripts|sets no cookies|in the app or on this site/);
   assert.doesNotMatch(privacy, /Effective 2026-11-03/);
