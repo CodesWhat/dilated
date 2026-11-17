@@ -49,7 +49,7 @@
 
     <h2>This website</h2>
     <p>The site uses cookieless PostHog page analytics. Events go through <code>e.codeswhat.com</code> to PostHog's US cloud. There are no cookies and nothing is stored in your browser, and there are no person profiles. No IP address is stored: PostHog hashes it with your user agent and a daily rotating salt to count daily visitors, then discards it.</p>
-    <p>It records only the page path, the referring domain, page-load performance (web vitals) and clicks on the download and source links. No query strings, no full referrer URLs, no text you type. The app itself sends nothing to PostHog.</p>
+    <p>It records only the page path, the referring domain, page-load performance (web vitals) and clicks on the download, release history, source and support links. No query strings, no full referrer URLs, no text you type. The app itself sends nothing to PostHog.</p>
 
     <h2>Closed-lid companion</h2>
     <p>Closed-lid mode is optional. It needs a sudo rule limited to <code>pmset -a disablesleep 0</code> and <code>pmset -a disablesleep 1</code>, and nothing else. The direct build installs the rule when you choose to. The App Store build can't run sudo from its sandbox, so it uses a separate Closed-Lid Setup companion that installs the same rule, a small script (<code>dilated-power</code>) and a LaunchAgent that restores normal sleep if the app disappears. All of it runs locally and none of it uses the network.</p>
