@@ -16,6 +16,15 @@ https://dilated.app with `scripts/publish-website.py`. For local
 review, serve `dist/` from any static server, for example on
 `http://127.0.0.1:5173/`.
 
+## Analytics
+
+The site sends cookieless PostHog page analytics through `e.codeswhat.com`, only
+when served from `dilated.app`. Localhost, previews and test runs send nothing.
+The code is `dist/analytics/` (`contract.mjs` is the allowlist every event is
+rebuilt from). PostHog and web-vitals are vendored unchanged under
+`dist/assets/vendor/`, with versions and hashes in its README. The app has no
+analytics.
+
 ## Release availability
 
 The checked-in page has no app download. The published site gets one from the
