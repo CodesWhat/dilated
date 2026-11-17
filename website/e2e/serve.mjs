@@ -1,5 +1,5 @@
 // Dependency-free static server for website/dist. It sends the headers from the
-// first route in vercel.json, so the production CSP applies to every page here.
+// vercel.json route that carries the CSP, so the production CSP applies to every page here.
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -11,7 +11,7 @@ const distRoot = join(websiteRoot, 'dist');
 const port = Number(process.env.PORT ?? 4791);
 
 const config = JSON.parse(readFileSync(join(websiteRoot, 'vercel.json'), 'utf8'));
-const headers = config.routes[0].headers;
+const headers = config.routes.find(route => route.headers?.['Content-Security-Policy']).headers;
 
 const types = {
   '.html': 'text/html; charset=utf-8',

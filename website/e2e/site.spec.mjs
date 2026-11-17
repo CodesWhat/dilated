@@ -482,3 +482,21 @@ test.describe('discoverability', () => {
     }
   });
 });
+
+test.describe('analytics', () => {
+  for (const path of ['/', '/privacy', '/closed-lid-setup']) {
+    test(`${path} loads the analytics module under the CSP and sends nothing off localhost`, async ({ page, baseURL, failures }) => {
+      const external = [];
+      page.on('request', request => {
+        if (!request.url().startsWith(new URL(baseURL).origin) && !request.url().startsWith('data:')) external.push(request.url());
+      });
+      const module = page.waitForResponse(response => new URL(response.url()).pathname === '/analytics/client.mjs');
+      failures.allow(`${baseURL}/releases/latest.json`);
+      await page.goto(path);
+      expect((await module).status()).toBe(200);
+      await page.waitForLoadState('networkidle');
+      await page.waitForTimeout(500);
+      expect(external.filter(url => url.includes('codeswhat.com'))).toEqual([]);
+    });
+  }
+});
