@@ -14,13 +14,25 @@ test('privacy.html exists with a title, h1 and the canonical https://dilated.app
   assert.match(privacy, /<h1>Privacy\.<\/h1>/);
   assert.match(privacy, /<link rel="canonical" href="https:\/\/dilated\.app\/privacy">/);
   assert.match(privacy, /<meta property="og:url" content="https:\/\/dilated\.app\/privacy">/);
-  assert.match(privacy, /EFFECTIVE 2026-11-03/);
+  assert.match(privacy, /EFFECTIVE 2026-11-17/);
 });
 
-test('privacy.html reuses the site stylesheet and loads no script or third-party resource', () => {
+test('privacy.html reuses the site stylesheet and loads only the same-origin analytics module', () => {
   assert.match(privacy, /<link rel="stylesheet" href="\/styles\.css">/);
-  assert.doesNotMatch(privacy, /<script\b/);
-  assert.doesNotMatch(privacy, /<(?:link|img|iframe)\b[^>]*(?:href|src)="https?:\/\/(?!dilated\.app\/)/);
+  const scripts = [...privacy.matchAll(/<script\b[^>]*>/g)].map(match => match[0]);
+  assert.deepEqual(scripts, ['<script type="module" src="/analytics/client.mjs">']);
+  assert.doesNotMatch(privacy, /<(?:link|img|iframe|script)\b[^>]*(?:href|src)="https?:\/\/(?!dilated\.app\/)/);
+});
+
+test('privacy.html discloses the cookieless PostHog page analytics and keeps the app claim', () => {
+  const prose = privacy.replace(/<[^>]+>/g, ' ');
+  assert.match(prose, /cookieless PostHog page analytics/);
+  assert.match(prose, /e\.codeswhat\.com/);
+  assert.match(prose, /The app itself sends nothing to PostHog/);
+  assert.match(prose, /Global Privacy Control/);
+  assert.match(prose, /The Dilated app doesn't collect anything/);
+  assert.doesNotMatch(prose, /no third-party scripts|sets no cookies|in the app or on this site/);
+  assert.doesNotMatch(privacy, /Effective 2026-11-03/);
 });
 
 test('privacy.html contact is the security.txt address and the text keeps the house tone', () => {
