@@ -55,6 +55,9 @@ jobs:
   website:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Browsers and their system packages come preinstalled; apt installs on the bare runner can hang.
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
     steps:
       - uses: actions/checkout@v4
         with:
@@ -67,7 +70,12 @@ jobs:
           node --test website/tests/*.test.mjs
           for m in website/dist/*.mjs website/dist/analytics/*.mjs; do node --check "$m"; done
       - name: Website browser checks
-        run: bash scripts/verify-website-browsers.sh
+        working-directory: website
+        env:
+          HOME: /root
+        run: |
+          npm ci
+          npx playwright test
   verify:
     needs: changes
     if: needs.changes.outputs.macos == 'true'
