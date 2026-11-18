@@ -21,7 +21,8 @@ import Foundation
   public var onDisconnect: (() -> Void)?
   /// Receives the service's state while it recovers on its own, so a UI that asked nothing still
   /// sees a failed restoration clear.
-  public var onSnapshot: ((HelperState) -> Void)?
+  /// Returns whether the receiver applied the state.
+  public var onSnapshot: ((HelperState) -> Bool)?
   private let service: ClosedLidService
   private let owner = UUID()
   private var ticker: TickLoop?
@@ -77,7 +78,9 @@ import Foundation
       guard let self, self.mailbox.put(state) else { return }
       Task { @MainActor [weak self] in
         guard let self else { return }
-        while let latest = self.mailbox.take() { self.onSnapshot?(latest) }
+        while let latest = self.mailbox.take() {
+          if self.onSnapshot?(latest) == true { self.seen.record(latest) }
+        }
       }
     }
   }
@@ -185,7 +188,14 @@ final class SeenState: @unchecked Sendable {
   private let lock = NSLock()
   private var last: HelperState?
 
-  func record(_ state: HelperState?) { lock.withLock { last = state } }
+  /// Keeps the newest state by sequence, so an older one never replaces it.
+  func record(_ state: HelperState?) {
+    lock.withLock {
+      guard let state else { return }
+      if let last, last.sequence > state.sequence { return }
+      last = state
+    }
+  }
 
   /// Whether `state` is worth pushing: it differs from what the controller holds (leaving out the
   /// readings that change every second) and either side was a failed restore or a foreign disable.
@@ -196,6 +206,7 @@ final class SeenState: @unchecked Sendable {
       let b = state
       a.environment = b.environment
       a.leaseRemainingSeconds = b.leaseRemainingSeconds
+      a.sequence = b.sequence
       guard a != b else { return false }
       return Self.needsAttention(last) || Self.needsAttention(state)
     }
@@ -226,8 +237,8 @@ private final class TickLoop: Sendable {
       func publish() async {
         guard await !service.holdsLease else { return }
         let state = await service.snapshot()
+        // Recorded only once the controller applies it, not when it's queued.
         guard seen.shouldPush(state) else { return }
-        seen.record(state)
         deliver(state)
       }
       while !Task.isCancelled {

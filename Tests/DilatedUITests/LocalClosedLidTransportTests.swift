@@ -262,6 +262,29 @@ import Testing
     #expect(fixture.controller.state?.phase == .off)
   }
 
+  @Test func aQueuedCleanSnapshotCannotOverwriteANewerFailedReply() async throws {
+    let runner = FakeSudoRunner()
+    let fixture = GuardedFixture(runner: runner, tickInterval: .milliseconds(5))
+    let model = AppModel(
+      endpoint: .init(stateDirectory: fixture.directory), power: { .init() },
+      closedLid: fixture.controller)
+    defer { model.shutdown() }
+    try await fixture.controller.refresh()
+    // A clean recovery snapshot, built now but still waiting for the main actor.
+    let stale = try #require(fixture.controller.state)
+    try await fixture.controller.enable(policy: .init())
+    await runner.deny()
+    await #expect(throws: (any Error).self) { try await fixture.controller.disable() }
+    #expect(fixture.controller.restorationPending)
+    // The failed disable invalidated the controller, so the drain passes the busy and lease checks.
+    let deliver = try #require(fixture.controller.localTransport?.onSnapshot)
+    let applied = deliver(stale)
+    #expect(!applied)
+    #expect(fixture.controller.restorationPending)
+    #expect(model.updateActivity == .recovering)
+    #expect(await model.prepareToQuit() == false)
+  }
+
   @Test func backoffDoublesToTheCapAndResetsOnRequest() {
     let backoff = RetryBackoff(initial: .seconds(1), cap: .seconds(30))
     let steps = (0..<8).map { _ in Int(backoff.next().components.seconds) }
@@ -294,7 +317,8 @@ import Testing
 private func blockMainActor(seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
 
 private func waitUntil(_ condition: @escaping @Sendable () async -> Bool) async {
-  let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+  // Generous: the full suite keeps the main actor busy for seconds at a time.
+  let deadline = ContinuousClock.now.advanced(by: .seconds(20))
   while ContinuousClock.now < deadline {
     if await condition() { return }
     try? await Task.sleep(for: .milliseconds(20))

@@ -45,6 +45,9 @@ public struct HelperState: Codable, Equatable, Sendable {
   /// Sleep is disabled by something other than Dilated, which left it alone. Not an unresolved
   /// restoration of ours.
   public var foreignSleepDisabled = false
+  /// Rises with every state the service builds, so a receiver can drop one older than what it
+  /// already applied, whichever path (reply or push) it came by.
+  public var sequence: UInt64 = 0
 }
 public struct HelperReply: Codable, Sendable {
   public var ok: Bool

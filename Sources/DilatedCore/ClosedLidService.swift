@@ -18,6 +18,7 @@ public actor ClosedLidService {
   private enum SleepIntent { case explicit, closedLidStop }
   private var sleepIntent: SleepIntent?
   private var foreignSleepDisabled = false
+  private var revision: UInt64 = 0
   private var permissionFailure = false
   private var operation = UUID()
 
@@ -261,6 +262,7 @@ public actor ClosedLidService {
 
   private func state() -> HelperState {
     let remaining = governor.lease.map { max(0, $0.expiry - clock()) }
+    revision += 1
     return HelperState(
       protocolVersion: HelperIdentity.protocolVersion, buildIdentity: buildIdentity,
       generation: governor.generation,
@@ -271,7 +273,7 @@ public actor ClosedLidService {
       enabled: phase == .on && governor.lease != nil && readback.confirmedEnabled,
       leaseID: governor.lease?.id, leaseRemainingSeconds: remaining, readback: readback,
       environment: environment(), stopReason: governor.lastStop, message: message,
-      foreignSleepDisabled: foreignSleepDisabled)
+      foreignSleepDisabled: foreignSleepDisabled, sequence: revision)
   }
 
   private func failure(_ error: any Error) -> HelperReply {

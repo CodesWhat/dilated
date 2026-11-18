@@ -16,6 +16,7 @@ import Observation
   @ObservationIgnored private var monitoring: Task<Void, Never>?
   @ObservationIgnored private var operation = UUID()
   @ObservationIgnored private var operationFailure: (any Error)?
+  @ObservationIgnored private var appliedSequence: UInt64 = 0
   var localTransport: LocalClosedLidTransport? { transport as? LocalClosedLidTransport }
   public var active: Bool { leaseID != nil && state?.enabled == true }
   public var hasLease: Bool { leaseID != nil }
@@ -36,7 +37,7 @@ import Observation
     self.expectedBuild = expectedBuild
     transport.onDisconnect = { [weak self] in self?.lostConnection() }
     (transport as? LocalClosedLidTransport)?.onSnapshot = { [weak self] value in
-      self?.observeSnapshot(value)
+      self?.observeSnapshot(value) ?? false
     }
   }
 
@@ -178,16 +179,22 @@ import Observation
 
   /// A state the service pushed while recovering. Applied only when nothing here is in flight, so
   /// a late push can't end a lease or overwrite an answer the controller is waiting on.
-  private func observeSnapshot(_ value: HelperState) {
-    guard leaseID == nil, !busy, value.protocolVersion == HelperIdentity.protocolVersion else {
-      return
-    }
+  private func observeSnapshot(_ value: HelperState) -> Bool {
+    guard leaseID == nil, !busy, value.protocolVersion == HelperIdentity.protocolVersion,
+      value.sequence > appliedSequence
+    else { return false }
     state = value
+    appliedSequence = value.sequence
     onChange?()
+    return true
   }
 
   private func observe(_ value: HelperState) {
-    state = value
+    // A reply the service built before a state already applied doesn't roll it back.
+    if value.sequence > appliedSequence || value.sequence == 0 {
+      state = value
+      appliedSequence = max(appliedSequence, value.sequence)
+    }
     if let leaseID, value.leaseID != leaseID || value.generation != leaseGeneration {
       self.leaseID = nil
       leaseGeneration = nil
