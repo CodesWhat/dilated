@@ -94,6 +94,11 @@ public struct ClosedLidSetup: Sendable {
     } catch {
       return .failed("Couldn't load the repair agent: \(error.localizedDescription)")
     }
+    // A bootstrap that returned cleanly isn't proof. Until the agent is loaded the script refuses
+    // closed-lid enables, so a failure here leaves them blocked rather than unguarded.
+    guard await launchd.isLoaded(target: paths.agentTarget) else {
+      return .failed("The repair agent didn't load. Closed-lid mode stays off until it does.")
+    }
     return .completed
   }
 

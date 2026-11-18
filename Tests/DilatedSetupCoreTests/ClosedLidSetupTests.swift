@@ -60,17 +60,26 @@ final class FakeSetupFiles: SetupFileSystem, @unchecked Sendable {
   }
 }
 
-struct FakeLaunchd: LaunchAgentControlling {
+final class FakeLaunchd: LaunchAgentControlling, @unchecked Sendable {
+  private let lock = NSLock()
+  private var isUp = false
   let log: SetupLog
-  var loaded: @Sendable () -> Bool = { false }
   var bootstrapFails = false
+  /// A bootstrap that returns cleanly but leaves the job unloaded.
+  var neverLoads = false
+
+  init(log: SetupLog) { self.log = log }
 
   func bootstrap(domain: String, plistPath: String) async throws {
     log.add("bootstrap \(domain)")
     if bootstrapFails { throw ClosedLidSetupLiveError(message: "boom") }
+    if !neverLoads { lock.withLock { isUp = true } }
   }
-  func bootout(target: String) async { log.add("bootout \(target)") }
-  func isLoaded(target: String) async -> Bool { loaded() }
+  func bootout(target: String) async {
+    log.add("bootout \(target)")
+    lock.withLock { isUp = false }
+  }
+  func isLoaded(target: String) async -> Bool { lock.withLock { isUp } }
 }
 
 struct FakePower: PowerScriptRunning {
@@ -132,15 +141,16 @@ private struct Rig {
     rule ruleState: ClosedLidPermissionState = .notInstalled,
     afterInstall: ClosedLidPermissionOutcome = .completed(.ready),
     afterRemove: ClosedLidPermissionOutcome = .completed(.notInstalled),
-    powerFails: Bool = false, bootstrapFails: Bool = false,
+    powerFails: Bool = false, bootstrapFails: Bool = false, neverLoads: Bool = false,
     assets: ClosedLidSetupAssets? = nil
   ) {
     let log = log
     files = FakeSetupFiles(log: log)
     rule = FakeRule(
       state: ruleState, log: log, afterInstall: afterInstall, afterRemove: afterRemove)
-    var launchd = FakeLaunchd(log: log)
+    let launchd = FakeLaunchd(log: log)
     launchd.bootstrapFails = bootstrapFails
+    launchd.neverLoads = neverLoads
     setup = ClosedLidSetup(
       paths: paths,
       assets: assets
@@ -291,6 +301,25 @@ struct ClosedLidSetupInstallTests {
     let rig = Rig(rule: .ready, bootstrapFails: true)
     #expect(
       await rig.setup.install() == .failed("Couldn't load the repair agent: boom"))
+    #expect(await rig.setup.status().agent == .notLoaded)
+  }
+
+  @Test func aBootstrapThatLeavesTheAgentUnloadedIsNotSuccess() async {
+    let rig = Rig(rule: .ready, neverLoads: true)
+    guard case .failed(let message) = await rig.setup.install() else {
+      Issue.record("expected a failure")
+      return
+    }
+    #expect(message.contains("didn't load"))
+    #expect(await rig.setup.status().agent == .notLoaded)
+    #expect(!(await rig.setup.status().isInstalled))
+  }
+
+  @Test func aSuccessfulInstallLeavesTheAgentLoaded() async {
+    let rig = Rig(rule: .ready)
+    #expect(await rig.setup.install() == .completed)
+    #expect(await rig.setup.status().agent == .loaded)
+    #expect(await rig.setup.status().isInstalled)
   }
 }
 

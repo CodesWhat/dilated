@@ -9,6 +9,10 @@
 #   ok        0   the command ran (or, for probe, sudo allows both commands)
 #   reverted  4   (on) the agent already reverted this pid's session; enable again to continue
 #   norule    3   sudo needs a password, doesn't allow the command, or the user may not run sudo
+#   noagent   3   (on, probe) the repair LaunchAgent isn't loaded.
+#                 Shares norule's exit status on purpose: an app that predates this word reads an
+#                 unknown first word as a failed command and refuses the enable, so nothing turns
+#                 sleep off without the agent that can turn it back on. Run the setup companion again.
 #   failed    N   anything else; N is the failing command's status, or 1
 #   none      0   (beat, check) there is no session
 #   live | dead | stale | reverted   (check) what `repair` would see; nothing is changed
@@ -47,6 +51,7 @@ esac
 # of a NSUserUnixTask or a local shell can't redirect sudo or the wake time.
 test_sudo=""
 test_wake=""
+test_launchctl=""
 self=${BASH_SOURCE[0]}
 case "$self" in
   */*) self_dir=${self%/*} ;;
@@ -58,6 +63,7 @@ if self_dir=$(cd "$self_dir" 2>/dev/null && pwd -P); then
       if [ -f "$self_dir/../../Package.swift" ]; then
         test_sudo=${DILATED_POWER_TEST_SUDO:-}
         test_wake=${DILATED_POWER_TEST_WAKE:-}
+        test_launchctl=${DILATED_POWER_TEST_LAUNCHCTL:-}
       fi
       ;;
   esac
@@ -101,6 +107,19 @@ session_dir="$home/Library/Application Support/dilated-power"
 session_file="$session_dir/session"
 tombstone_file="$session_dir/tombstone"
 lock_dir="$session_dir/lock.d"
+agent_label="com.codeswhat.dilated.closed-lid-repair"
+
+# True when the repair LaunchAgent is loaded in this user's GUI domain. Without it nothing can
+# turn sleep back on after a crash, so `on` and `probe` refuse.
+agent_loaded() {
+  local launchctl=${test_launchctl:-/bin/launchctl}
+  "$launchctl" print "gui/$(/usr/bin/id -u)/$agent_label" >/dev/null 2>&1
+}
+
+refuse_unready() {
+  echo noagent
+  exit 3
+}
 
 ensure_dir() {
   (umask 077 && /bin/mkdir -p "$session_dir") && /bin/chmod 700 "$session_dir"
@@ -205,6 +224,7 @@ case "$verb" in
       echo failed
       exit 1
     }
+    agent_loaded || refuse_unready
     if [ -f "$tombstone_file" ] && [ "$(<"$tombstone_file")" = "reverted $pid" ]; then
       /bin/rm -f "$tombstone_file"
       echo reverted
@@ -270,6 +290,7 @@ case "$verb" in
     exit 0
     ;;
   probe)
+    agent_loaded || refuse_unready
     # One `sudo -n -l` per command, mirroring ClosedLidPermission.probeArgumentSets.
     for value in 1 0; do
       detail=$(run_sudo -l /usr/bin/pmset -a disablesleep "$value") || status=$?

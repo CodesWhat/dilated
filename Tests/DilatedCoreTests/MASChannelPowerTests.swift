@@ -104,6 +104,18 @@ struct MASChannelUserScriptRunnerTests {
     }
   }
 
+  @Test func noagentIsARefusalLikeNorule() async {
+    for run in [finished("noagent\n", status: 3), finished("noagent\n")] {
+      do {
+        try await UserScriptPowerRunner(launcher: FakeLauncher(run)).run(.setSleepDisabled(true))
+        Issue.record("expected a throw for \(run)")
+      } catch ClosedLidPowerError.permissionUnavailable {
+      } catch {
+        Issue.record("expected permissionUnavailable for \(run), got \(error)")
+      }
+    }
+  }
+
   @Test func theFirstWordDecidesNotLaterOutput() async throws {
     try await UserScriptPowerRunner(launcher: FakeLauncher(finished("\n  ok extra words")))
       .run(.setSleepDisabled(true))
@@ -116,6 +128,7 @@ struct MASChannelScriptStateTests {
       (.missing, .scriptMissing),
       (finished("ok\n"), .ready),
       (finished("norule\n", status: 3), .ruleMissing),
+      (finished("noagent\n", status: 3), .agentMissing),
       (finished("failed\n", status: 1), .ruleMissing),
       (finished("ok\n", status: 1), .ruleMissing),
       (finished("", status: nil), .ruleMissing),
@@ -185,6 +198,10 @@ struct MASChannelRepairScriptTests {
     let home: URL
     let sudoLog: URL
     let fakeSudo: URL
+    let fakeLaunchctl: URL
+    let launchctlLog: URL
+    /// While this file exists the fake launchctl reports the agent as not loaded.
+    let agentDown: URL
     var children: [Process] = []
 
     init() throws {
@@ -199,6 +216,28 @@ struct MASChannelRepairScriptTests {
       exit 0
       """.write(to: fakeSudo, atomically: true, encoding: .utf8)
       try manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeSudo.path)
+      launchctlLog = home.appendingPathComponent("launchctl.log")
+      agentDown = home.appendingPathComponent("agent-down")
+      fakeLaunchctl = home.appendingPathComponent("fake-launchctl")
+      try """
+      #!/bin/bash
+      echo "$@" >> "\(launchctlLog.path)"
+      [ ! -e "\(agentDown.path)" ]
+      """.write(to: fakeLaunchctl, atomically: true, encoding: .utf8)
+      try manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeLaunchctl.path)
+    }
+
+    func setAgentLoaded(_ loaded: Bool) {
+      if loaded {
+        try? FileManager.default.removeItem(at: agentDown)
+      } else {
+        FileManager.default.createFile(atPath: agentDown.path, contents: Data())
+      }
+    }
+
+    var launchctlCalls: [String] {
+      ((try? String(contentsOf: launchctlLog, encoding: .utf8)) ?? "")
+        .split(separator: "\n").map(String.init)
     }
 
     deinit {
@@ -238,6 +277,7 @@ struct MASChannelRepairScriptTests {
     ) throws -> (status: Int32, out: String, err: String) {
       var environment = ["HOME": home.path, "PATH": "/usr/bin:/bin"]
       if useFakeSudo { environment["DILATED_POWER_TEST_SUDO"] = fakeSudo.path }
+      environment["DILATED_POWER_TEST_LAUNCHCTL"] = fakeLaunchctl.path
       if let wake { environment["DILATED_POWER_TEST_WAKE"] = String(wake) }
       environment.merge(extra) { _, new in new }
       let process = Process()
@@ -293,6 +333,38 @@ struct MASChannelRepairScriptTests {
     let record = try String(contentsOf: box.sessionFile, encoding: .utf8)
     #expect(record.hasPrefix("\(child.processIdentifier) "))
     #expect(try box.run(["check"]).out == "live")
+  }
+
+  @Test func onAndProbeRequireTheRepairAgentToBeLoaded() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    box.setAgentLoaded(false)
+    let probe = try box.run(["probe"])
+    #expect(probe.out == "noagent")
+    #expect(probe.status == 3)
+    let on = try box.run(["on", String(child.processIdentifier)])
+    #expect(on.out == "noagent")
+    #expect(on.status == 3)
+    // Refused before any session or sudo call.
+    #expect(box.sudoCalls.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
+
+    box.setAgentLoaded(true)
+    #expect(try box.run(["probe"]).out == "ok")
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
+    let expected = "print gui/\(getuid())/com.codeswhat.dilated.closed-lid-repair"
+    #expect(box.launchctlCalls.allSatisfy { $0 == expected })
+    #expect(!box.launchctlCalls.isEmpty)
+  }
+
+  @Test func offAndRepairStillWorkWithoutTheAgent() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
+    box.setAgentLoaded(false)
+    #expect(try box.run(["check"]).out == "live")
+    #expect(try box.run(["off"]).out == "ok")
+    #expect(box.sudoCalls.last == "/usr/bin/pmset -a disablesleep 0")
   }
 
   @Test func onForAMissingPidFailsWithoutEnabling() throws {
