@@ -458,3 +458,44 @@ struct EngineTests {
   #expect(engine.holds.count == 2)
   #expect(engine.desiredState.displayAwake)
 }
+
+@Test func userSwitchWithNothingCapturableStillResumesAutomationOnReturn() throws {
+  var engine = WakeEngine()
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.automationPaused)
+  #expect(engine.userReturnRestoration?.holds.isEmpty == true)
+  #expect(engine.userReturnRestoration?.wasPaused == false)
+  #expect(engine.resumeAfterUserReturn()?.wasPaused == false)
+  #expect(!engine.automationPaused)
+}
+
+@Test func triggerOnlySessionResumesAutomationAfterUserReturn() throws {
+  var engine = WakeEngine()
+  try engine.start(source: .trigger, label: "rule", duration: nil)
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.userReturnRestoration?.holds.isEmpty == true)
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.userReturnRestoration?.wasPaused == false)
+  _ = engine.resumeAfterUserReturn()
+  #expect(!engine.automationPaused && engine.holds.isEmpty)
+}
+
+@Test func userSwitchWhileAlreadyPausedWithNothingCapturableKeepsNoRecord() throws {
+  var engine = WakeEngine()
+  engine.stopAll()
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.userReturnRestoration == nil)
+  #expect(engine.automationPaused)
+}
+
+@Test func updatePowerReportsHoldsItRemovedForSafetyOnly() throws {
+  var engine = WakeEngine()
+  let kept = try engine.start(source: .manual, label: "kept", duration: nil, lowPowerOverride: true)
+  let dropped = try engine.start(source: .trigger, label: "rule", duration: nil)
+  let expiring = try engine.start(source: .lease, label: "soon", duration: 1)
+  let removed = engine.updatePower(
+    .init(lowPowerMode: true), now: Date().addingTimeInterval(5))
+  #expect(removed == [dropped.id])
+  #expect(engine.holds.map(\.id) == [kept.id])
+  #expect(!removed.contains(expiring.id))
+}
