@@ -512,3 +512,57 @@ struct MASChannelRepairScriptTests {
     #expect(box.sudoCalls.isEmpty)
   }
 }
+
+private actor LateOnHardware {
+  private(set) var disabled = false
+  func set(_ value: Bool) { disabled = value }
+  func readback() -> ClosedLidReadback {
+    ClosedLidReadback(effectiveDisabled: disabled, storedDisabled: disabled)
+  }
+}
+
+/// `on` times out on the app's side, then the script finishes pmset 1 anyway.
+private final class LateOnLauncher: UserScriptLaunching, @unchecked Sendable {
+  let hardware: LateOnHardware
+  private let lock = NSLock()
+  private var calls: [[String]] = []
+
+  init(hardware: LateOnHardware) { self.hardware = hardware }
+
+  var arguments: [[String]] { lock.withLock { calls } }
+
+  func run(arguments: [String]) async -> UserScriptRun {
+    lock.withLock { calls.append(arguments) }
+    if arguments.first == "on" {
+      await hardware.set(true)
+      return .timedOut
+    }
+    await hardware.set(false)
+    return finished("ok\n")
+  }
+}
+
+struct MASChannelLateOnTests {
+  @Test func aLateOnAfterTheAppTimeoutIsRevertedByTheApp() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "lid-mas-\(UUID().uuidString)")
+    let store = ClosedLidMarkerStore(directory: directory)
+    let hardware = LateOnHardware()
+    let launcher = LateOnLauncher(hardware: hardware)
+    let driver = SerialPowerDriver(
+      runner: UserScriptPowerRunner(launcher: launcher, pid: 4242),
+      readback: { await hardware.readback() })
+    let guardian = ClosedLidSessionGuard(power: driver, store: store)
+    let service = ClosedLidService(
+      power: guardian,
+      environment: { .init(powerSource: .ac, thermal: .nominal, lidClosed: false) },
+      clock: { 0 }, buildIdentity: "test")
+    await service.start()
+    let reply = await service.handle(.init(action: .enable, policy: .init()), owner: UUID())
+    #expect(reply.ok == false)
+    #expect(launcher.arguments.contains(["off"]))
+    #expect(await hardware.disabled == false)
+    #expect(store.read() == nil)
+    #expect(await guardian.recovery != .foreignSleepDisabled)
+  }
+}

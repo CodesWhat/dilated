@@ -299,14 +299,26 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
     do {
       return try await power.setSleepDisabled(true)
     } catch {
-      // No confirmed enable: drop the session. Deleting the marker makes the watchdog exit.
-      if let created {
+      // The command may have applied before readback failed or sudo was killed, so this attempt
+      // still owns whatever it produced. Revert while the marker and lock are held, and drop the
+      // session only once sleep is known to be allowed. Otherwise keep it: `disable()` then takes
+      // the owned path, the watchdog keeps ownership and a relaunch reverts it.
+      if let created, await restoreAfterFailedEnable() {
         store.clear(generation: created.generation)
         store.clearHeartbeat()
         session = nil
       }
       throw error
     }
+  }
+
+  /// True when sleep is allowed after a failed enable: the revert confirmed it, or it failed but
+  /// readback confirms sleep is allowed, so the enable never took effect.
+  private func restoreAfterFailedEnable() async -> Bool {
+    if let observed = try? await power.setSleepDisabled(false), observed.confirmedDisabled {
+      return true
+    }
+    return await power.readback().confirmedDisabled
   }
 
   private func disable() async throws -> ClosedLidReadback {
