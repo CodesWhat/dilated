@@ -29,6 +29,7 @@ import Foundation
   private let tickSleep: @Sendable (Duration) async throws -> Void
   private let wake = TickWake()
   private let seen = SeenState()
+  private let mailbox = SnapshotMailbox()
   private let backoff: RetryBackoff
   private let sessionGuard: ClosedLidSessionGuard?
 
@@ -72,7 +73,12 @@ import Foundation
       service: service, interval: tickInterval, backoff: backoff, sleep: tickSleep, wake: wake,
       seen: seen
     ) { [weak self] state in
-      await MainActor.run { self?.onSnapshot?(state) }
+      // Never awaited: a blocked main actor must not slow the safety loop.
+      guard let self, self.mailbox.put(state) else { return }
+      Task { @MainActor [weak self] in
+        guard let self else { return }
+        while let latest = self.mailbox.take() { self.onSnapshot?(latest) }
+      }
     }
   }
 
@@ -148,6 +154,32 @@ final class TickWake: Sendable {
   func finish() { continuation.finish() }
 }
 
+/// The newest pushed state waiting for the main actor. Pushes that arrive before it drains
+/// replace each other, so a slow main actor sees the latest state once.
+final class SnapshotMailbox: @unchecked Sendable {
+  private let lock = NSLock()
+  private var latest: HelperState?
+  private var draining = false
+
+  /// True when the caller must start a drain.
+  func put(_ state: HelperState) -> Bool {
+    lock.withLock {
+      latest = state
+      guard !draining else { return false }
+      draining = true
+      return true
+    }
+  }
+
+  func take() -> HelperState? {
+    lock.withLock {
+      defer { latest = nil }
+      if latest == nil { draining = false }
+      return latest
+    }
+  }
+}
+
 /// The last service state the controller is known to hold, from a reply or a push.
 final class SeenState: @unchecked Sendable {
   private let lock = NSLock()
@@ -169,8 +201,10 @@ final class SeenState: @unchecked Sendable {
     }
   }
 
+  /// A failed restore, a foreign disable, or sleep still disabled. Leaving any of these is a
+  /// change the controller has to hear about, however the last state it saw got there.
   private static func needsAttention(_ state: HelperState) -> Bool {
-    state.phase == .failed || state.foreignSleepDisabled
+    state.phase == .failed || state.foreignSleepDisabled || !state.readback.confirmedDisabled
   }
 }
 
@@ -181,7 +215,7 @@ private final class TickLoop: Sendable {
   init(
     service: ClosedLidService, interval: Duration, backoff: RetryBackoff,
     sleep: @escaping @Sendable (Duration) async throws -> Void, wake: TickWake,
-    seen: SeenState, deliver: @escaping @Sendable (HelperState) async -> Void
+    seen: SeenState, deliver: @escaping @Sendable (HelperState) -> Void
   ) {
     self.wake = wake
     task = Task.detached {
@@ -194,7 +228,7 @@ private final class TickLoop: Sendable {
         let state = await service.snapshot()
         guard seen.shouldPush(state) else { return }
         seen.record(state)
-        await deliver(state)
+        deliver(state)
       }
       while !Task.isCancelled {
         await publish()

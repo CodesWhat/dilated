@@ -55,7 +55,10 @@ public actor ClosedLidService {
       let current = operation
       let currentPhase = phase
       let observed = await power.readback()
-      if operation == current, phase == currentPhase { readback = observed }
+      if operation == current, phase == currentPhase {
+        readback = observed
+        settleForeignDisposition()
+      }
       return reply(true)
     case .enable:
       guard phase == .off, resetConfirmed, readback.confirmedDisabled else {
@@ -146,6 +149,7 @@ public actor ClosedLidService {
     let observed = await power.readback()
     guard operation == current else { return }
     readback = observed
+    settleForeignDisposition()
     if phase == .on, governor.lease != nil, !observed.confirmedEnabled {
       if let stopped = governor.reconcile(environment: environment(), now: clock()) {
         await stop(stopped)
@@ -161,6 +165,15 @@ public actor ClosedLidService {
     if let stopped = governor.disconnected(owner: owner, environment: environment()) {
       await stop(stopped)
     }
+  }
+
+  /// Another app's sleep-disable that has since cleared leaves nothing of ours to restore, so
+  /// the reset counts as confirmed without running any power command.
+  private func settleForeignDisposition() {
+    guard foreignSleepDisabled, phase == .off, readback.confirmedDisabled else { return }
+    foreignSleepDisabled = false
+    resetConfirmed = true
+    message = nil
   }
 
   private func enable() async -> HelperReply {

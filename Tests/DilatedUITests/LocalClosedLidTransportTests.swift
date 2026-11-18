@@ -204,6 +204,64 @@ import Testing
     #expect(await model.prepareToQuit())
   }
 
+  @Test func aBlockedMainActorNeverStallsAnOwnedRestoreRetry() async throws {
+    let runner = FakeSudoRunner()
+    await runner.setValue(.init(effectiveDisabled: true, storedDisabled: true))
+    await runner.deny()
+    Task.detached {
+      try? await Task.sleep(for: .milliseconds(100))
+      await runner.allow()
+    }
+    // A stale marker after a reboot: the first restore fails and its state is pushed to a main
+    // actor that never gets to run it.
+    let fixture = GuardedFixture(
+      runner: runner, tickInterval: .milliseconds(5),
+      backoff: RetryBackoff(initial: .milliseconds(5), cap: .milliseconds(20)), staleMarker: true)
+    defer { fixture.controller.invalidate() }
+    blockMainActor(seconds: 0.6)
+    #expect(await runner.readback().confirmedDisabled)
+    #expect(await runner.calls.count > 1)
+  }
+
+  @Test func aForeignDisableThatClearsAllowsAnEnableAfterAStatusRequest() async throws {
+    let runner = FakeSudoRunner()
+    await runner.setValue(.init(effectiveDisabled: true, storedDisabled: true))
+    let fixture = GuardedFixture(runner: runner, tickInterval: .milliseconds(5))
+    defer { fixture.controller.invalidate() }
+    await waitUntil {
+      await MainActor.run { fixture.controller.state?.foreignSleepDisabled == true }
+    }
+    await runner.setValue(.init(effectiveDisabled: false, storedDisabled: false))
+    try await fixture.controller.refresh()
+    #expect(fixture.controller.state?.foreignSleepDisabled == false)
+    #expect(fixture.controller.state?.ready == true)
+    try await fixture.controller.enable(policy: .init())
+    #expect(fixture.controller.active)
+    #expect(await runner.calls == [.setSleepDisabled(true)])
+  }
+
+  @Test func aRequestMidRetryDoesNotSuppressTheResolvedPush() async throws {
+    let runner = FakeSudoRunner()
+    let fixture = GuardedFixture(
+      runner: runner, tickInterval: .milliseconds(5),
+      backoff: RetryBackoff(initial: .milliseconds(5), cap: .milliseconds(20)))
+    defer { fixture.controller.invalidate() }
+    try await fixture.controller.enable(policy: .init())
+    await runner.deny()
+    await #expect(throws: (any Error).self) { try await fixture.controller.disable() }
+    #expect(fixture.controller.restorationPending)
+    await runner.allow()
+    await runner.holdNextRestore()
+    await waitUntil { await runner.holding }
+    // The service is mid-retry, so this request records a disabling state with sleep still off.
+    try await fixture.controller.refresh()
+    #expect(fixture.controller.state?.phase == .disabling)
+    #expect(fixture.controller.restorationPending)
+    await runner.release()
+    await waitUntil { await MainActor.run { !fixture.controller.restorationPending } }
+    #expect(fixture.controller.state?.phase == .off)
+  }
+
   @Test func backoffDoublesToTheCapAndResetsOnRequest() {
     let backoff = RetryBackoff(initial: .seconds(1), cap: .seconds(30))
     let steps = (0..<8).map { _ in Int(backoff.next().components.seconds) }
@@ -302,13 +360,25 @@ private final class CountingLauncher: UserScriptLaunching, @unchecked Sendable {
   let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
     "lid-guarded-\(UUID().uuidString)")
   let controller: ClosedLidController
-  init(runner: FakeSudoRunner, tickInterval: Duration, backoff: RetryBackoff = RetryBackoff()) {
+  init(
+    runner: FakeSudoRunner, tickInterval: Duration, backoff: RetryBackoff = RetryBackoff(),
+    staleMarker: Bool = false
+  ) {
+    let store = ClosedLidMarkerStore(directory: directory)
+    if staleMarker {
+      try? store.write(
+        ClosedLidSessionMarker(
+          pid: 999_999, processStartMicros: 1_000, generation: UUID(),
+          enabledAt: Date(timeIntervalSince1970: 1)))
+    }
     let session = ClosedLidSessionGuard(
       power: SerialPowerDriver(runner: runner, readback: { await runner.readback() }),
-      store: ClosedLidMarkerStore(directory: directory))
+      store: store)
     controller = ClosedLidController(
       transport: LocalClosedLidTransport(
-        sessionGuard: session, power: session, tickInterval: tickInterval, backoff: backoff),
+        sessionGuard: session, power: session,
+        environment: { .init(powerSource: .ac, thermal: .nominal, lidClosed: false) },
+        tickInterval: tickInterval, backoff: backoff),
       expectedBuild: { LocalClosedLidTransport.buildIdentity })
   }
 }
@@ -319,9 +389,18 @@ private actor FakeSudoRunner: PowerCommandRunning {
   private(set) var disableAttempts = 0
   private var value = ClosedLidReadback(effectiveDisabled: false, storedDisabled: false)
   private var denied = false
+  private var holdDisable = false
+  private(set) var holding = false
+  private var waiter: CheckedContinuation<Void, Never>?
 
-  func run(_ command: PowerCommand) throws {
+  func run(_ command: PowerCommand) async throws {
     calls.append(command)
+    if holdDisable, !denied, command == .setSleepDisabled(false) {
+      holdDisable = false
+      holding = true
+      await withCheckedContinuation { waiter = $0 }
+      holding = false
+    }
     if command == .setSleepDisabled(false) { disableAttempts += 1 }
     if denied, case .setSleepDisabled = command { throw ClosedLidPowerError.permissionUnavailable }
     if case .setSleepDisabled(let disabled) = command {
@@ -332,6 +411,12 @@ private actor FakeSudoRunner: PowerCommandRunning {
   func readback() -> ClosedLidReadback { value }
   func deny() { denied = true }
   func allow() { denied = false }
+  /// Makes the next restore wait in the runner until `release()`.
+  func holdNextRestore() { holdDisable = true }
+  func release() {
+    waiter?.resume()
+    waiter = nil
+  }
   func setValue(_ readback: ClosedLidReadback) { value = readback }
 }
 
