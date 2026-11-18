@@ -12,17 +12,19 @@ import {
   canonicalizeAnalyticsRoute,
   createPostHogOptions,
   isProductionHost,
+  isTrackingRefused,
 } from './contract.mjs';
 import { createWebVitalsReporter } from './web-vitals-buffer.mjs';
 
 // Public write-only project key, same as the other CodesWhat sites.
 const PROJECT_KEY = 'phc_mav2oHZzTVaC4mAFEqaLbGEff65uvGMy47LcWSNBFp9J'; // gitleaks:allow
 
-function capture(event) {
-  if (event) posthog.capture(event.event, event.properties);
+function capture(event, options) {
+  if (event) posthog.capture(event.event, event.properties, options);
 }
 
 function start() {
+  if (isTrackingRefused(navigator, window)) return;
   const options = createPostHogOptions(PROJECT_KEY, POSTHOG_PROXY_HOST, POSTHOG_UI_HOST);
   if (!options) return;
   posthog.init(PROJECT_KEY, options);
@@ -36,6 +38,14 @@ function start() {
   onINP(record);
   onCLS(record);
   onFCP(record);
+  // Registered after web-vitals' own listeners so CLS and INP, which it reports
+  // on hide, are recorded before this flush runs.
+  vitals.attachHideFlush(onHide => {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') onHide();
+    });
+    window.addEventListener('pagehide', onHide);
+  });
 
   document.addEventListener('click', event => {
     const target = event.target instanceof Element ? event.target.closest('[data-cta]') : null;

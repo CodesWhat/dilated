@@ -12,6 +12,7 @@ import {
   canonicalizeAnalyticsRoute,
   createPostHogOptions,
   isProductionHost,
+  isTrackingRefused,
   sanitizeEvent,
 } from '../dist/analytics/contract.mjs';
 import { WEB_VITALS_FLUSH_DELAY_MS, createWebVitalsReporter } from '../dist/analytics/web-vitals-buffer.mjs';
@@ -311,5 +312,102 @@ test('the vendored modules load as-is: no bare-specifier or dynamic imports', as
     const source = await readFile(new URL(`../dist/assets/vendor/${name}`, import.meta.url), 'utf8');
     assert.doesNotMatch(source, /\bimport\s*\(/, name);
     assert.doesNotMatch(source, /(?:^|[;}\s])import\s*(?:[\w*{][^;]*?\s)?from\s*["']/, name);
+  }
+});
+
+const makeReporter = () => {
+  const emitted = [];
+  const timers = [];
+  let hide;
+  const reporter = createWebVitalsReporter(
+    '/',
+    (event, options) => emitted.push({ event, options }),
+    buildWebVitalsEvent,
+    canonicalizeAnalyticsRoute,
+    (callback, delay) => { timers.push({ callback, delay, cancelled: false }); return timers.length - 1; },
+    id => { timers[id].cancelled = true; },
+  );
+  reporter.attachHideFlush(handler => { hide = handler; });
+  return { emitted, timers, reporter, hide: () => hide() };
+};
+
+test('CLS and INP that arrive after the 5s flush are sent once on hide via sendBeacon', () => {
+  const { emitted, timers, reporter, hide } = makeReporter();
+  reporter.record('LCP', 900);
+  reporter.record('FCP', 400);
+  timers[0].callback();
+  assert.equal(emitted.length, 1);
+  assert.equal(emitted[0].options, undefined);
+
+  reporter.record('CLS', 0.1);
+  reporter.record('LCP', 950);
+  assert.equal(emitted.length, 1);
+  hide();
+  hide();
+  assert.equal(emitted.length, 2);
+  assert.deepEqual(emitted[1].options, { transport: 'sendBeacon' });
+  const props = emitted[1].event.properties;
+  assert.equal(props.$web_vitals_CLS_value, 0.1);
+  assert.equal('$web_vitals_LCP_value' in props, false);
+  assert.equal('$web_vitals_FCP_value' in props, false);
+  reporter.record('INP', 80);
+  assert.equal(emitted.length, 3);
+  assert.equal(emitted[2].event.properties.$web_vitals_INP_value, 80);
+});
+
+test('a hide before the timer sends what it has once, and later metrics go out alone', () => {
+  const { emitted, timers, reporter, hide } = makeReporter();
+  reporter.record('LCP', 900);
+  hide();
+  assert.equal(emitted.length, 1);
+  assert.equal(timers[0].cancelled, true);
+  hide();
+  assert.equal(emitted.length, 1);
+  reporter.record('CLS', 0.2);
+  assert.equal(emitted.length, 2);
+  assert.equal(emitted[1].event.properties.$web_vitals_CLS_value, 0.2);
+  reporter.record('CLS', 0.3);
+  assert.equal(emitted.length, 2);
+});
+
+test('a hide with nothing recorded emits nothing, and the all-four flush still fires immediately', () => {
+  const empty = makeReporter();
+  empty.hide();
+  assert.equal(empty.emitted.length, 0);
+
+  const full = makeReporter();
+  for (const name of ['LCP', 'INP', 'CLS', 'FCP']) full.reporter.record(name, 1);
+  assert.equal(full.emitted.length, 1);
+  full.hide();
+  assert.equal(full.emitted.length, 1);
+});
+
+test('isTrackingRefused honors Do Not Track and Global Privacy Control', () => {
+  assert.equal(isTrackingRefused({ doNotTrack: '1' }), true);
+  assert.equal(isTrackingRefused({ doNotTrack: 'yes' }), true);
+  assert.equal(isTrackingRefused({ msDoNotTrack: '1' }), true);
+  assert.equal(isTrackingRefused({}, { doNotTrack: '1' }), true);
+  assert.equal(isTrackingRefused({ globalPrivacyControl: true }), true);
+  assert.equal(isTrackingRefused({ doNotTrack: '0', globalPrivacyControl: false }, { doNotTrack: 'unspecified' }), false);
+  assert.equal(isTrackingRefused({}), false);
+  assert.equal(isTrackingRefused(undefined, undefined), false);
+});
+
+test('sanitizeEvent returns null when the browser sends DNT or GPC, and works normally otherwise', () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const setNavigator = value => Object.defineProperty(globalThis, 'navigator', { value, configurable: true, writable: true });
+  const build = () => sanitizeEvent(envelope('$pageview', {}));
+  try {
+    setNavigator({});
+    assert.notEqual(build(), null);
+    setNavigator({ doNotTrack: '1' });
+    assert.equal(build(), null);
+    setNavigator({ globalPrivacyControl: true });
+    assert.equal(build(), null);
+    setNavigator({ doNotTrack: '0' });
+    assert.notEqual(build(), null);
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'navigator', original);
+    else delete globalThis.navigator;
   }
 });

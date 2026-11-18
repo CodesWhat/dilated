@@ -119,7 +119,28 @@ function rawPathFromProperties(properties) {
   }
 }
 
+const DNT_ENABLED = new Set(['1', 'yes']);
+
+// posthog-js 1.449.2 skips its own respect_dnt check when cookieless_mode is
+// "always", so Do Not Track and Global Privacy Control are checked here.
+export function isTrackingRefused(nav, win) {
+  return (
+    DNT_ENABLED.has(nav?.doNotTrack) ||
+    DNT_ENABLED.has(nav?.msDoNotTrack) ||
+    DNT_ENABLED.has(win?.doNotTrack) ||
+    nav?.globalPrivacyControl === true
+  );
+}
+
+function currentTrackingRefused() {
+  return isTrackingRefused(
+    typeof navigator === 'undefined' ? undefined : globalThis.navigator,
+    globalThis,
+  );
+}
+
 export function sanitizeEvent(envelope) {
+  if (currentTrackingRefused()) return null;
   if (!envelope || typeof envelope.event !== 'string' || !envelope.properties) return null;
   const rawPath = rawPathFromProperties(envelope.properties);
   const key = envelope.properties.token;
