@@ -457,8 +457,12 @@ by the URL interface.
 ## Local control protocol
 
 The app listens on a user-only Unix socket inside a private 0700 directory under
-`/tmp`. Its socket is 0600. The directory name derives from the current user and
-state directory. An app lock prevents a second instance from replacing a live
+the per-user temporary directory (`confstr(_CS_DARWIN_USER_TEMP_DIR)`, under
+`/var/folders`), which other accounts can't write to. Its socket is 0600. The
+directory name derives from the state directory. The app refuses to use a
+directory that isn't owned by the current user with mode 0700, and the CLI
+checks the same before connecting and sends nothing unless the listener runs as
+the current user. An app lock prevents a second instance from replacing a live
 socket. Messages are one JSON object per line, limited to 64 KiB, with bounded
 socket reads/writes. A minimal status request is `{"action":"status"}`.
 
