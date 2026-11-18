@@ -5,6 +5,18 @@ import Testing
 @testable import DilatedControl
 
 struct SocketTests {
+  /// `LocalSocketClient.send` blocks in recv. Run it on a GCD thread, not a cooperative-pool thread:
+  /// the server's `Task.detached` handler needs a pool thread, and on a small pool blocked clients starve it.
+  private func send(_ request: ControlRequest, to endpoint: SocketEndpoint) async throws
+    -> ControlResponse
+  {
+    try await withCheckedThrowingContinuation { continuation in
+      DispatchQueue.global().async {
+        continuation.resume(with: Result { try LocalSocketClient.send(request, to: endpoint) })
+      }
+    }
+  }
+
   @Test func liveSocketRoundTripAndSingleInstanceLock() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -13,9 +25,7 @@ struct SocketTests {
       ControlResponse(ok: request.action == .status, message: "Live response")
     }
     defer { server.stop() }
-    let response = try await Task.detached {
-      try LocalSocketClient.send(ControlRequest(action: .status), to: endpoint)
-    }.value
+    let response = try await send(ControlRequest(action: .status), to: endpoint)
     #expect(response.ok)
     #expect(response.message == "Live response")
     #expect(throws: (any Error).self) {
@@ -39,9 +49,7 @@ struct SocketTests {
       return ControlResponse(ok: true)
     }
     defer { server.stop() }
-    let response = try await Task.detached {
-      try LocalSocketClient.send(ControlRequest(action: .stopAll), to: endpoint)
-    }.value
+    let response = try await send(ControlRequest(action: .stopAll), to: endpoint)
     #expect(response.ok)
   }
 
@@ -140,9 +148,7 @@ struct SocketTests {
       ControlResponse(ok: true, message: "recovered")
     }
     defer { server.stop() }
-    let response = try await Task.detached {
-      try LocalSocketClient.send(ControlRequest(action: .status), to: endpoint)
-    }.value
+    let response = try await send(ControlRequest(action: .status), to: endpoint)
     #expect(response.message == "recovered")
   }
 
@@ -155,9 +161,7 @@ struct SocketTests {
     #expect(!FileManager.default.fileExists(atPath: endpoint.path))
     let second = try LocalSocketServer(endpoint: endpoint) { _ in ControlResponse(ok: true) }
     defer { second.stop() }
-    let response = try await Task.detached {
-      try LocalSocketClient.send(ControlRequest(action: .status), to: endpoint)
-    }.value
+    let response = try await send(ControlRequest(action: .status), to: endpoint)
     #expect(response.ok)
   }
 }
