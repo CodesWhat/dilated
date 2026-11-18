@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Exercise the packaged app and CLI using disposable state and bounded commands."""
+import ctypes
 import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,6 +14,15 @@ import time
 ROOT = Path(__file__).resolve().parent.parent
 APP = ROOT / "build/Dilated.app/Contents/MacOS/DilatedApp"
 CLI = APP.with_name("dilated")
+
+
+def socket_directories_for(state):
+    """Candidate control-socket directories under the per-user Darwin temp dir (mirrors SocketEndpoint)."""
+    buffer = ctypes.create_string_buffer(1024)
+    ctypes.CDLL(None).confstr(65537, buffer, len(buffer))  # _CS_DARWIN_USER_TEMP_DIR
+    base = Path(buffer.value.decode())
+    digest = hashlib.sha256(str(state).encode()).hexdigest()
+    return [base / f"com.codeswhat.dilated-{digest[:16]}", base / f"dilated-{digest[:12]}", base / f"d-{digest[:8]}"]
 
 
 def eventually(check, seconds=8):
@@ -33,8 +44,7 @@ def main():
         log = (state / "app.log").open("w")
         running = []
         app = None
-        digest = hashlib.sha256(str(state).encode()).hexdigest()[:16]
-        socket_directory = Path(f"/tmp/com.codeswhat.dilated-{os.getuid()}-{digest}")
+        socket_directories = socket_directories_for(state)
 
         def command(*args, expected=0):
             result = subprocess.run([str(CLI), *args], env=environment, capture_output=True, text=True, timeout=10)
@@ -157,9 +167,8 @@ def main():
             for process in reversed(running):
                 stop_app(process)
             log.close()
-            if socket_directory.exists():
-                (socket_directory / "control.sock").unlink(missing_ok=True)
-                socket_directory.rmdir()
+            for socket_directory in socket_directories:
+                shutil.rmtree(socket_directory, ignore_errors=True)
             assert all(process.poll() is not None for process in running), "A QA process survived cleanup"
 
 

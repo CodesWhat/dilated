@@ -4,13 +4,56 @@ import Foundation
 
 public struct SocketEndpoint: Sendable {
   public let stateDirectory: URL
-  public var directory: URL {
-    let digest = SHA256.hash(data: Data(stateDirectory.standardizedFileURL.path.utf8)).prefix(8).map
-    { String(format: "%02x", $0) }.joined()
-    return URL(fileURLWithPath: "/tmp/com.codeswhat.dilated-\(getuid())-\(digest)")
+  /// Parent of the 0700 socket directory. Defaults to the per-user Darwin temp directory, which
+  /// no other account can write to, so the endpoint can't be pre-created by someone else.
+  public let runtimeDirectory: URL
+  static let maxPathBytes = MemoryLayout.size(ofValue: sockaddr_un().sun_path)
+
+  public var directory: URL { Self.layout(state: stateDirectory, base: runtimeDirectory).directory }
+  public var path: String { Self.layout(state: stateDirectory, base: runtimeDirectory).path }
+  public init(stateDirectory: URL, runtimeDirectory: URL? = nil) {
+    self.stateDirectory = stateDirectory
+    self.runtimeDirectory = runtimeDirectory ?? Self.userTemporaryDirectory()
   }
-  public var path: String { directory.appendingPathComponent("control.sock").path }
-  public init(stateDirectory: URL) { self.stateDirectory = stateDirectory }
+
+  /// The longest layout that fits in `sockaddr_un`, falling back to shorter hashed names.
+  private static func layout(state: URL, base: URL) -> (directory: URL, path: String) {
+    let digest = SHA256.hash(data: Data(state.standardizedFileURL.path.utf8)).map {
+      String(format: "%02x", $0)
+    }.joined()
+    let candidates = [
+      ("com.codeswhat.dilated-\(digest.prefix(16))", "control.sock"),
+      ("dilated-\(digest.prefix(12))", "control.sock"),
+      ("d-\(digest.prefix(8))", "c.sock"),
+    ]
+    var fallback: (URL, String)?
+    for (folder, file) in candidates {
+      let directory = base.appendingPathComponent(folder, isDirectory: true)
+      let path = directory.appendingPathComponent(file).path
+      fallback = (directory, path)
+      if path.utf8.count + 1 <= maxPathBytes { return (directory, path) }
+    }
+    return fallback!
+  }
+
+  private static func userTemporaryDirectory() -> URL {
+    var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+    if confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, buffer.count) > 0 {
+      return URL(fileURLWithPath: String(cString: buffer), isDirectory: true)
+    }
+    return URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+  }
+
+  /// The socket directory must be a real directory (not a symlink) owned by `uid` with mode 0700.
+  static func validateDirectory(_ directory: URL, uid: uid_t = getuid()) throws {
+    var facts = stat()
+    guard lstat(directory.path, &facts) == 0, facts.st_uid == uid,
+      (facts.st_mode & S_IFMT) == S_IFDIR, (facts.st_mode & 0o7777) == 0o700
+    else {
+      throw InputError("Control directory must be owned by this user with permissions 0700.")
+    }
+  }
+
   public static var current: SocketEndpoint {
     let configured = ProcessInfo.processInfo.environment["DILATED_STATE_DIR"]
     let directory =
@@ -118,18 +161,14 @@ public final class LocalSocketServer: @unchecked Sendable {
       throw socketError("Create control socket")
     }
     do {
-      try files.createDirectory(
-        at: endpoint.directory, withIntermediateDirectories: false,
-        attributes: [.posixPermissions: 0o700])
-    } catch {
-      var facts = stat()
-      guard lstat(endpoint.directory.path, &facts) == 0, facts.st_uid == getuid(),
-        (facts.st_mode & S_IFMT) == S_IFDIR, (facts.st_mode & 0o777) == 0o700
-      else {
-        close(fd)
-        close(lockFD)
-        throw InputError("Control directory must be owned by this user with permissions 0700.")
+      if mkdir(endpoint.directory.path, 0o700) != 0 && errno != EEXIST {
+        throw socketError("Create control directory")
       }
+      try SocketEndpoint.validateDirectory(endpoint.directory)
+    } catch {
+      close(fd)
+      close(lockFD)
+      throw error
     }
     do {
       var addr = try address(for: endpoint)
@@ -229,6 +268,11 @@ public enum LocalSocketClient {
       receiveSeconds: adminPrompt
         ? Self.adminPromptSeconds
         : helperOperation ? 60 : request.closedLid ? 20 : powerOperation ? 10 : 3)
+    var facts = stat()
+    guard lstat(endpoint.directory.path, &facts) == 0 else {
+      throw AppConnectionUnavailable(text: "Connect to Dilated. Start the app first")
+    }
+    try SocketEndpoint.validateDirectory(endpoint.directory)
     var addr = try address(for: endpoint)
     let result = withUnsafePointer(to: &addr) { pointer in
       pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
@@ -239,7 +283,17 @@ public enum LocalSocketClient {
       throw AppConnectionUnavailable(
         text: socketError("Connect to Dilated. Start the app first").localizedDescription)
     }
+    try requirePeer(fd)
     try writeLine(WireJSON.encode(request), to: fd)
     return try WireJSON.decode(ControlResponse.self, from: readLine(fd))
+  }
+
+  /// Refuses to send anything to a listener that isn't running as this user.
+  static func requirePeer(_ fd: Int32, uid: uid_t = getuid()) throws {
+    var peerUID: uid_t = 0
+    var peerGID: gid_t = 0
+    guard getpeereid(fd, &peerUID, &peerGID) == 0, peerUID == uid else {
+      throw InputError("The control socket isn't owned by this user. Refusing to send.")
+    }
   }
 }
