@@ -1,5 +1,5 @@
-@font-face{font-family:Barlow Condensed;src:url('./assets/fonts/BarlowCondensed-ExtraBoldItalic.ttf') format('truetype');font-weight:800;font-style:italic;font-display:swap}
-@font-face{font-family:Barlow Condensed;src:url('./assets/fonts/BarlowCondensed-Bold.ttf') format('truetype');font-weight:700;font-display:swap}
+@font-face{font-family:Barlow Condensed;src:url('./assets/fonts/BarlowCondensed-ExtraBoldItalic.woff2') format('woff2');font-weight:800;font-style:italic;font-display:swap}
+@font-face{font-family:Barlow Condensed;src:url('./assets/fonts/BarlowCondensed-Bold.woff2') format('woff2');font-weight:700;font-display:swap}
 @font-face{font-family:Fraunces;src:url('./assets/fonts/Fraunces.ttf') format('truetype');font-weight:100 900;font-display:swap}
 @font-face{font-family:Instrument Serif;src:url('./assets/fonts/instrument-serif-latin-400-normal.woff2') format('woff2');font-weight:400;font-display:swap}
 @font-face{font-family:Instrument Serif;src:url('./assets/fonts/instrument-serif-latin-400-italic.woff2') format('woff2');font-weight:400;font-style:italic;font-display:swap}

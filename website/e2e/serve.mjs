@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { brotliCompressSync, gzipSync } from 'node:zlib';
 
 const websiteRoot = fileURLToPath(new URL('..', import.meta.url));
 const distRoot = join(websiteRoot, 'dist');
@@ -28,7 +29,12 @@ const types = {
 
 const server = createServer(async (request, response) => {
   const send = (status, body, type = 'text/plain; charset=utf-8') => {
-    response.writeHead(status, { ...headers, 'Content-Type': type });
+    // Vercel compresses text responses; do the same so local Lighthouse runs measure what production sends.
+    const accepted = String(request.headers['accept-encoding'] ?? '');
+    const compressible = /^(text\/|application\/(json|xml)|image\/svg)/.test(type);
+    const encoding = compressible && /\bbr\b/.test(accepted) ? 'br' : compressible && /\bgzip\b/.test(accepted) ? 'gzip' : null;
+    if (encoding) body = (encoding === 'br' ? brotliCompressSync : gzipSync)(body);
+    response.writeHead(status, { ...headers, 'Content-Type': type, ...(encoding ? { 'Content-Encoding': encoding, Vary: 'Accept-Encoding' } : {}) });
     response.end(request.method === 'HEAD' ? undefined : body);
   };
   try {
