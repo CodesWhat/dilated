@@ -319,3 +319,68 @@ struct ClosedLidHeartbeatTests {
     for _ in 0..<500 where child.isRunning { try await Task.sleep(for: .milliseconds(10)) }
   }
 }
+
+/// pmset applies `disablesleep=1`, then the caller sees an error. The revert can be made to fail.
+private actor AppliedThenFailingPower: ClosedLidPowerControlling {
+  private var disabled = false
+  private var revertWorks: Bool
+  private(set) var calls: [Bool] = []
+
+  init(revertWorks: Bool) { self.revertWorks = revertWorks }
+
+  func setSleepDisabled(_ value: Bool) async throws -> ClosedLidReadback {
+    calls.append(value)
+    if value {
+      disabled = true
+      throw ClosedLidPowerError.readbackMismatch
+    }
+    guard revertWorks else { throw ClosedLidPowerError.commandTimedOut }
+    disabled = false
+    return await readback()
+  }
+  func readback() async -> ClosedLidReadback {
+    ClosedLidReadback(effectiveDisabled: disabled, storedDisabled: disabled)
+  }
+  func sleep() async throws {}
+  func setRevertWorks(_ value: Bool) { revertWorks = value }
+}
+
+struct ClosedLidFailedEnableServiceTests {
+  @Test func anEnableThatAppliedThenFailedRestoresSleepAndClearsTheMarker() async throws {
+    let store = makeStore()
+    let power = AppliedThenFailingPower(revertWorks: true)
+    let guardian = ClosedLidSessionGuard(power: power, store: store)
+    let service = ClosedLidService(
+      power: guardian, environment: safeEnvironment, clock: { 0 }, buildIdentity: "test")
+    await service.start()
+    let reply = await service.handle(enableRequest, owner: UUID())
+    #expect(reply.ok == false)
+    #expect(await power.calls.contains(false))
+    #expect(await power.readback().confirmedDisabled)
+    #expect(store.read() == nil)
+    #expect(await guardian.recovery != .foreignSleepDisabled)
+  }
+
+  @Test func aFailedRevertKeepsOwnershipUntilALaterResetRestoresSleep() async throws {
+    let store = makeStore()
+    let power = AppliedThenFailingPower(revertWorks: true)
+    let guardian = ClosedLidSessionGuard(power: power, store: store)
+    let service = ClosedLidService(
+      power: guardian, environment: safeEnvironment, clock: { 0 }, buildIdentity: "test")
+    await service.start()
+    await power.setRevertWorks(false)
+    let reply = await service.handle(enableRequest, owner: UUID())
+    #expect(reply.ok == false)
+    #expect(await power.readback().confirmedEnabled)
+    #expect(store.read() != nil)
+    await service.tick()
+    #expect(store.read() != nil)
+    #expect(await guardian.recovery != .foreignSleepDisabled)
+
+    await power.setRevertWorks(true)
+    await service.tick()
+    #expect(await power.readback().confirmedDisabled)
+    #expect(store.read() == nil)
+    #expect(await guardian.recovery != .foreignSleepDisabled)
+  }
+}
