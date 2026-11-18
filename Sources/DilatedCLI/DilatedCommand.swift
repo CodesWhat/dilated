@@ -237,13 +237,13 @@ import Foundation
       lowPowerOverride = lowPowerOverride || settings["overrideLowPower"] as? Bool == true
     }
     var local = WakeEngine(power: SystemPower.read(), batteryFloor: floor)
-    let hold = try local.start(
-      source: .runner, label: options.label, duration: 30,
+    // Local-only and indefinite: a sleep or SIGSTOP gap must not expire it while the child runs.
+    _ = try local.start(
+      source: .manual, label: options.label, duration: nil,
       displayAwake: options.displayAwake, lowPowerOverride: lowPowerOverride)
     let assertions = NativeAssertions()
     defer { assertions.releaseAll() }
     var managedID: UUID?
-    var keepingAwake = true
     if let response = try? LocalSocketClient.send(
       ControlRequest(
         action: .runner, label: options.label, duration: 30,
@@ -261,6 +261,14 @@ import Foundation
       if try store.load().automationPaused { throw WakeError.automationPaused }
     }
     try assertions.synchronize(holds: local.holds)
+    let keepAwake = RunKeepAwake(
+      local: local, managedID: managedID, label: options.label,
+      displayAwake: options.displayAwake, lowPowerOverride: lowPowerOverride,
+      assertions: assertions,
+      environment: .init(
+        now: { Date() }, readPower: { SystemPower.read() },
+        send: { try LocalSocketClient.send($0, to: endpoint) },
+        loadSnapshot: { try store.load() }, report: { writeError($0) }))
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
     process.arguments = input.command
@@ -268,7 +276,7 @@ import Foundation
     process.standardOutput = FileHandle.standardOutput
     process.standardError = FileHandle.standardError
     defer {
-      if let managedID {
+      if let managedID = keepAwake.managedID {
         _ = try? LocalSocketClient.send(
           ControlRequest(action: .release, id: managedID), to: endpoint)
       }
@@ -282,46 +290,10 @@ import Foundation
       return source
     }
     defer { for source in signalSources { source.cancel() } }
+    // From here on nothing may throw: the child keeps its own lifetime and exit status.
     while process.isRunning {
-      try await Task.sleep(for: .seconds(1))
-      guard keepingAwake else { continue }
-      local.updatePower(SystemPower.read())
-      if local.holds.isEmpty {
-        assertions.releaseAll()
-        keepingAwake = false
-        continue
-      }
-      do {
-        let response: ControlResponse
-        if let id = managedID {
-          response = try LocalSocketClient.send(
-            ControlRequest(action: .renew, id: id, duration: 30), to: endpoint)
-        } else {
-          response = try LocalSocketClient.send(
-            ControlRequest(
-              action: .runner, label: options.label, duration: 30,
-              displayAwake: options.displayAwake, lowPowerOverride: lowPowerOverride), to: endpoint)
-          if response.ok { managedID = response.id }
-        }
-        if !response.ok {
-          assertions.releaseAll()
-          keepingAwake = false
-          writeError(
-            "Keep-awake ended: \(response.message ?? "hold ended"). The command is still running.")
-          continue
-        }
-      } catch {
-        let snapshot = try store.load()
-        if snapshot.automationPaused
-          || managedID.map({ id in !snapshot.holds.contains { $0.id == id } }) == true
-        {
-          assertions.releaseAll()
-          keepingAwake = false
-          continue
-        }
-      }
-      try local.renew(id: hold.id, duration: 30)
-      try assertions.synchronize(holds: local.holds)
+      try? await Task.sleep(for: .seconds(1))
+      keepAwake.refresh()
     }
     process.waitUntilExit()
     return process.terminationReason == .uncaughtSignal
