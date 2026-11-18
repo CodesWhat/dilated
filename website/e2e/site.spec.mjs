@@ -32,8 +32,19 @@ const test = base.extend({
     page.on('console', message => {
       if (message.type() === 'error') problems.push({ text: `console error: ${message.text()}`, url: message.location().url });
     });
+    // A test that calls open() twice navigates away while the first page's favicon (not load-blocking) is
+    // still in flight, and the browser aborts it. Only an abort after a later navigation is ignored.
+    let navigations = 0;
+    const startedAt = new WeakMap();
+    page.on('request', request => {
+      if (request.isNavigationRequest()) navigations += 1;
+      startedAt.set(request, navigations);
+    });
     page.on('requestfailed', request => {
-      if (request.url().startsWith(origin)) problems.push({ text: `request failed: ${request.url()}`, url: request.url() });
+      if (!request.url().startsWith(origin)) return;
+      const error = request.failure()?.errorText ?? '';
+      if (/NS_BINDING_ABORTED|ERR_ABORTED/.test(error) && navigations > startedAt.get(request)) return;
+      problems.push({ text: `request failed: ${request.url()} (${error})`, url: request.url() });
     });
     page.on('response', response => {
       if (response.url().startsWith(origin) && response.status() >= 400) {
