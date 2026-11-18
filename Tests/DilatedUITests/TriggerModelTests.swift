@@ -37,6 +37,62 @@ import Testing
     #expect(restored.engine.holds.isEmpty)
   }
 
+  @Test func lowPowerModeStopOfATriggerHoldDoesNotSuppressTheRule() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var power = PowerState()
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { power })
+    defer { model.shutdown() }
+    let rule = TriggerRule(name: "AC", criteria: [.power(onBattery: false)])
+    try model.saveTrigger(rule)
+    model.reconcileTriggers(.init())
+    #expect(model.engine.holds.map(\.label) == ["AC"])
+    power.lowPowerMode = true
+    model.refreshPower()
+    #expect(model.engine.holds.isEmpty)
+    power.lowPowerMode = false
+    model.reconcileTriggers(.init())
+    #expect(model.engine.holds.map(\.label) == ["AC"])
+    #expect(model.triggerStatuses[rule.id] == "Keeping awake")
+  }
+
+  @Test func lowPowerModeStopViaReconcileLeavesRuleRestartable() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var power = PowerState()
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { power })
+    defer { model.shutdown() }
+    try model.saveTrigger(TriggerRule(name: "AC", criteria: [.power(onBattery: false)]))
+    model.reconcileTriggers(.init())
+    #expect(model.engine.holds.count == 1)
+    power.lowPowerMode = true
+    model.reconcileTriggers(.init())
+    #expect(model.engine.holds.isEmpty)
+    power.lowPowerMode = false
+    model.reconcileTriggers(.init())
+    #expect(model.engine.holds.map(\.label) == ["AC"])
+  }
+
+  @Test func batteryFloorStopOfATriggerHoldDoesNotSuppressTheRule() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try Data(#"{"batteryFloor":20}"#.utf8).write(
+      to: directory.appendingPathComponent("settings.json"))
+    var power = PowerState(onBattery: true, batteryPercent: 80)
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { power })
+    defer { model.shutdown() }
+    try model.saveTrigger(TriggerRule(name: "Battery", criteria: [.power(onBattery: true)]))
+    model.reconcileTriggers(.init())
+    #expect(model.engine.holds.map(\.label) == ["Battery"])
+    power.batteryPercent = 10
+    model.refreshPower()
+    #expect(model.engine.holds.isEmpty)
+    power.batteryPercent = 80
+    model.reconcileTriggers(.init())
+    #expect(model.engine.holds.map(\.label) == ["Battery"])
+  }
+
   @Test func audioOutputRulePersistsAndOnlyEndsItsOwnReason() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }

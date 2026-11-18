@@ -164,7 +164,7 @@ public struct WakeEngine: Sendable {
         record = UserReturnRestoration(holds: merged, wasPaused: existing.wasPaused)
       } else {
         record =
-          captured.isEmpty
+          captured.isEmpty && automationPaused
           ? nil : UserReturnRestoration(holds: captured, wasPaused: automationPaused)
       }
     }
@@ -227,7 +227,8 @@ public struct WakeEngine: Sendable {
     }
     holds.removeAll { $0.expiry.map { $0 <= now } ?? false }
   }
-  public mutating func updatePower(_ power: PowerState, now: Date = Date()) {
+  @discardableResult
+  public mutating func updatePower(_ power: PowerState, now: Date = Date()) -> Set<UUID> {
     self.power = power
     tick(now: now)
     let before = holds.count
@@ -239,15 +240,19 @@ public struct WakeEngine: Sendable {
         recordHistory(hold: hold, at: now, reason: .lowPowerMode)
       }
     }
-    holds.removeAll { hold in
-      (power.lowPowerMode && !hold.lowPowerOverride) || (lowBattery && hold.batteryOverride != true)
-    }
+    let unsafe = Set(
+      holds.filter { hold in
+        (power.lowPowerMode && !hold.lowPowerOverride)
+          || (lowBattery && hold.batteryOverride != true)
+      }.map(\.id))
+    holds.removeAll { unsafe.contains($0.id) }
     if holds.count != before {
       attention =
         batteryBlocked
         ? "Stopped: battery \(power.batteryPercent ?? 0)%."
         : WakeError.lowPowerMode.localizedDescription
     }
+    return unsafe
   }
   public mutating func renew(id: UUID, duration: TimeInterval, now: Date = Date()) throws {
     tick(now: now)
