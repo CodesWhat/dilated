@@ -19,10 +19,16 @@ import Foundation
   }
 
   public var onDisconnect: (() -> Void)?
+  /// Receives the service's state while it recovers on its own, so a UI that asked nothing still
+  /// sees a failed restoration clear.
+  public var onSnapshot: ((HelperState) -> Void)?
   private let service: ClosedLidService
   private let owner = UUID()
   private var ticker: TickLoop?
-  private let makeTicker: () -> TickLoop
+  private let tickInterval: Duration
+  private let tickSleep: @Sendable (Duration) async throws -> Void
+  private let wake = TickWake()
+  private let seen = SeenState()
   private let backoff: RetryBackoff
   private let sessionGuard: ClosedLidSessionGuard?
 
@@ -52,23 +58,33 @@ import Foundation
     self.service = service
     self.backoff = backoff
     self.sessionGuard = sessionGuard
-    makeTicker = {
-      TickLoop(service: service, interval: tickInterval, backoff: backoff, sleep: sleep)
-    }
+    self.tickInterval = tickInterval
+    tickSleep = sleep
     if autostart { startTicking() }
   }
 
-  /// Starts the service and its 1s tick, which also reverts a dead session's sleep-disable.
+  /// Starts the service, which reverts a dead session's sleep-disable. The 1s tick it starts
+  /// sleeps whenever there's no lease and nothing of ours to restore, and wakes on a request.
   /// Idempotent. The app calls it at launch; a request starts it too.
   public func startTicking() {
-    if ticker == nil { ticker = makeTicker() }
+    guard ticker == nil else { return }
+    ticker = TickLoop(
+      service: service, interval: tickInterval, backoff: backoff, sleep: tickSleep, wake: wake,
+      seen: seen
+    ) { [weak self] state in
+      await MainActor.run { self?.onSnapshot?(state) }
+    }
   }
 
   public func send(_ request: HelperRequest) async throws -> HelperReply {
     startTicking()
     backoff.reset()
+    wake.signal()
     await service.start()
-    return await service.handle(request, owner: owner)
+    let reply = await service.handle(request, owner: owner)
+    seen.record(reply.state)
+    wake.signal()
+    return reply
   }
 
   /// What the launch-time check found. Slice 4's UI reads this to show a failed revert or a
@@ -79,13 +95,19 @@ import Foundation
 
   /// Tells the session guard that sleep was restored by hand. False when macOS doesn't confirm it.
   public func acknowledgeRestore() async -> Bool {
-    await sessionGuard?.acknowledgeManualRestore() ?? false
+    let restored = await sessionGuard?.acknowledgeManualRestore() ?? false
+    wake.signal()
+    return restored
   }
 
   public func invalidate() {
     let service = service
     let owner = owner
-    Task { await service.disconnected(owner: owner) }
+    let wake = wake
+    Task {
+      await service.disconnected(owner: owner)
+      wake.signal()
+    }
   }
 }
 
@@ -113,20 +135,79 @@ public final class RetryBackoff: @unchecked Sendable {
   public func reset() { lock.withLock { current = nil } }
 }
 
+/// Wakes a sleeping `TickLoop`. A signal sent while the loop is awake is kept until its next wait.
+final class TickWake: Sendable {
+  fileprivate let stream: AsyncStream<Void>
+  private let continuation: AsyncStream<Void>.Continuation
+
+  init() {
+    (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+  }
+
+  func signal() { continuation.yield(()) }
+  func finish() { continuation.finish() }
+}
+
+/// The last service state the controller is known to hold, from a reply or a push.
+final class SeenState: @unchecked Sendable {
+  private let lock = NSLock()
+  private var last: HelperState?
+
+  func record(_ state: HelperState?) { lock.withLock { last = state } }
+
+  /// Whether `state` is worth pushing: it differs from what the controller holds (leaving out the
+  /// readings that change every second) and either side was a failed restore or a foreign disable.
+  func shouldPush(_ state: HelperState) -> Bool {
+    lock.withLock {
+      guard let last else { return state.phase == .failed || state.foreignSleepDisabled }
+      var a = last
+      let b = state
+      a.environment = b.environment
+      a.leaseRemainingSeconds = b.leaseRemainingSeconds
+      guard a != b else { return false }
+      return Self.needsAttention(last) || Self.needsAttention(state)
+    }
+  }
+
+  private static func needsAttention(_ state: HelperState) -> Bool {
+    state.phase == .failed || state.foreignSleepDisabled
+  }
+}
+
 private final class TickLoop: Sendable {
   private let task: Task<Void, Never>
+  private let wake: TickWake
 
   init(
     service: ClosedLidService, interval: Duration, backoff: RetryBackoff,
-    sleep: @escaping @Sendable (Duration) async throws -> Void
+    sleep: @escaping @Sendable (Duration) async throws -> Void, wake: TickWake,
+    seen: SeenState, deliver: @escaping @Sendable (HelperState) async -> Void
   ) {
+    self.wake = wake
     task = Task.detached {
       await service.start()
+      var waiting = wake.stream.makeAsyncIterator()
       var delay = interval
+      // Pushes the service's state to the controller when it changed on its own during recovery.
+      func publish() async {
+        guard await !service.holdsLease else { return }
+        let state = await service.snapshot()
+        guard seen.shouldPush(state) else { return }
+        seen.record(state)
+        await deliver(state)
+      }
       while !Task.isCancelled {
+        await publish()
+        // With no lease and nothing of ours to restore there's nothing to tick for.
+        guard await service.needsTicks else {
+          backoff.reset()
+          delay = interval
+          guard await waiting.next() != nil else { break }
+          continue
+        }
         do { try await sleep(delay) } catch { break }
         await service.tick()
-        if await service.isRetryingForPermission {
+        if await service.isRecovering {
           delay = backoff.next()
         } else {
           backoff.reset()
@@ -136,7 +217,10 @@ private final class TickLoop: Sendable {
     }
   }
 
-  deinit { task.cancel() }
+  deinit {
+    task.cancel()
+    wake.finish()
+  }
 }
 
 extension ClosedLidController {

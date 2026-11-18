@@ -19,6 +19,10 @@ import Observation
   var localTransport: LocalClosedLidTransport? { transport as? LocalClosedLidTransport }
   public var active: Bool { leaseID != nil && state?.enabled == true }
   public var hasLease: Bool { leaseID != nil }
+  /// Sleep is still disabled and it's ours to restore. Sleep another app disabled doesn't count.
+  public var restorationPending: Bool {
+    state.map { !$0.readback.confirmedDisabled && !$0.foreignSleepDisabled } == true
+  }
 
   /// Starts the in-process service at launch so a dead session's sleep-disable is reverted
   /// without waiting for the first closed-lid request.
@@ -31,6 +35,9 @@ import Observation
     self.transport = transport
     self.expectedBuild = expectedBuild
     transport.onDisconnect = { [weak self] in self?.lostConnection() }
+    (transport as? LocalClosedLidTransport)?.onSnapshot = { [weak self] value in
+      self?.observeSnapshot(value)
+    }
   }
 
   public func refresh() async throws {
@@ -129,7 +136,14 @@ import Observation
     do {
       let result = try await send(
         .init(action: sleep ? .sleep : .disable, leaseID: id), checkBuild: false)
-      guard result.readback.confirmedDisabled, result.leaseID == nil, result.phase == .off else {
+      // With no lease of ours, sleep another app disabled is acknowledged, not a failed restore.
+      let leftForeign =
+        !sleep && id == nil && result.foreignSleepDisabled && result.leaseID == nil
+        && result.phase == .off
+      guard
+        leftForeign
+          || (result.readback.confirmedDisabled && result.leaseID == nil && result.phase == .off)
+      else {
         throw HelperClientError.rejected(
           result.message ?? "macOS hasn't confirmed closed-lid is off.")
       }
@@ -160,6 +174,16 @@ import Observation
       throw HelperClientError.helperUpdate
     }
     return value
+  }
+
+  /// A state the service pushed while recovering. Applied only when nothing here is in flight, so
+  /// a late push can't end a lease or overwrite an answer the controller is waiting on.
+  private func observeSnapshot(_ value: HelperState) {
+    guard leaseID == nil, !busy, value.protocolVersion == HelperIdentity.protocolVersion else {
+      return
+    }
+    state = value
+    onChange?()
   }
 
   private func observe(_ value: HelperState) {

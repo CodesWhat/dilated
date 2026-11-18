@@ -420,7 +420,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     {
       return .closedLid
     }
-    if closedLid.state.map({ !$0.readback.confirmedDisabled }) == true { return .recovering }
+    if closedLid.restorationPending { return .recovering }
     return .idle
   }
   public func startDefault() {
@@ -630,9 +630,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public func synchronizeClosedLid() async throws {
     queueClosedLidReset()
     try await lidChange?.value
-    if !engine.desiredState.closedLid,
-      closedLid.state.map({ !$0.readback.confirmedDisabled }) == true
-    {
+    if !engine.desiredState.closedLid, closedLid.restorationPending {
       try await closedLid.disable()
     }
   }
@@ -739,9 +737,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   /// Sleep must not be left disabled across a quit, update or removal. Reverts through the sudo
   /// path whenever a session is active or the last reading wasn't normal sleep.
   private func ensureClosedLidOff() async throws {
-    if closedLid.hasLease || closedLid.pendingEnable
-      || closedLid.state.map({ !$0.readback.confirmedDisabled }) == true
-    {
+    if closedLid.hasLease || closedLid.pendingEnable || closedLid.restorationPending {
       try await closedLid.disable()
     }
   }

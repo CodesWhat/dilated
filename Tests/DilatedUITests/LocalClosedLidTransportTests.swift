@@ -75,7 +75,133 @@ import Testing
     #expect(backoffSteps.allSatisfy { $0 <= 30 })
     await fixture.runner.allow()
     await waitUntil { await fixture.runner.readback().confirmedDisabled }
-    await waitUntil { sleeps.values.last == .milliseconds(20) }
+    // Recovered with no lease, so the loop goes to sleep instead of ticking on.
+    try await Task.sleep(for: .milliseconds(100))
+    let settled = sleeps.values.count
+    try await Task.sleep(for: .milliseconds(150))
+    #expect(sleeps.values.count == settled)
+  }
+
+  @Test func aLaunchWithNoPermissionNeverRunsTheCommand() async throws {
+    let runner = FakeSudoRunner()
+    await runner.deny()
+    let fixture = GuardedFixture(runner: runner, tickInterval: .milliseconds(5))
+    defer { fixture.controller.invalidate() }
+    try await Task.sleep(for: .milliseconds(150))
+    try await fixture.controller.refresh()
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(await runner.calls.isEmpty)
+    #expect(!fixture.controller.restorationPending)
+  }
+
+  @Test func aLaunchWithTheScriptMissingNeverRunsIt() async throws {
+    let launcher = CountingLauncher()
+    let runner = UserScriptPowerRunner(launcher: launcher)
+    let readback = FakeSudoRunner()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "lid-guard-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let session = ClosedLidSessionGuard(
+      power: SerialPowerDriver(runner: runner, readback: { await readback.readback() }),
+      store: ClosedLidMarkerStore(directory: directory))
+    let transport = LocalClosedLidTransport(
+      sessionGuard: session, power: session, tickInterval: .milliseconds(5))
+    let controller = ClosedLidController(
+      transport: transport, expectedBuild: { LocalClosedLidTransport.buildIdentity })
+    defer { controller.invalidate() }
+    try await Task.sleep(for: .milliseconds(150))
+    try await controller.refresh()
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(launcher.count == 0)
+  }
+
+  @Test func theTickSleepsWithNoLeaseAndWakesOnRequests() async throws {
+    let reads = EnvironmentReads()
+    let sleeps = SleepLog()
+    let fixture = await LocalFixture(sleeps: sleeps, reads: reads)
+    let controller = fixture.controller()
+    defer { controller.invalidate() }
+    try await Task.sleep(for: .milliseconds(100))
+    let idleReads = reads.count
+    let idleSleeps = sleeps.values.count
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(reads.count == idleReads)
+    #expect(sleeps.values.count == idleSleeps)
+    try await controller.enable(policy: .init())
+    await waitUntil { reads.count > idleReads + 4 }
+    try await controller.disable()
+    try await Task.sleep(for: .milliseconds(100))
+    let stopped = reads.count
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(reads.count == stopped)
+  }
+
+  @Test func anExpiredLeaseIsRevertedByTheTickAndThenTheTickSleeps() async throws {
+    let reads = EnvironmentReads()
+    let fixture = await LocalFixture(reads: reads)
+    let controller = fixture.controller()
+    defer { controller.invalidate() }
+    try await controller.enable(policy: .init())
+    fixture.clock.advance(by: ClosedLidGovernor.leaseSeconds + 1)
+    await waitUntil { await fixture.runner.readback().confirmedDisabled }
+    try await Task.sleep(for: .milliseconds(100))
+    let settled = reads.count
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(reads.count == settled)
+  }
+
+  @Test func quitIsNotBlockedBySleepAnotherAppDisabled() async throws {
+    let runner = FakeSudoRunner()
+    let fixture = GuardedFixture(runner: runner, tickInterval: .milliseconds(5))
+    let model = AppModel(
+      endpoint: .init(stateDirectory: fixture.directory), power: { .init() },
+      closedLid: fixture.controller)
+    defer { model.shutdown() }
+    try await Task.sleep(for: .milliseconds(50))
+    await runner.setValue(.init(effectiveDisabled: true, storedDisabled: true))
+    try await fixture.controller.refresh()
+    #expect(fixture.controller.restorationPending)
+    #expect(model.updateActivity == .recovering)
+    #expect(await model.prepareToQuit())
+    #expect(fixture.controller.state?.foreignSleepDisabled == true)
+    #expect(await runner.calls.isEmpty)
+    #expect(await runner.readback().confirmedEnabled)
+  }
+
+  @Test func aForeignDisableAtLaunchIsPushedAndDoesNotBlockUpdates() async throws {
+    let runner = FakeSudoRunner()
+    await runner.setValue(.init(effectiveDisabled: true, storedDisabled: true))
+    let fixture = GuardedFixture(runner: runner, tickInterval: .milliseconds(5))
+    let model = AppModel(
+      endpoint: .init(stateDirectory: fixture.directory), power: { .init() },
+      closedLid: fixture.controller)
+    defer { model.shutdown() }
+    await waitUntil {
+      await MainActor.run { fixture.controller.state?.foreignSleepDisabled == true }
+    }
+    #expect(model.updateActivity == .idle)
+    #expect(await runner.calls.isEmpty)
+  }
+
+  @Test func aTransientFailedRestoreClearsItsStaleStateWithoutAnyRequest() async throws {
+    let runner = FakeSudoRunner()
+    let fixture = GuardedFixture(
+      runner: runner, tickInterval: .milliseconds(5),
+      backoff: RetryBackoff(initial: .milliseconds(5), cap: .milliseconds(20)))
+    let model = AppModel(
+      endpoint: .init(stateDirectory: fixture.directory), power: { .init() },
+      closedLid: fixture.controller)
+    defer { model.shutdown() }
+    try await fixture.controller.enable(policy: .init())
+    await runner.deny()
+    await #expect(throws: (any Error).self) { try await fixture.controller.disable() }
+    #expect(fixture.controller.restorationPending)
+    #expect(model.updateActivity == .recovering)
+    #expect(await model.prepareToQuit() == false)
+    await runner.allow()
+    await waitUntil { await MainActor.run { !fixture.controller.restorationPending } }
+    #expect(model.updateActivity == .idle)
+    #expect(await model.prepareToQuit())
   }
 
   @Test func backoffDoublesToTheCapAndResetsOnRequest() {
@@ -130,13 +256,16 @@ private final class SleepLog: @unchecked Sendable {
   let inputs = LocalInputs()
   let clock = LocalClock()
   let transport: LocalClosedLidTransport
-  init(sleeps: SleepLog? = nil) async {
+  init(sleeps: SleepLog? = nil, reads: EnvironmentReads? = nil) async {
     let runner = runner
     let inputs = inputs
     let clock = clock
     transport = LocalClosedLidTransport(
       power: SerialPowerDriver(runner: runner, readback: { await runner.readback() }),
-      environment: { inputs.read() }, clock: { clock.now() }, tickInterval: .milliseconds(20),
+      environment: {
+        reads?.bump()
+        return inputs.read()
+      }, clock: { clock.now() }, tickInterval: .milliseconds(20),
       sleep: { duration in
         guard let sleeps else { return try await Task.sleep(for: duration) }
         sleeps.record(duration)
@@ -148,6 +277,39 @@ private final class SleepLog: @unchecked Sendable {
   func controller() -> ClosedLidController {
     ClosedLidController(
       transport: transport, expectedBuild: { LocalClosedLidTransport.buildIdentity })
+  }
+}
+
+final class EnvironmentReads: @unchecked Sendable {
+  private let lock = NSLock()
+  private var reads = 0
+  var count: Int { lock.withLock { reads } }
+  func bump() { lock.withLock { reads += 1 } }
+}
+
+private final class CountingLauncher: UserScriptLaunching, @unchecked Sendable {
+  private let lock = NSLock()
+  private var runs = 0
+  var count: Int { lock.withLock { runs } }
+  func run(arguments: [String]) async -> UserScriptRun {
+    lock.withLock { runs += 1 }
+    return .missing
+  }
+}
+
+/// The real session guard over a fake runner, behind the local transport.
+@MainActor private struct GuardedFixture {
+  let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+    "lid-guarded-\(UUID().uuidString)")
+  let controller: ClosedLidController
+  init(runner: FakeSudoRunner, tickInterval: Duration, backoff: RetryBackoff = RetryBackoff()) {
+    let session = ClosedLidSessionGuard(
+      power: SerialPowerDriver(runner: runner, readback: { await runner.readback() }),
+      store: ClosedLidMarkerStore(directory: directory))
+    controller = ClosedLidController(
+      transport: LocalClosedLidTransport(
+        sessionGuard: session, power: session, tickInterval: tickInterval, backoff: backoff),
+      expectedBuild: { LocalClosedLidTransport.buildIdentity })
   }
 }
 
@@ -170,6 +332,7 @@ private actor FakeSudoRunner: PowerCommandRunning {
   func readback() -> ClosedLidReadback { value }
   func deny() { denied = true }
   func allow() { denied = false }
+  func setValue(_ readback: ClosedLidReadback) { value = readback }
 }
 
 private final class LocalClock: @unchecked Sendable {

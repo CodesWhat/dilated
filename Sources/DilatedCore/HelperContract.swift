@@ -42,6 +42,9 @@ public struct HelperState: Codable, Equatable, Sendable {
   public var environment: ClosedLidEnvironment
   public var stopReason: ClosedLidStopReason?
   public var message: String?
+  /// Sleep is disabled by something other than Dilated, which left it alone. Not an unresolved
+  /// restoration of ours.
+  public var foreignSleepDisabled = false
 }
 public struct HelperReply: Codable, Sendable {
   public var ok: Bool
