@@ -39,7 +39,7 @@ jobs:
           else
             range="$PUSH_BEFORE..$PUSH_SHA"
           fi
-          if ! files=$(git diff --name-only "$range"); then
+          if ! files=$(git diff --no-renames --name-only "$range"); then
             echo "macos=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           macos=false
