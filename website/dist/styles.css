@@ -99,7 +99,7 @@ footer p a{display:inline-block;padding-block:12px;margin-block:-12px}
 .legal ul{padding-left:22px;margin:0 0 20px}
 .legal li{margin-bottom:12px}
 .legal a{text-decoration:underline;text-underline-offset:3px}
-.legal code{font:13px var(--mono)}
+.legal code{font:13px var(--mono);overflow-wrap:anywhere}
 .legal pre{overflow-x:auto;border:1px solid var(--line);background:var(--panel);padding:16px 18px;margin:0 0 20px}
 .legal pre code{font-size:12px;line-height:1.8}
 .legal .legal-date{margin-top:48px;color:var(--muted)}
