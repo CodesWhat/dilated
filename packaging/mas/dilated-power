@@ -18,9 +18,11 @@
 #   live | dead | stale | reverted   (check) what `repair` would see; nothing is changed
 #   busy      1   (on) the lock stayed taken for about a second; any word but ok is a refusal to build 18
 #   begin-removal (companion only) takes the lock, writes the removal marker and, only when a session
-#                 file exists, turns sleep back on (ok; none when nothing was ours). The session stays.
-#   finish-removal (companion only) deletes the session and tombstone once the companion has seen
-#                 sleep read back normal.
+#                 file exists, latches "restore pending" and turns sleep back on (ok; none when
+#                 nothing was ours). The session stays. The latch survives off and repair, so a
+#                 retry after they deleted the session still answers ok and needs the readback.
+#   finish-removal (companion only) deletes the session, tombstone and latch once the companion has
+#                 seen sleep read back normal.
 #                 While the marker exists `on` and `probe` answer noagent; off and repair still work.
 #                 The marker outlives a removal; installing the companion again clears it once the
 #                 agent is loaded.
@@ -60,6 +62,7 @@ esac
 test_sudo=""
 test_wake=""
 test_launchctl=""
+test_clock=""
 self=${BASH_SOURCE[0]}
 case "$self" in
   */*) self_dir=${self%/*} ;;
@@ -72,6 +75,7 @@ if self_dir=$(cd "$self_dir" 2>/dev/null && pwd -P); then
         test_sudo=${DILATED_POWER_TEST_SUDO:-}
         test_wake=${DILATED_POWER_TEST_WAKE:-}
         test_launchctl=${DILATED_POWER_TEST_LAUNCHCTL:-}
+        test_clock=${DILATED_POWER_TEST_CLOCK:-}
       fi
       ;;
   esac
@@ -117,6 +121,10 @@ tombstone_file="$session_dir/tombstone"
 lock_dir="$session_dir/lock.d"
 # Written by begin-removal and cleared only by the companion's install. It outlives the script.
 removal_file="$session_dir/removal"
+# Written by begin-removal, under the lock and before pmset, when the session is ours. Unlike the
+# removal marker it means sleep was ours to restore and the readback hasn't passed yet. Only
+# finish-removal clears it, so off and repair deleting the session can't skip the readback.
+restore_pending_file="$session_dir/restore-pending"
 agent_label="com.codeswhat.dilated.closed-lid-repair"
 
 # True when the repair LaunchAgent is loaded in this user's GUI domain. Without it nothing can
@@ -167,13 +175,23 @@ trap release_lock EXIT
 # Serializes the app's verbs and the agent's repair. A lock older than a minute is a crashed holder's.
 # Waits up to $1 tenths of a second (default 5 seconds). $2, when given, also caps the wait in whole
 # wall-clock seconds: each retry spawns processes, so under load the tries alone can run long.
+# Whole seconds for the lock's wall-clock cap. The test hook scripts the clock, so a late
+# acquisition can be tested without depending on how slow the machine is.
+clock() {
+  if [ -n "$test_clock" ]; then
+    "$test_clock"
+    return
+  fi
+  /bin/date +%s
+}
+
 take_lock() {
   local tries=0 modified now max=${1:-50} limit=${2:-} started
   ensure_dir || return 1
-  started=$(/bin/date +%s)
+  started=$(clock)
   while ! (umask 077 && /bin/mkdir "$lock_dir" 2>/dev/null); do
     modified=$(/usr/bin/stat -f %m "$lock_dir" 2>/dev/null || echo 0)
-    now=$(/bin/date +%s)
+    now=$(clock)
     if [ -n "$limit" ] && [ $((now - started)) -ge "$limit" ]; then
       return 1
     fi
@@ -186,6 +204,12 @@ take_lock() {
     /bin/sleep 0.1
   done
   have_lock=1
+  # A late acquisition doesn't get past the cap either: the caller has stopped waiting, and the
+  # work that follows could outlive the app's timeout.
+  if [ -n "$limit" ] && [ $(($(clock) - started)) -ge "$limit" ]; then
+    release_lock
+    return 1
+  fi
 }
 
 # Start time of a live pid, empty when it's gone. The locale is pinned: lstart is localized, and
@@ -318,12 +342,19 @@ case "$verb" in
       echo failed
       exit 1
     }
-    # Sleep is restored only when this script owns it, which means a session file and nothing
-    # else: a tombstone is a finished revert, and anything left disabled after it is another
-    # app's. The session stays on disk until finish-removal, so a retry after a failed readback
-    # still answers ok. Until then the repair agent may revert it too, which is fine.
+    # Sleep is restored only when this script owns it, which means a session file or the restore
+    # latch and nothing else: a plain marker or a tombstone is a finished revert, and anything left
+    # disabled after it is another app's. The latch goes down before pmset, so `off` or `repair`
+    # deleting the session afterwards can't hide that the readback is still owed. With only the
+    # latch left, whichever deleted the session already ran pmset 0, so it isn't run again.
     if [ -f "$session_file" ]; then
+      write_atomic "$restore_pending_file" "pending" || {
+        echo failed
+        exit 1
+      }
       run_pmset 0
+      echo ok
+    elif [ -f "$restore_pending_file" ]; then
       echo ok
     else
       echo none
@@ -335,7 +366,7 @@ case "$verb" in
       echo failed
       exit 1
     }
-    /bin/rm -f "$session_file" "$tombstone_file"
+    /bin/rm -f "$session_file" "$tombstone_file" "$restore_pending_file"
     echo ok
     exit 0
     ;;

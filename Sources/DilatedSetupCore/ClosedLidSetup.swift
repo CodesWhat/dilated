@@ -114,10 +114,28 @@ public struct ClosedLidSetup: Sendable {
     // would answer with usage.
     // Only sleep this setup turned off (a session file on disk; a tombstone is a finished revert)
     // has to read back normal. Another app's disablesleep is left alone and never blocks removal.
-    var ownedSleep = files.exists(paths.sessionFile)
-    var scriptPresent = false
-    if let installed = files.read(paths.scriptPath) {
-      scriptPresent = true
+    var ownedSleep = files.exists(paths.sessionFile) || files.exists(paths.restorePendingFile)
+    var installed = files.read(paths.scriptPath)
+    if installed == nil, ownedSleep {
+      // An owned session with no script: the agent has nothing to run and begin-removal can't
+      // answer. Put the bundled script back (only if it checks out), then take the normal staged
+      // path. Nothing is deleted when the bundled bytes are bad or the write fails.
+      guard Self.sha256(assets.script) == assets.expectedScriptSHA256 else {
+        return .failed(
+          "The dilated-power script is missing and the bundled copy doesn't match its expected checksum, so the repair agent was kept."
+        )
+      }
+      do {
+        try files.writeAtomically(
+          assets.script, to: paths.scriptPath, mode: 0o755, directoryMode: 0o755)
+      } catch {
+        return .failed(
+          "Couldn't restore the dilated-power script, so the repair agent was kept: \(error.localizedDescription)"
+        )
+      }
+      installed = assets.script
+    }
+    if let installed {
       if Self.sha256(installed) != assets.expectedScriptSHA256,
         Self.sha256(assets.script) == assets.expectedScriptSHA256
       {
@@ -133,19 +151,14 @@ public struct ClosedLidSetup: Sendable {
           "Closed-lid mode couldn't be turned off: \(error.localizedDescription)")
       }
     }
-    // The recovery assets stay until macOS itself says sleep is back to normal. With the script
-    // gone nothing can put it back, so a session left behind keeps the agent and its plist.
+    // The recovery assets stay until macOS itself says sleep is back to normal.
     if ownedSleep {
       guard await power.confirmsNormalSleep() else {
         return .failed("macOS hasn't confirmed normal sleep, so the repair agent was kept.")
       }
       // The session record goes only now, so a retry after a failed readback is still ours.
-      if scriptPresent {
-        do { try await power.finishRemoval(scriptPath: paths.scriptPath) } catch {
-          return .failed("Couldn't clear the closed-lid session: \(error.localizedDescription)")
-        }
-      } else {
-        try? files.remove(paths.sessionFile)
+      do { try await power.finishRemoval(scriptPath: paths.scriptPath) } catch {
+        return .failed("Couldn't clear the closed-lid session: \(error.localizedDescription)")
       }
     }
 
