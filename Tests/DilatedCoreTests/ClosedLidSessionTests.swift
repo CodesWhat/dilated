@@ -224,6 +224,29 @@ struct ClosedLidSessionTests {
     #expect(await guardian.recovery == .clean)
   }
 
+  @Test func aCleanMacNeedsNoPowerCommandToRestoreSleep() async throws {
+    let store = makeStore()
+    let power = RecordingPower(store: store, state: enabledState)
+    let guardian = ClosedLidSessionGuard(power: power, store: store)
+    // A failing runner would throw if the guard ran the command at all.
+    await power.fail(true)
+    for _ in 0..<5 {
+      let observed = try await guardian.setSleepDisabled(false)
+      #expect(observed.confirmedDisabled)
+    }
+    #expect(await power.calls.isEmpty)
+    #expect(await guardian.recovery == .clean)
+  }
+
+  @Test func anOwnedSessionStillRunsTheRestoreCommand() async throws {
+    let store = makeStore()
+    let power = RecordingPower(store: store)
+    let guardian = ClosedLidSessionGuard(power: power, store: store)
+    _ = try await guardian.setSleepDisabled(true)
+    _ = try await guardian.setSleepDisabled(false)
+    #expect(await power.calls == ["disable marker=true", "enable marker=true"])
+  }
+
   @Test func aFailedRelaunchRevertKeepsTheMarkerAndFailsClosed() async throws {
     let store = makeStore()
     let marker = staleMarker()
@@ -294,5 +317,65 @@ struct ClosedLidSessionTests {
       ClosedLidWatchdogCommand.parse(ClosedLidWatchdogCommand.arguments(for: launch)) == launch)
     #expect(ClosedLidWatchdogCommand.parse(["status"]) == nil)
     #expect(ClosedLidWatchdogCommand.parse([ClosedLidWatchdogCommand.name, "--pid", "1"]) == nil)
+  }
+}
+
+/// pmset applies `disablesleep=1`, then the caller sees an error.
+private actor AppliedThenFailingPower: ClosedLidPowerControlling {
+  private(set) var calls: [Bool] = []
+  private(set) var state = enabledState
+  private let revertWorks: Bool
+
+  init(revertWorks: Bool) { self.revertWorks = revertWorks }
+
+  func setSleepDisabled(_ disabled: Bool) async throws -> ClosedLidReadback {
+    calls.append(disabled)
+    if disabled {
+      state = disabledState
+      throw ClosedLidPowerError.readbackMismatch
+    }
+    guard revertWorks else { throw ClosedLidPowerError.commandTimedOut }
+    state = enabledState
+    return state
+  }
+  func readback() async -> ClosedLidReadback { state }
+  func sleep() async throws {}
+}
+
+struct ClosedLidFailedEnableTests {
+  @Test func anEnableThatTookEffectButWasNotConfirmedIsStillReverted() async throws {
+    let store = makeStore()
+    let power = AppliedThenFailingPower(revertWorks: true)
+    let guardian = ClosedLidSessionGuard(power: power, store: store)
+    await #expect(throws: (any Error).self) {
+      try await guardian.setSleepDisabled(true)
+    }
+    #expect(await power.calls == [true, false])
+    #expect(await power.state.confirmedDisabled)
+    #expect(store.read() == nil)
+  }
+
+  @Test func aFailedRevertAfterAFailedEnableKeepsTheMarker() async throws {
+    let store = makeStore()
+    let power = AppliedThenFailingPower(revertWorks: false)
+    let guardian = ClosedLidSessionGuard(power: power, store: store)
+    await #expect(throws: (any Error).self) {
+      try await guardian.setSleepDisabled(true)
+    }
+    #expect(store.read() != nil)
+    // The retained session makes a later disable take the owned path, not the foreign one.
+    await #expect(throws: (any Error).self) { try await guardian.setSleepDisabled(false) }
+    #expect(await power.calls == [true, false, false])
+    #expect(await guardian.recovery != .foreignSleepDisabled)
+  }
+
+  @Test func aForeignDisableWithNoMarkerIsStillLeftAlone() async throws {
+    let store = makeStore()
+    let power = RecordingPower(store: store, state: disabledState)
+    let guardian = ClosedLidSessionGuard(power: power, store: store)
+    let observed = try await guardian.setSleepDisabled(false)
+    #expect(observed.confirmedEnabled)
+    #expect(await guardian.recovery == .foreignSleepDisabled)
+    #expect(await power.calls.isEmpty)
   }
 }

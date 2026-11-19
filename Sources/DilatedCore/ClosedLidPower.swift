@@ -25,6 +25,12 @@ public protocol ClosedLidPowerControlling: Sendable {
   func setSleepDisabled(_ disabled: Bool) async throws -> ClosedLidReadback
   func readback() async -> ClosedLidReadback
   func sleep() async throws
+  /// True when sleep is disabled by something this process didn't start, so the last
+  /// `setSleepDisabled(false)` left it alone. Drivers with no ownership record never say so.
+  func foreignSleepDisabled() async -> Bool
+}
+extension ClosedLidPowerControlling {
+  public func foreignSleepDisabled() async -> Bool { false }
 }
 public enum ClosedLidPowerError: Error, Sendable, LocalizedError {
   case requiresRoot, commandTimedOut, permissionUnavailable

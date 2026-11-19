@@ -4,14 +4,28 @@
 # them when the app is gone. The Mac App Store build can't spawn sudo, so it runs this script from
 # ~/Library/Application Scripts/<bundle id>/ through NSUserUnixTask.
 #
-# Usage: dilated-power on <pid> | beat | off | check | repair | probe
+# Usage: dilated-power on <pid> | beat | off | check | repair | probe | begin-removal | finish-removal
 # Output: one word on stdout, then the exit status.
 #   ok        0   the command ran (or, for probe, sudo allows both commands)
 #   reverted  4   (on) the agent already reverted this pid's session; enable again to continue
 #   norule    3   sudo needs a password, doesn't allow the command, or the user may not run sudo
+#   noagent   3   (on, probe) the repair LaunchAgent isn't loaded, or the companion is removing it.
+#                 Shares norule's exit status on purpose: an app that predates this word reads an
+#                 unknown first word as a failed command and refuses the enable, so nothing turns
+#                 sleep off without the agent that can turn it back on. Run the setup companion again.
 #   failed    N   anything else; N is the failing command's status, or 1
 #   none      0   (beat, check) there is no session
 #   live | dead | stale | reverted   (check) what `repair` would see; nothing is changed
+#   busy      1   (on) the lock stayed taken for about a second; any word but ok is a refusal to build 18
+#   begin-removal (companion only) takes the lock, writes the removal marker and, only when a session
+#                 file exists, latches "restore pending" and turns sleep back on (ok; none when
+#                 nothing was ours). The session stays. The latch survives off and repair, so a
+#                 retry after they deleted the session still answers ok and needs the readback.
+#   finish-removal (companion only) deletes the session, tombstone and latch once the companion has
+#                 seen sleep read back normal.
+#                 While the marker exists `on` and `probe` answer noagent; off and repair still work.
+#                 The marker outlives a removal; installing the companion again clears it once the
+#                 agent is loaded.
 # Anything but a valid verb with its exact arguments prints usage to stderr and exits 64.
 #
 # Session record: $HOME/Library/Application Support/dilated-power/session holds
@@ -21,7 +35,7 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: dilated-power on <pid>|beat|off|check|repair|probe" >&2
+  echo "usage: dilated-power on <pid>|beat|off|check|repair|probe|begin-removal|finish-removal" >&2
   exit 64
 }
 
@@ -38,7 +52,7 @@ case "$verb" in
     pid=$((10#$pid))
     [ "$pid" -gt 0 ] || usage
     ;;
-  beat | off | check | repair | probe) [ "$#" -eq 1 ] || usage ;;
+  beat | off | check | repair | probe | begin-removal | finish-removal) [ "$#" -eq 1 ] || usage ;;
   *) usage ;;
 esac
 
@@ -47,6 +61,8 @@ esac
 # of a NSUserUnixTask or a local shell can't redirect sudo or the wake time.
 test_sudo=""
 test_wake=""
+test_launchctl=""
+test_clock=""
 self=${BASH_SOURCE[0]}
 case "$self" in
   */*) self_dir=${self%/*} ;;
@@ -58,6 +74,8 @@ if self_dir=$(cd "$self_dir" 2>/dev/null && pwd -P); then
       if [ -f "$self_dir/../../Package.swift" ]; then
         test_sudo=${DILATED_POWER_TEST_SUDO:-}
         test_wake=${DILATED_POWER_TEST_WAKE:-}
+        test_launchctl=${DILATED_POWER_TEST_LAUNCHCTL:-}
+        test_clock=${DILATED_POWER_TEST_CLOCK:-}
       fi
       ;;
   esac
@@ -101,6 +119,38 @@ session_dir="$home/Library/Application Support/dilated-power"
 session_file="$session_dir/session"
 tombstone_file="$session_dir/tombstone"
 lock_dir="$session_dir/lock.d"
+# Written by begin-removal and cleared only by the companion's install. It outlives the script.
+removal_file="$session_dir/removal"
+# Written by begin-removal, under the lock and before pmset, when the session is ours. Unlike the
+# removal marker it means sleep was ours to restore and the readback hasn't passed yet. Only
+# finish-removal clears it, so off and repair deleting the session can't skip the readback.
+restore_pending_file="$session_dir/restore-pending"
+agent_label="com.codeswhat.dilated.closed-lid-repair"
+
+# True when the repair LaunchAgent is loaded in this user's GUI domain. Without it nothing can
+# turn sleep back on after a crash, so `on` and `probe` refuse.
+# The app's task times out after 3 seconds, so launchctl gets one second: it runs in the background
+# and is killed when it's still going (macOS has no timeout(1)). A timeout reads as not loaded.
+agent_loaded() {
+  local launchctl=${test_launchctl:-/bin/launchctl} job ticks=0
+  "$launchctl" print "gui/$(/usr/bin/id -u)/$agent_label" >/dev/null 2>&1 &
+  job=$!
+  while /bin/kill -0 "$job" 2>/dev/null; do
+    if [ "$ticks" -ge 10 ]; then
+      /bin/kill -9 "$job" 2>/dev/null || true
+      wait "$job" 2>/dev/null || true
+      return 1
+    fi
+    ticks=$((ticks + 1))
+    /bin/sleep 0.1
+  done
+  wait "$job"
+}
+
+refuse_unready() {
+  echo noagent
+  exit 3
+}
 
 ensure_dir() {
   (umask 077 && /bin/mkdir -p "$session_dir") && /bin/chmod 700 "$session_dir"
@@ -123,21 +173,43 @@ release_lock() {
 trap release_lock EXIT
 
 # Serializes the app's verbs and the agent's repair. A lock older than a minute is a crashed holder's.
+# Waits up to $1 tenths of a second (default 5 seconds). $2, when given, also caps the wait in whole
+# wall-clock seconds: each retry spawns processes, so under load the tries alone can run long.
+# Whole seconds for the lock's wall-clock cap. The test hook scripts the clock, so a late
+# acquisition can be tested without depending on how slow the machine is.
+clock() {
+  if [ -n "$test_clock" ]; then
+    "$test_clock"
+    return
+  fi
+  /bin/date +%s
+}
+
 take_lock() {
-  local tries=0 modified now
-  ensure_dir
+  local tries=0 modified now max=${1:-50} limit=${2:-} started
+  ensure_dir || return 1
+  started=$(clock)
   while ! (umask 077 && /bin/mkdir "$lock_dir" 2>/dev/null); do
     modified=$(/usr/bin/stat -f %m "$lock_dir" 2>/dev/null || echo 0)
-    now=$(/bin/date +%s)
+    now=$(clock)
+    if [ -n "$limit" ] && [ $((now - started)) -ge "$limit" ]; then
+      return 1
+    fi
     if [ $((now - modified)) -gt 60 ]; then
       /bin/rmdir "$lock_dir" 2>/dev/null || true
       continue
     fi
     tries=$((tries + 1))
-    [ "$tries" -le 50 ] || return 1
+    [ "$tries" -le "$max" ] || return 1
     /bin/sleep 0.1
   done
   have_lock=1
+  # A late acquisition doesn't get past the cap either: the caller has stopped waiting, and the
+  # work that follows could outlive the app's timeout.
+  if [ -n "$limit" ] && [ $(($(clock) - started)) -ge "$limit" ]; then
+    release_lock
+    return 1
+  fi
 }
 
 # Start time of a live pid, empty when it's gone. The locale is pinned: lstart is localized, and
@@ -201,10 +273,18 @@ status=0
 detail=""
 case "$verb" in
   on)
-    take_lock || {
-      echo failed
+    # The marker check comes before the lock, and the lock wait is capped (1s of tries, or 1 to 2
+    # wall-clock seconds under load, plus 1s for launchctl below), so the verb stays inside the
+    # app's 3 second timeout. `busy` isn't `ok`, so build 18 refuses the enable.
+    [ ! -f "$removal_file" ] || refuse_unready
+    take_lock 10 2 || {
+      echo busy
       exit 1
     }
+    # Under the lock, so a removal that held it first is always seen: its marker stays after it
+    # finishes, and its agent is gone. Only then can pmset 1 run with a recovery agent in place.
+    [ ! -f "$removal_file" ] || refuse_unready
+    agent_loaded || refuse_unready
     if [ -f "$tombstone_file" ] && [ "$(<"$tombstone_file")" = "reverted $pid" ]; then
       /bin/rm -f "$tombstone_file"
       echo reverted
@@ -218,7 +298,10 @@ case "$verb" in
     # The record goes down before sleep is disabled, so a crash in between leaves the agent a
     # session to revert. A failed enable removes it again.
     /bin/rm -f "$tombstone_file"
-    write_atomic "$session_file" "$pid $start"
+    write_atomic "$session_file" "$pid $start" || {
+      echo failed
+      exit 1
+    }
     detail=$(run_sudo /usr/bin/pmset -a disablesleep 1) || status=$?
     if [ "$status" -ne 0 ]; then
       /bin/rm -f "$session_file"
@@ -249,6 +332,44 @@ case "$verb" in
     echo ok
     exit 0
     ;;
+  begin-removal)
+    take_lock || {
+      echo failed
+      exit 1
+    }
+    # The marker goes down first, so a failed pmset still leaves new enables blocked.
+    write_atomic "$removal_file" "removing" || {
+      echo failed
+      exit 1
+    }
+    # Sleep is restored only when this script owns it, which means a session file or the restore
+    # latch and nothing else: a plain marker or a tombstone is a finished revert, and anything left
+    # disabled after it is another app's. The latch goes down before pmset, so `off` or `repair`
+    # deleting the session afterwards can't hide that the readback is still owed. With only the
+    # latch left, whichever deleted the session already ran pmset 0, so it isn't run again.
+    if [ -f "$session_file" ]; then
+      write_atomic "$restore_pending_file" "pending" || {
+        echo failed
+        exit 1
+      }
+      run_pmset 0
+      echo ok
+    elif [ -f "$restore_pending_file" ]; then
+      echo ok
+    else
+      echo none
+    fi
+    exit 0
+    ;;
+  finish-removal)
+    take_lock || {
+      echo failed
+      exit 1
+    }
+    /bin/rm -f "$session_file" "$tombstone_file" "$restore_pending_file"
+    echo ok
+    exit 0
+    ;;
   check)
     classify
     exit 0
@@ -263,13 +384,17 @@ case "$verb" in
         record=$(<"$session_file") || record=""
         run_pmset 0
         /bin/rm -f "$session_file"
-        write_atomic "$tombstone_file" "reverted ${record%% *}"
+        write_atomic "$tombstone_file" "reverted ${record%% *}" || {
+          echo failed
+          exit 1
+        }
         echo reverted
         ;;
     esac
     exit 0
     ;;
   probe)
+    { [ ! -f "$removal_file" ] && agent_loaded; } || refuse_unready
     # One `sudo -n -l` per command, mirroring ClosedLidPermission.probeArgumentSets.
     for value in 1 0; do
       detail=$(run_sudo -l /usr/bin/pmset -a disablesleep "$value") || status=$?

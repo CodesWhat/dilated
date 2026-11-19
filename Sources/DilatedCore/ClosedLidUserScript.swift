@@ -122,7 +122,7 @@ public struct UserScriptPowerRunner: PowerCommandRunning {
       case .finished(_, let failureStatus):
         switch (result.firstWord, failureStatus) {
         case ("ok", nil): return
-        case ("norule", _): throw ClosedLidPowerError.permissionUnavailable
+        case ("norule", _), ("noagent", _): throw ClosedLidPowerError.permissionUnavailable
         case ("reverted", _): throw ClosedLidSessionError.revertedWhileUnresponsive
         default: throw ClosedLidPowerError.commandFailed(failureStatus ?? 1)
         }
@@ -134,7 +134,9 @@ public struct UserScriptPowerRunner: PowerCommandRunning {
 }
 
 public enum ClosedLidScriptState: Equatable, Sendable {
-  case scriptMissing, ruleMissing, ready
+  /// `agentMissing`: the repair LaunchAgent isn't loaded (or the companion is removing it), so the
+  /// script refuses to turn sleep off. Fixed by running the companion again.
+  case scriptMissing, ruleMissing, agentMissing, ready
 }
 
 /// What the `probe` verb says about the user-installed script and the sudoers rule behind it.
@@ -153,6 +155,7 @@ public struct ClosedLidScriptPermission: Sendable {
     // closed-lid can't run, so both ask the user to run the setup companion again.
     case .timedOut: return .ruleMissing
     case .finished(_, let failureStatus):
+      if result.firstWord == "noagent" { return .agentMissing }
       return result.firstWord == "ok" && failureStatus == nil ? .ready : .ruleMissing
     }
   }

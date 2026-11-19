@@ -26,6 +26,10 @@
           .finished(output: "norule\n", failureStatus: 3), .ruleMissing,
           "Closed-lid permission isn't set up. Run Dilated Closed-Lid Setup again."
         ),
+        (
+          .finished(output: "noagent\n", failureStatus: 3), .agentMissing,
+          "The closed-lid repair agent isn't running. Run Dilated Closed-Lid Setup again."
+        ),
         (.finished(output: "ok\n", failureStatus: nil), .ready, nil),
       ]
       for (run, expected, copy) in cases {

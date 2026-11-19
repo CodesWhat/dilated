@@ -32,8 +32,19 @@ const test = base.extend({
     page.on('console', message => {
       if (message.type() === 'error') problems.push({ text: `console error: ${message.text()}`, url: message.location().url });
     });
+    // A test that calls open() twice navigates away while the first page's favicon (not load-blocking) is
+    // still in flight, and the browser aborts it. Only an abort after a later navigation is ignored.
+    let navigations = 0;
+    const startedAt = new WeakMap();
+    page.on('request', request => {
+      if (request.isNavigationRequest()) navigations += 1;
+      startedAt.set(request, navigations);
+    });
     page.on('requestfailed', request => {
-      if (request.url().startsWith(origin)) problems.push({ text: `request failed: ${request.url()}`, url: request.url() });
+      if (!request.url().startsWith(origin)) return;
+      const error = request.failure()?.errorText ?? '';
+      if (/NS_BINDING_ABORTED|ERR_ABORTED/.test(error) && navigations > startedAt.get(request)) return;
+      problems.push({ text: `request failed: ${request.url()} (${error})`, url: request.url() });
     });
     page.on('response', response => {
       if (response.url().startsWith(origin) && response.status() >= 400) {
@@ -87,6 +98,30 @@ test.describe('layout', () => {
 });
 
 test.describe('menu preview', () => {
+  for (const concept of concepts) {
+    for (const width of [1280, 1024, 768, 390, 320]) {
+      test(`${concept} click-the-eyes arrow points at the eyes at ${width}px`, async ({ page, open }) => {
+        await page.setViewportSize({ width, height: 800 });
+        await open(`/?concept=${concept}`);
+        const demo = page.locator('.direction:not([hidden]) .menu-demo');
+        const arrow = await demo.locator('.sample-invitation > span').boundingBox();
+        const eyes = await demo.locator('[data-sample-trigger]').boundingBox();
+        expect(arrow).not.toBeNull();
+        expect(eyes).not.toBeNull();
+        // The arrow sits below the eyes, and a line leaving it up and to the right (45 degrees)
+        // crosses the eyes button.
+        const cx = arrow.x + arrow.width / 2;
+        const cy = arrow.y + arrow.height / 2;
+        expect(cy).toBeGreaterThan(eyes.y + eyes.height);
+        const rise = cy - (eyes.y + eyes.height);
+        const hitX = cx + rise;
+        expect(hitX).toBeGreaterThanOrEqual(eyes.x);
+        expect(hitX).toBeLessThanOrEqual(eyes.x + eyes.width);
+        expect(cx).toBeLessThan(eyes.x + eyes.width / 2);
+      });
+    }
+  }
+
   const previewParts = page => {
     const demo = page.locator('.direction:not([hidden]) .menu-demo');
     const menu = demo.locator('[data-sample-menu]');

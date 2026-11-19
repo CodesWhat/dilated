@@ -104,6 +104,18 @@ struct MASChannelUserScriptRunnerTests {
     }
   }
 
+  @Test func noagentIsARefusalLikeNorule() async {
+    for run in [finished("noagent\n", status: 3), finished("noagent\n")] {
+      do {
+        try await UserScriptPowerRunner(launcher: FakeLauncher(run)).run(.setSleepDisabled(true))
+        Issue.record("expected a throw for \(run)")
+      } catch ClosedLidPowerError.permissionUnavailable {
+      } catch {
+        Issue.record("expected permissionUnavailable for \(run), got \(error)")
+      }
+    }
+  }
+
   @Test func theFirstWordDecidesNotLaterOutput() async throws {
     try await UserScriptPowerRunner(launcher: FakeLauncher(finished("\n  ok extra words")))
       .run(.setSleepDisabled(true))
@@ -116,6 +128,7 @@ struct MASChannelScriptStateTests {
       (.missing, .scriptMissing),
       (finished("ok\n"), .ready),
       (finished("norule\n", status: 3), .ruleMissing),
+      (finished("noagent\n", status: 3), .agentMissing),
       (finished("failed\n", status: 1), .ruleMissing),
       (finished("ok\n", status: 1), .ruleMissing),
       (finished("", status: nil), .ruleMissing),
@@ -155,7 +168,9 @@ struct MASChannelScriptContractTests {
   @Test func badArgumentsPrintUsageAndExit64WithoutTouchingSudo() throws {
     let arguments11 = String(repeating: "1", count: 11)
     for arguments in [
-      [], ["bogus"], ["on"], ["on", "extra"], ["on", "1", "2"], ["on", ""], ["on", "-5"],
+      [], ["bogus"], ["begin-removal", "1"], ["finish-removal", "1"], ["on"], ["on", "extra"],
+      ["on", "1", "2"], ["on", ""],
+      ["on", "-5"],
       ["on", "12a"], ["on", "0"], ["on", arguments11], ["off", "1"], ["beat", "1"],
       ["check", "1"], ["repair", "1"], ["probe", "1"], [""], ["ON"],
     ] {
@@ -185,6 +200,10 @@ struct MASChannelRepairScriptTests {
     let home: URL
     let sudoLog: URL
     let fakeSudo: URL
+    let fakeLaunchctl: URL
+    let launchctlLog: URL
+    /// While this file exists the fake launchctl reports the agent as not loaded.
+    let agentDown: URL
     var children: [Process] = []
 
     init() throws {
@@ -199,6 +218,28 @@ struct MASChannelRepairScriptTests {
       exit 0
       """.write(to: fakeSudo, atomically: true, encoding: .utf8)
       try manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeSudo.path)
+      launchctlLog = home.appendingPathComponent("launchctl.log")
+      agentDown = home.appendingPathComponent("agent-down")
+      fakeLaunchctl = home.appendingPathComponent("fake-launchctl")
+      try """
+      #!/bin/bash
+      echo "$@" >> "\(launchctlLog.path)"
+      [ ! -e "\(agentDown.path)" ]
+      """.write(to: fakeLaunchctl, atomically: true, encoding: .utf8)
+      try manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeLaunchctl.path)
+    }
+
+    func setAgentLoaded(_ loaded: Bool) {
+      if loaded {
+        try? FileManager.default.removeItem(at: agentDown)
+      } else {
+        FileManager.default.createFile(atPath: agentDown.path, contents: Data())
+      }
+    }
+
+    var launchctlCalls: [String] {
+      ((try? String(contentsOf: launchctlLog, encoding: .utf8)) ?? "")
+        .split(separator: "\n").map(String.init)
     }
 
     deinit {
@@ -238,6 +279,7 @@ struct MASChannelRepairScriptTests {
     ) throws -> (status: Int32, out: String, err: String) {
       var environment = ["HOME": home.path, "PATH": "/usr/bin:/bin"]
       if useFakeSudo { environment["DILATED_POWER_TEST_SUDO"] = fakeSudo.path }
+      environment["DILATED_POWER_TEST_LAUNCHCTL"] = fakeLaunchctl.path
       if let wake { environment["DILATED_POWER_TEST_WAKE"] = String(wake) }
       environment.merge(extra) { _, new in new }
       let process = Process()
@@ -293,6 +335,394 @@ struct MASChannelRepairScriptTests {
     let record = try String(contentsOf: box.sessionFile, encoding: .utf8)
     #expect(record.hasPrefix("\(child.processIdentifier) "))
     #expect(try box.run(["check"]).out == "live")
+  }
+
+  @Test func onAndProbeRequireTheRepairAgentToBeLoaded() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    box.setAgentLoaded(false)
+    let probe = try box.run(["probe"])
+    #expect(probe.out == "noagent")
+    #expect(probe.status == 3)
+    let on = try box.run(["on", String(child.processIdentifier)])
+    #expect(on.out == "noagent")
+    #expect(on.status == 3)
+    // Refused before any session or sudo call.
+    #expect(box.sudoCalls.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
+
+    box.setAgentLoaded(true)
+    #expect(try box.run(["probe"]).out == "ok")
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
+    let expected = "print gui/\(getuid())/com.codeswhat.dilated.closed-lid-repair"
+    #expect(box.launchctlCalls.allSatisfy { $0 == expected })
+    #expect(!box.launchctlCalls.isEmpty)
+  }
+
+  private static func marker(_ box: Sandbox) -> URL {
+    box.sessionDirectory.appendingPathComponent("removal")
+  }
+
+  @Test func beginRemovalWritesTheMarkerRestoresSleepAndClearsTheSession() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
+    let result = try box.run(["begin-removal"])
+    #expect(result.out == "ok")
+    #expect(result.status == 0)
+    #expect(
+      box.sudoCalls == ["/usr/bin/pmset -a disablesleep 1", "/usr/bin/pmset -a disablesleep 0"])
+    #expect(FileManager.default.fileExists(atPath: Self.marker(box).path))
+    // The session stays until finish-removal, so a retry is still ours.
+    #expect(FileManager.default.fileExists(atPath: box.sessionFile.path))
+    #expect(try box.run(["finish-removal"]).out == "ok")
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
+    #expect(try box.run(["check"]).out == "none")
+    // The marker persists across runs, and off and repair still work.
+    let refused = try box.run(["on", String(child.processIdentifier)])
+    #expect(refused.out == "noagent")
+    #expect(refused.status == 3)
+    #expect(try box.run(["probe"]).out == "noagent")
+    #expect(try box.run(["off"]).out == "ok")
+    #expect(try box.run(["repair"]).out == "")
+    #expect(FileManager.default.fileExists(atPath: Self.marker(box).path))
+  }
+
+  @Test func beginRemovalWithoutARuleStillBlocksEnables() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
+    try """
+    #!/bin/bash
+    echo "sudo: a password is required"
+    exit 1
+    """.write(to: box.fakeSudo, atomically: true, encoding: .utf8)
+    let result = try box.run(["begin-removal"])
+    #expect(result.out == "norule")
+    #expect(FileManager.default.fileExists(atPath: Self.marker(box).path))
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "noagent")
+  }
+
+  @Test func beginRemovalLeavesAForeignDisableAloneWhenNoSessionIsOurs() throws {
+    let box = try Sandbox()
+    let result = try box.run(["begin-removal"])
+    #expect(result.out == "none")
+    #expect(result.status == 0)
+    #expect(box.sudoCalls.isEmpty)
+    #expect(FileManager.default.fileExists(atPath: Self.marker(box).path))
+  }
+
+  @Test func aStaleTombstoneWithNoSessionIsNotOurs() throws {
+    let box = try Sandbox()
+    let tombstone = box.sessionDirectory.appendingPathComponent("tombstone")
+    try FileManager.default.createDirectory(
+      at: box.sessionDirectory, withIntermediateDirectories: true)
+    try "reverted 7\n".write(to: tombstone, atomically: true, encoding: .utf8)
+    // Another app disabled sleep after the old repair: nothing here may touch it.
+    let result = try box.run(["begin-removal"])
+    #expect(result.out == "none")
+    #expect(box.sudoCalls.isEmpty)
+    #expect(FileManager.default.fileExists(atPath: tombstone.path))
+  }
+
+  @Test func aRetryAfterBeginRemovalStillAnswersOkUntilFinishRemoval() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
+    #expect(try box.run(["begin-removal"]).out == "ok")
+    // The companion's readback failed and it retries: the session is still there.
+    #expect(try box.run(["begin-removal"]).out == "ok")
+    #expect(FileManager.default.fileExists(atPath: box.sessionFile.path))
+    #expect(try box.run(["finish-removal"]).out == "ok")
+    #expect(try box.run(["begin-removal"]).out == "none")
+    #expect(
+      box.sudoCalls == [
+        "/usr/bin/pmset -a disablesleep 1", "/usr/bin/pmset -a disablesleep 0",
+        "/usr/bin/pmset -a disablesleep 0",
+      ])
+  }
+
+  @Test func anOnQueuedDuringRemovalIsRefusedAfterRemovalFinishesAndNeverEnables() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    // Remove holds the lock; `on` starts (no marker yet, agent loaded) and queues behind it.
+    let lock = box.sessionDirectory.appendingPathComponent("lock.d")
+    try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: true)
+    let on = Process()
+    on.executableURL = URL(fileURLWithPath: "/bin/bash")
+    on.arguments = [Self.script.path, "on", String(child.processIdentifier)]
+    on.environment = [
+      "HOME": box.home.path, "PATH": "/usr/bin:/bin",
+      "DILATED_POWER_TEST_SUDO": box.fakeSudo.path,
+      "DILATED_POWER_TEST_LAUNCHCTL": box.fakeLaunchctl.path,
+    ]
+    let out = Pipe()
+    on.standardOutput = out
+    try on.run()
+    Thread.sleep(forTimeInterval: 0.4)
+    #expect(on.isRunning)
+    // Remove finishes: agent booted out, lock released. The marker is still on disk.
+    try "removing\n".write(to: Self.marker(box), atomically: true, encoding: .utf8)
+    box.setAgentLoaded(false)
+    try FileManager.default.removeItem(at: lock)
+    let output = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    on.waitUntilExit()
+    #expect(output.trimmingCharacters(in: .whitespacesAndNewlines) == "noagent")
+    #expect(on.terminationStatus == 3)
+    #expect(box.sudoCalls.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
+  }
+
+  @Test func anOnQueuedBehindALockRechecksTheAgentUnderTheLock() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    let lock = box.sessionDirectory.appendingPathComponent("lock.d")
+    try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: true)
+    let on = Process()
+    on.executableURL = URL(fileURLWithPath: "/bin/bash")
+    on.arguments = [Self.script.path, "on", String(child.processIdentifier)]
+    on.environment = [
+      "HOME": box.home.path, "PATH": "/usr/bin:/bin",
+      "DILATED_POWER_TEST_SUDO": box.fakeSudo.path,
+      "DILATED_POWER_TEST_LAUNCHCTL": box.fakeLaunchctl.path,
+    ]
+    let out = Pipe()
+    on.standardOutput = out
+    try on.run()
+    Thread.sleep(forTimeInterval: 0.4)
+    // The agent went away with no marker (a hand-deleted one): the agent check still refuses.
+    box.setAgentLoaded(false)
+    try FileManager.default.removeItem(at: lock)
+    let output = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    on.waitUntilExit()
+    #expect(output.trimmingCharacters(in: .whitespacesAndNewlines) == "noagent")
+    #expect(box.sudoCalls.isEmpty)
+  }
+
+  @Test func aFailedMarkerWritePrintsFailed() throws {
+    let box = try Sandbox()
+    try FileManager.default.createDirectory(
+      at: box.sessionDirectory, withIntermediateDirectories: true)
+    let marker = Self.marker(box)
+    try "removing\n".write(to: marker, atomically: true, encoding: .utf8)
+    // mv can't replace an immutable file, so write_atomic fails under set -e.
+    try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: marker.path)
+    defer {
+      try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: marker.path)
+    }
+    let result = try box.run(["begin-removal"])
+    #expect(result.out == "failed")
+    #expect(result.status == 1)
+    #expect(box.sudoCalls.isEmpty)
+  }
+
+  @Test func aSlowLaunchctlKeepsOnInsideTheAppTimeout() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    try """
+    #!/bin/bash
+    exec /bin/sleep 30
+    """.write(to: box.fakeLaunchctl, atomically: true, encoding: .utf8)
+    let started = Date()
+    let result = try box.run(["on", String(child.processIdentifier)])
+    #expect(Date().timeIntervalSince(started) < 2.5)
+    #expect(result.out == "noagent")
+    #expect(result.status == 3)
+    #expect(box.sudoCalls.isEmpty)
+  }
+
+  @Test func aHeldLockMakesOnAnswerBusyInsideTheAppTimeout() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    try FileManager.default.createDirectory(
+      at: box.sessionDirectory.appendingPathComponent("lock.d"),
+      withIntermediateDirectories: true)
+    let started = Date()
+    let result = try box.run(["on", String(child.processIdentifier)])
+    #expect(Date().timeIntervalSince(started) < 3)
+    #expect(result.out == "busy")
+    #expect(result.status == 1)
+    #expect(box.sudoCalls.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
+  }
+
+  /// A scripted clock for the lock's wall-clock cap: the first reading is 100, every later one is
+  /// `later`, so the cap passes (or not) at a fixed point instead of depending on machine load.
+  private static func scriptedClock(_ box: Sandbox, later: Int) throws -> String {
+    let counter = box.home.appendingPathComponent("clock-count")
+    let clock = box.home.appendingPathComponent("fake-clock")
+    try """
+    #!/bin/bash
+    n=$(cat "\(counter.path)" 2>/dev/null || echo 0)
+    echo $((n + 1)) > "\(counter.path)"
+    if [ "$n" -eq 0 ]; then echo 100; else echo \(later); fi
+    """.write(to: clock, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: clock.path)
+    return clock.path
+  }
+
+  @Test func aLockAcquiredAfterTheWallClockCapAnswersBusyAndReleasesIt() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    let clock = try Self.scriptedClock(box, later: 103)
+    let result = try box.run(
+      ["on", String(child.processIdentifier)], environment: ["DILATED_POWER_TEST_CLOCK": clock])
+    #expect(result.out == "busy")
+    #expect(result.status == 1)
+    #expect(box.sudoCalls.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: box.sessionDirectory.appendingPathComponent("lock.d").path))
+    // Nothing is left to block the next verb.
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
+  }
+
+  @Test func aLockAcquiredInsideTheWallClockCapStillEnables() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    let clock = try Self.scriptedClock(box, later: 101)
+    let result = try box.run(
+      ["on", String(child.processIdentifier)], environment: ["DILATED_POWER_TEST_CLOCK": clock])
+    #expect(result.out == "ok")
+    #expect(box.sudoCalls == ["/usr/bin/pmset -a disablesleep 1"])
+    #expect(FileManager.default.fileExists(atPath: box.sessionFile.path))
+  }
+
+  private static func latch(_ box: Sandbox) -> URL {
+    box.sessionDirectory.appendingPathComponent("restore-pending")
+  }
+
+  @Test func theRestoreLatchSurvivesOffSoARetryStillOwesTheReadback() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
+    #expect(try box.run(["begin-removal"]).out == "ok")
+    #expect(FileManager.default.fileExists(atPath: Self.latch(box).path))
+    // The companion's readback failed; before it retries, `off` restores and deletes the session.
+    #expect(try box.run(["off"]).out == "ok")
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
+    #expect(FileManager.default.fileExists(atPath: Self.latch(box).path))
+    // The retry is still ours (so the readback runs) and doesn't touch pmset again.
+    let sudoBefore = box.sudoCalls.count
+    #expect(try box.run(["begin-removal"]).out == "ok")
+    #expect(box.sudoCalls.count == sudoBefore)
+    #expect(try box.run(["begin-removal"]).out == "ok")
+    #expect(try box.run(["finish-removal"]).out == "ok")
+    #expect(!FileManager.default.fileExists(atPath: Self.latch(box).path))
+    #expect(try box.run(["begin-removal"]).out == "none")
+    #expect(FileManager.default.fileExists(atPath: Self.marker(box).path))
+  }
+
+  @Test func theRestoreLatchSurvivesRepairDeletingTheSession() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
+    #expect(try box.run(["begin-removal"]).out == "ok")
+    box.kill(child)
+    #expect(try box.run(["repair"]).out == "reverted")
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
+    #expect(FileManager.default.fileExists(atPath: Self.latch(box).path))
+    #expect(try box.run(["begin-removal"]).out == "ok")
+    #expect(try box.run(["finish-removal"]).out == "ok")
+    #expect(try box.run(["begin-removal"]).out == "none")
+  }
+
+  @Test func aPlainMarkerOrTombstoneNeverImpliesOwnership() throws {
+    let box = try Sandbox()
+    #expect(try box.run(["begin-removal"]).out == "none")
+    // The marker is on disk now; a second removal still isn't ours.
+    #expect(try box.run(["begin-removal"]).out == "none")
+    let tombstone = box.sessionDirectory.appendingPathComponent("tombstone")
+    try "reverted 7\n".write(to: tombstone, atomically: true, encoding: .utf8)
+    #expect(try box.run(["begin-removal"]).out == "none")
+    #expect(!FileManager.default.fileExists(atPath: Self.latch(box).path))
+    #expect(box.sudoCalls.isEmpty)
+  }
+
+  @Test func anOnThatTookTheLockFirstIsFollowedByRemoval() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    // A slow pmset keeps `on` inside the lock while begin-removal queues behind it.
+    try """
+    #!/bin/bash
+    echo "$@" >> "\(box.sudoLog.path)"
+    [ "$4" = 1 ] && sleep 1
+    exit 0
+    """.write(to: box.fakeSudo, atomically: true, encoding: .utf8)
+    let on = Process()
+    on.executableURL = URL(fileURLWithPath: "/bin/bash")
+    on.arguments = [Self.script.path, "on", String(child.processIdentifier)]
+    on.environment = [
+      "HOME": box.home.path, "PATH": "/usr/bin:/bin",
+      "DILATED_POWER_TEST_SUDO": box.fakeSudo.path,
+      "DILATED_POWER_TEST_LAUNCHCTL": box.fakeLaunchctl.path,
+    ]
+    on.standardOutput = Pipe()
+    try on.run()
+    for _ in 0..<100 where box.sudoCalls.isEmpty { Thread.sleep(forTimeInterval: 0.05) }
+    let removal = try box.run(["begin-removal"])
+    on.waitUntilExit()
+    #expect(removal.out == "ok")
+    // on ran to the end first, then removal reverted it; the session goes with finish-removal.
+    #expect(
+      box.sudoCalls == ["/usr/bin/pmset -a disablesleep 1", "/usr/bin/pmset -a disablesleep 0"])
+    #expect(FileManager.default.fileExists(atPath: box.sessionFile.path))
+    #expect(try box.run(["finish-removal"]).out == "ok")
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
+    #expect(FileManager.default.fileExists(atPath: Self.marker(box).path))
+  }
+
+  @Test func anOnThatWaitsOnTheLockSeesTheMarkerBeginRemovalLeft() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    // Removal holds the lock; `on` arrives, passes its first marker check and queues.
+    let lock = box.sessionDirectory.appendingPathComponent("lock.d")
+    try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: true)
+    let on = Process()
+    on.executableURL = URL(fileURLWithPath: "/bin/bash")
+    on.arguments = [Self.script.path, "on", String(child.processIdentifier)]
+    on.environment = [
+      "HOME": box.home.path, "PATH": "/usr/bin:/bin",
+      "DILATED_POWER_TEST_SUDO": box.fakeSudo.path,
+      "DILATED_POWER_TEST_LAUNCHCTL": box.fakeLaunchctl.path,
+    ]
+    let out = Pipe()
+    on.standardOutput = out
+    try on.run()
+    Thread.sleep(forTimeInterval: 0.4)
+    #expect(on.isRunning)
+    // The marker lands while `on` is queued, past its first check, so only the re-check sees it.
+    try "removing\n".write(to: Self.marker(box), atomically: true, encoding: .utf8)
+    try FileManager.default.removeItem(at: lock)
+    let output = String(
+      decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    on.waitUntilExit()
+    #expect(output.trimmingCharacters(in: .whitespacesAndNewlines) == "noagent")
+    #expect(on.terminationStatus == 3)
+    #expect(box.sudoCalls.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
+  }
+
+  @Test func removalFollowedByOnRefusesTheEnable() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    #expect(try box.run(["begin-removal"]).out == "none")
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "noagent")
+    #expect(box.sudoCalls.isEmpty)
+    // Clearing the marker (what install does) lets the enable through again.
+    try FileManager.default.removeItem(at: Self.marker(box))
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
+  }
+
+  @Test func offAndRepairStillWorkWithoutTheAgent() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
+    box.setAgentLoaded(false)
+    #expect(try box.run(["check"]).out == "live")
+    #expect(try box.run(["off"]).out == "ok")
+    #expect(box.sudoCalls.last == "/usr/bin/pmset -a disablesleep 0")
   }
 
   @Test func onForAMissingPidFailsWithoutEnabling() throws {
@@ -510,5 +940,59 @@ struct MASChannelRepairScriptTests {
     let result = try box.run(script: installed, ["check"], wake: Self.now - 10)
     #expect(result.out == "stale")
     #expect(box.sudoCalls.isEmpty)
+  }
+}
+
+private actor LateOnHardware {
+  private(set) var disabled = false
+  func set(_ value: Bool) { disabled = value }
+  func readback() -> ClosedLidReadback {
+    ClosedLidReadback(effectiveDisabled: disabled, storedDisabled: disabled)
+  }
+}
+
+/// `on` times out on the app's side, then the script finishes pmset 1 anyway.
+private final class LateOnLauncher: UserScriptLaunching, @unchecked Sendable {
+  let hardware: LateOnHardware
+  private let lock = NSLock()
+  private var calls: [[String]] = []
+
+  init(hardware: LateOnHardware) { self.hardware = hardware }
+
+  var arguments: [[String]] { lock.withLock { calls } }
+
+  func run(arguments: [String]) async -> UserScriptRun {
+    lock.withLock { calls.append(arguments) }
+    if arguments.first == "on" {
+      await hardware.set(true)
+      return .timedOut
+    }
+    await hardware.set(false)
+    return finished("ok\n")
+  }
+}
+
+struct MASChannelLateOnTests {
+  @Test func aLateOnAfterTheAppTimeoutIsRevertedByTheApp() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "lid-mas-\(UUID().uuidString)")
+    let store = ClosedLidMarkerStore(directory: directory)
+    let hardware = LateOnHardware()
+    let launcher = LateOnLauncher(hardware: hardware)
+    let driver = SerialPowerDriver(
+      runner: UserScriptPowerRunner(launcher: launcher, pid: 4242),
+      readback: { await hardware.readback() })
+    let guardian = ClosedLidSessionGuard(power: driver, store: store)
+    let service = ClosedLidService(
+      power: guardian,
+      environment: { .init(powerSource: .ac, thermal: .nominal, lidClosed: false) },
+      clock: { 0 }, buildIdentity: "test")
+    await service.start()
+    let reply = await service.handle(.init(action: .enable, policy: .init()), owner: UUID())
+    #expect(reply.ok == false)
+    #expect(launcher.arguments.contains(["off"]))
+    #expect(await hardware.disabled == false)
+    #expect(store.read() == nil)
+    #expect(await guardian.recovery != .foreignSleepDisabled)
   }
 }
