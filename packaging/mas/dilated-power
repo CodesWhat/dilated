@@ -16,7 +16,7 @@
 #   failed    N   anything else; N is the failing command's status, or 1
 #   none      0   (beat, check) there is no session
 #   live | dead | stale | reverted   (check) what `repair` would see; nothing is changed
-#   busy      1   (on) the lock stayed taken for 1.5 seconds; any word but ok is a refusal to build 18
+#   busy      1   (on) the lock stayed taken for about a second; any word but ok is a refusal to build 18
 #   begin-removal (companion only) takes the lock, writes the removal marker and, only when a session
 #                 file exists, turns sleep back on (ok; none when nothing was ours). The session stays.
 #   finish-removal (companion only) deletes the session and tombstone once the companion has seen
@@ -165,13 +165,18 @@ release_lock() {
 trap release_lock EXIT
 
 # Serializes the app's verbs and the agent's repair. A lock older than a minute is a crashed holder's.
-# Waits up to $1 tenths of a second (default 5 seconds).
+# Waits up to $1 tenths of a second (default 5 seconds). $2, when given, also caps the wait in whole
+# wall-clock seconds: each retry spawns processes, so under load the tries alone can run long.
 take_lock() {
-  local tries=0 modified now max=${1:-50}
+  local tries=0 modified now max=${1:-50} limit=${2:-} started
   ensure_dir || return 1
+  started=$(/bin/date +%s)
   while ! (umask 077 && /bin/mkdir "$lock_dir" 2>/dev/null); do
     modified=$(/usr/bin/stat -f %m "$lock_dir" 2>/dev/null || echo 0)
     now=$(/bin/date +%s)
+    if [ -n "$limit" ] && [ $((now - started)) -ge "$limit" ]; then
+      return 1
+    fi
     if [ $((now - modified)) -gt 60 ]; then
       /bin/rmdir "$lock_dir" 2>/dev/null || true
       continue
@@ -244,11 +249,11 @@ status=0
 detail=""
 case "$verb" in
   on)
-    # The marker check comes before the lock, and the lock wait is capped (1.5s, plus 1s for
-    # launchctl below), so the verb stays inside the app's 3 second timeout. `busy` isn't `ok`, so
-    # build 18 refuses the enable.
+    # The marker check comes before the lock, and the lock wait is capped (1s of tries, or 1 to 2
+    # wall-clock seconds under load, plus 1s for launchctl below), so the verb stays inside the
+    # app's 3 second timeout. `busy` isn't `ok`, so build 18 refuses the enable.
     [ ! -f "$removal_file" ] || refuse_unready
-    take_lock 15 || {
+    take_lock 10 2 || {
       echo busy
       exit 1
     }
