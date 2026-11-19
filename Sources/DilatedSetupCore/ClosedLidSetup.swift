@@ -112,10 +112,12 @@ public struct ClosedLidSetup: Sendable {
     // 1. Block new enables and put sleep back before the script that can do it goes away. An
     // installed script from before begin-removal existed is replaced first, since the old one
     // would answer with usage.
-    // Only sleep this setup turned off (a session or tombstone on disk) has to read back normal;
-    // another app's disablesleep is left alone and never blocks removal.
-    var ownedSleep = files.exists(paths.sessionFile) || files.exists(paths.tombstoneFile)
+    // Only sleep this setup turned off (a session file on disk; a tombstone is a finished revert)
+    // has to read back normal. Another app's disablesleep is left alone and never blocks removal.
+    var ownedSleep = files.exists(paths.sessionFile)
+    var scriptPresent = false
     if let installed = files.read(paths.scriptPath) {
+      scriptPresent = true
       if Self.sha256(installed) != assets.expectedScriptSHA256,
         Self.sha256(assets.script) == assets.expectedScriptSHA256
       {
@@ -133,8 +135,18 @@ public struct ClosedLidSetup: Sendable {
     }
     // The recovery assets stay until macOS itself says sleep is back to normal. With the script
     // gone nothing can put it back, so a session left behind keeps the agent and its plist.
-    if ownedSleep, !(await power.confirmsNormalSleep()) {
-      return .failed("macOS hasn't confirmed normal sleep, so the repair agent was kept.")
+    if ownedSleep {
+      guard await power.confirmsNormalSleep() else {
+        return .failed("macOS hasn't confirmed normal sleep, so the repair agent was kept.")
+      }
+      // The session record goes only now, so a retry after a failed readback is still ours.
+      if scriptPresent {
+        do { try await power.finishRemoval(scriptPath: paths.scriptPath) } catch {
+          return .failed("Couldn't clear the closed-lid session: \(error.localizedDescription)")
+        }
+      } else {
+        try? files.remove(paths.sessionFile)
+      }
     }
 
     // 2. Agent.
@@ -162,8 +174,8 @@ public struct ClosedLidSetup: Sendable {
     do { try files.remove(paths.stateFile) } catch {
       return .failed("Couldn't delete the setup record: \(error.localizedDescription)")
     }
-    // The script is gone, so the marker no longer guards anything.
-    try? files.remove(paths.removalMarker)
+    // The removal marker stays: only a verified install clears it, so an `on` that queued behind
+    // this removal can't run without the repair agent.
     files.removeDirectoryIfEmpty(paths.stateDirectory)
     return .completed
   }

@@ -28,8 +28,6 @@ public struct ClosedLidSetupPaths: Equatable, Sendable {
   public var agentDomain: String { "gui/\(uid)" }
   /// The session record `dilated-power on` writes. A file here means closed-lid mode may be on.
   public var sessionFile: String { "\(home)/Library/Application Support/dilated-power/session" }
-  /// Written when the repair agent reverts a session; its presence means this script owned sleep.
-  public var tombstoneFile: String { "\(home)/Library/Application Support/dilated-power/tombstone" }
   /// Written by `dilated-power begin-removal`. While it exists the script refuses `on`; install
   /// clears it once the repair agent is loaded again.
   public var removalMarker: String { "\(home)/Library/Application Support/dilated-power/removal" }
@@ -44,7 +42,7 @@ public struct ClosedLidSetupAssets: Sendable {
   /// SHA-256 of `packaging/mas/dilated-power`. A test fails when the script changes without this
   /// being updated, so a stale value can't ship.
   public static let expectedScriptSHA256 =
-    "73ab5626b261a8d0e1f8062390bb7f110bb184a01059fb91ebddc475d1d84e8b"
+    "817b32795eda905dc6f3db92a24d8ebab2975b3d5c7ded70e77e3f7c387fbfb8"
 
   public var script: Data
   public var plistTemplate: String
@@ -175,8 +173,10 @@ public protocol LaunchAgentControlling: Sendable {
 public protocol PowerScriptRunning: Sendable {
   /// Runs `dilated-power begin-removal`: under the script's lock it writes the removal marker,
   /// turns sleep back on and clears the session, so a running app can't enable again. Returns
-  /// whether a session or tombstone was ours; when it wasn't, sleep was left untouched.
+  /// whether a session file was ours (it stays on disk); when it wasn't, sleep was left untouched.
   func beginRemoval(scriptPath: String) async throws -> Bool
+  /// Runs `dilated-power finish-removal`: deletes the session record, after the readback passed.
+  func finishRemoval(scriptPath: String) async throws
   /// Whether macOS reads back normal sleep (not disabled, stored or effective).
   func confirmsNormalSleep() async -> Bool
 }
