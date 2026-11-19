@@ -131,6 +131,8 @@ import Observation
       switch scriptState {
       case .scriptMissing: "Closed-lid mode needs the Dilated Closed-Lid Setup companion."
       case .ruleMissing: "Closed-lid permission isn't set up. Run Dilated Closed-Lid Setup again."
+      case .agentMissing:
+        "The closed-lid repair agent isn't running. Run Dilated Closed-Lid Setup again."
       case .ready, nil: nil
       }
     }

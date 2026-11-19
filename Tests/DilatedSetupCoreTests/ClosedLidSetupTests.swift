@@ -60,25 +60,45 @@ final class FakeSetupFiles: SetupFileSystem, @unchecked Sendable {
   }
 }
 
-struct FakeLaunchd: LaunchAgentControlling {
+final class FakeLaunchd: LaunchAgentControlling, @unchecked Sendable {
+  private let lock = NSLock()
+  private var isUp = false
   let log: SetupLog
-  var loaded: @Sendable () -> Bool = { false }
   var bootstrapFails = false
+  /// A bootstrap that returns cleanly but leaves the job unloaded.
+  var neverLoads = false
+
+  init(log: SetupLog) { self.log = log }
 
   func bootstrap(domain: String, plistPath: String) async throws {
     log.add("bootstrap \(domain)")
     if bootstrapFails { throw ClosedLidSetupLiveError(message: "boom") }
+    if !neverLoads { lock.withLock { isUp = true } }
   }
-  func bootout(target: String) async { log.add("bootout \(target)") }
-  func isLoaded(target: String) async -> Bool { loaded() }
+  func bootout(target: String) async {
+    log.add("bootout \(target)")
+    lock.withLock { isUp = false }
+  }
+  func isLoaded(target: String) async -> Bool { lock.withLock { isUp } }
 }
 
 struct FakePower: PowerScriptRunning {
   let log: SetupLog
   var fails = false
-  func off(scriptPath: String) async throws {
-    log.add("power off")
+  var sleepRestored = true
+  /// What the script reports: whether a session or tombstone was ours.
+  var owned = true
+  func beginRemoval(scriptPath: String) async throws -> Bool {
+    log.add("begin removal")
     if fails { throw ClosedLidSetupLiveError(message: "nope") }
+    return owned
+  }
+  func finishRemoval(scriptPath: String) async throws {
+    log.add("finish removal")
+  }
+  func confirmsNormalSleep() async -> Bool {
+    log.add("readback")
+    return sleepRestored
   }
 }
 
@@ -132,22 +152,27 @@ private struct Rig {
     rule ruleState: ClosedLidPermissionState = .notInstalled,
     afterInstall: ClosedLidPermissionOutcome = .completed(.ready),
     afterRemove: ClosedLidPermissionOutcome = .completed(.notInstalled),
-    powerFails: Bool = false, bootstrapFails: Bool = false,
+    powerFails: Bool = false, sleepRestored: Bool = true, ownsSleep: Bool = true,
+    bootstrapFails: Bool = false,
+    neverLoads: Bool = false,
     assets: ClosedLidSetupAssets? = nil
   ) {
     let log = log
     files = FakeSetupFiles(log: log)
     rule = FakeRule(
       state: ruleState, log: log, afterInstall: afterInstall, afterRemove: afterRemove)
-    var launchd = FakeLaunchd(log: log)
+    let launchd = FakeLaunchd(log: log)
     launchd.bootstrapFails = bootstrapFails
+    launchd.neverLoads = neverLoads
     setup = ClosedLidSetup(
       paths: paths,
       assets: assets
         ?? ClosedLidSetupAssets(
           script: scriptBytes, plistTemplate: templateText,
           expectedScriptSHA256: digest(scriptBytes)),
-      files: files, launchd: launchd, power: FakePower(log: log, fails: powerFails), rule: rule)
+      files: files, launchd: launchd,
+      power: FakePower(
+        log: log, fails: powerFails, sleepRestored: sleepRestored, owned: ownsSleep), rule: rule)
   }
 }
 
@@ -164,6 +189,7 @@ struct ClosedLidSetupInstallTests {
         "write \(p.agentPlistPath)",
         "bootout gui/501/com.codeswhat.dilated.closed-lid-repair",
         "bootstrap gui/501",
+        "remove \(p.removalMarker)",
       ])
   }
 
@@ -240,6 +266,7 @@ struct ClosedLidSetupInstallTests {
         "write \(rig.paths.agentPlistPath)",
         "bootout gui/501/com.codeswhat.dilated.closed-lid-repair",
         "bootstrap gui/501",
+        "remove \(rig.paths.removalMarker)",
       ])
     #expect(rig.files.entry(rig.paths.scriptPath) == first)
     // The second run found a working rule, so the record from the first run stays.
@@ -291,6 +318,38 @@ struct ClosedLidSetupInstallTests {
     let rig = Rig(rule: .ready, bootstrapFails: true)
     #expect(
       await rig.setup.install() == .failed("Couldn't load the repair agent: boom"))
+    #expect(await rig.setup.status().agent == .notLoaded)
+  }
+
+  @Test func aBootstrapThatLeavesTheAgentUnloadedIsNotSuccess() async {
+    let rig = Rig(rule: .ready, neverLoads: true)
+    guard case .failed(let message) = await rig.setup.install() else {
+      Issue.record("expected a failure")
+      return
+    }
+    #expect(message.contains("didn't load"))
+    #expect(await rig.setup.status().agent == .notLoaded)
+    #expect(!(await rig.setup.status().isInstalled))
+  }
+
+  @Test func installClearsTheRemovalMarkerOnlyAfterTheAgentIsLoaded() async {
+    for (neverLoads, cleared) in [(false, true), (true, false)] {
+      let rig = Rig(rule: .ready, neverLoads: neverLoads)
+      rig.files.put(rig.paths.removalMarker, Data("removing\n".utf8))
+      _ = await rig.setup.install()
+      #expect((rig.files.entry(rig.paths.removalMarker) == nil) == cleared)
+    }
+    let failed = Rig(rule: .ready, bootstrapFails: true)
+    failed.files.put(failed.paths.removalMarker, Data("removing\n".utf8))
+    _ = await failed.setup.install()
+    #expect(failed.files.entry(failed.paths.removalMarker) != nil)
+  }
+
+  @Test func aSuccessfulInstallLeavesTheAgentLoaded() async {
+    let rig = Rig(rule: .ready)
+    #expect(await rig.setup.install() == .completed)
+    #expect(await rig.setup.status().agent == .loaded)
+    #expect(await rig.setup.status().isInstalled)
   }
 }
 
@@ -311,6 +370,9 @@ struct ClosedLidSetupRemoveTests {
     let p = rig.paths
     #expect(
       rig.log.events == [
+        "begin removal",
+        "readback",
+        "finish removal",
         "bootout gui/501/com.codeswhat.dilated.closed-lid-repair",
         "remove \(p.agentPlistPath)",
         "remove \(p.scriptPath)",
@@ -321,20 +383,17 @@ struct ClosedLidSetupRemoveTests {
       ])
   }
 
-  @Test func revertsAnActiveSessionBeforeAnythingElse() async {
-    let rig = Rig(rule: .ready)
-    installed(rig, recordRule: false)
-    rig.files.put(rig.paths.sessionFile, Data("123 Mon".utf8))
-    #expect(await rig.setup.remove() == .completed)
-    #expect(rig.log.events.first == "power off")
-    #expect(rig.log.events[1].hasPrefix("bootout"))
-  }
-
-  @Test func doesNotRunOffWithoutASession() async {
-    let rig = Rig(rule: .ready)
-    installed(rig, recordRule: false)
-    _ = await rig.setup.remove()
-    #expect(!rig.log.events.contains("power off"))
+  @Test func blocksEnablesAndRevertsBeforeAnythingElseWithOrWithoutASession() async {
+    for hasSession in [true, false] {
+      let rig = Rig(rule: .ready)
+      installed(rig, recordRule: false)
+      if hasSession { rig.files.put(rig.paths.sessionFile, Data("123 Mon".utf8)) }
+      #expect(await rig.setup.remove() == .completed)
+      #expect(rig.log.events.first == "begin removal")
+      #expect(rig.log.events[1] == "readback")
+      #expect(rig.log.events[2] == "finish removal")
+      #expect(rig.log.events[3].hasPrefix("bootout"))
+    }
   }
 
   @Test func stopsWhenTheSessionCannotBeReverted() async {
@@ -345,8 +404,128 @@ struct ClosedLidSetupRemoveTests {
       Issue.record("expected a failure")
       return
     }
-    #expect(rig.log.events == ["power off"])
+    #expect(rig.log.events == ["begin removal"])
     #expect(rig.files.entry(rig.paths.scriptPath) != nil)
+    #expect(rig.files.entry(rig.paths.agentPlistPath) != nil)
+  }
+
+  @Test func keepsTheRecoveryAssetsUntilNormalSleepIsConfirmed() async {
+    let rig = Rig(rule: .ready, sleepRestored: false)
+    installed(rig, recordRule: true)
+    guard case .failed = await rig.setup.remove() else {
+      Issue.record("expected a failure")
+      return
+    }
+    #expect(rig.log.events == ["begin removal", "readback"])
+    #expect(rig.files.entry(rig.paths.scriptPath) != nil)
+    #expect(rig.files.entry(rig.paths.agentPlistPath) != nil)
+    #expect(rig.files.entry(rig.paths.stateFile) != nil)
+  }
+
+  @Test func aForeignDisableWithNoSessionLetsRemoveComplete() async {
+    // Another app holds disablesleep: begin-removal answers none, so there's no readback to fail.
+    let rig = Rig(rule: .ready, sleepRestored: false, ownsSleep: false)
+    installed(rig, recordRule: false)
+    #expect(await rig.setup.remove() == .completed)
+    #expect(rig.log.events.contains("begin removal"))
+    #expect(!rig.log.events.contains("readback"))
+    #expect(rig.files.entry(rig.paths.scriptPath) == nil)
+    #expect(rig.files.entry(rig.paths.agentPlistPath) == nil)
+  }
+
+  @Test func aMissingScriptWithALiveSessionKeepsTheAgentUntilSleepReadsNormal() async {
+    let rig = Rig(rule: .ready, sleepRestored: false)
+    installed(rig, recordRule: false)
+    try? rig.files.remove(rig.paths.scriptPath)
+    rig.files.put(rig.paths.sessionFile, Data("123 Mon".utf8))
+    let before = rig.log.events.count
+    guard case .failed = await rig.setup.remove() else {
+      Issue.record("expected a failure")
+      return
+    }
+    #expect(Array(rig.log.events.dropFirst(before)) == ["readback"])
+    #expect(rig.files.entry(rig.paths.agentPlistPath) != nil)
+  }
+
+  @Test func aMissingScriptWithNoSessionRemovesTheAgentWithoutAReadback() async {
+    let rig = Rig(rule: .ready, sleepRestored: false)
+    installed(rig, recordRule: false)
+    try? rig.files.remove(rig.paths.scriptPath)
+    #expect(await rig.setup.remove() == .completed)
+    #expect(!rig.log.events.contains("readback"))
+    #expect(rig.files.entry(rig.paths.agentPlistPath) == nil)
+  }
+
+  @Test func theMarkerSurvivesARemoveAndTheNextInstallClearsItAfterTheAgentLoads() async {
+    let rig = Rig(rule: .ready)
+    installed(rig, recordRule: false)
+    rig.files.put(rig.paths.removalMarker, Data("removing\n".utf8))
+    #expect(await rig.setup.remove() == .completed)
+    #expect(rig.files.entry(rig.paths.removalMarker) != nil)
+    #expect(await rig.setup.install() == .completed)
+    #expect(rig.files.entry(rig.paths.removalMarker) == nil)
+    let blocked = Rig(rule: .ready, neverLoads: true)
+    blocked.files.put(blocked.paths.removalMarker, Data("removing\n".utf8))
+    _ = await blocked.setup.install()
+    #expect(blocked.files.entry(blocked.paths.removalMarker) != nil)
+  }
+
+  @Test func aRetryAfterAFailedReadbackStillOwnsTheSessionAndChecksAgain() async {
+    let rig = Rig(rule: .ready, sleepRestored: false)
+    installed(rig, recordRule: false)
+    rig.files.put(rig.paths.sessionFile, Data("123 Mon".utf8))
+    for _ in 0..<2 {
+      guard case .failed = await rig.setup.remove() else {
+        Issue.record("expected a failure")
+        return
+      }
+    }
+    #expect(rig.log.events == ["begin removal", "readback", "begin removal", "readback"])
+    #expect(rig.files.entry(rig.paths.sessionFile) != nil)
+    #expect(rig.files.entry(rig.paths.agentPlistPath) != nil)
+  }
+
+  @Test func finishRemovalRunsOnlyAfterTheReadbackConfirmsNormalSleep() async {
+    let rig = Rig(rule: .ready)
+    installed(rig, recordRule: false)
+    rig.files.put(rig.paths.sessionFile, Data("123 Mon".utf8))
+    #expect(await rig.setup.remove() == .completed)
+    #expect(
+      Array(rig.log.events.prefix(4)) == [
+        "begin removal", "readback", "finish removal",
+        "bootout gui/501/com.codeswhat.dilated.closed-lid-repair",
+      ])
+  }
+
+  @Test func aStaleTombstoneWithNoSessionIsNotOurs() async {
+    // Another app holds disablesleep after an old repair left a tombstone: nothing to read back.
+    let rig = Rig(rule: .ready, sleepRestored: false)
+    installed(rig, recordRule: false)
+    try? rig.files.remove(rig.paths.scriptPath)
+    let tombstone = "/Users/test/Library/Application Support/dilated-power/tombstone"
+    rig.files.put(tombstone, Data("reverted 7\n".utf8))
+    #expect(await rig.setup.remove() == .completed)
+    #expect(!rig.log.events.contains("readback"))
+    #expect(rig.files.entry(tombstone) != nil)
+  }
+
+  @Test func aFailedRemoveKeepsTheRemovalMarker() async {
+    let rig = Rig(rule: .ready, sleepRestored: false)
+    installed(rig, recordRule: false)
+    rig.files.put(rig.paths.removalMarker, Data("removing\n".utf8))
+    guard case .failed = await rig.setup.remove() else {
+      Issue.record("expected a failure")
+      return
+    }
+    #expect(rig.files.entry(rig.paths.removalMarker) != nil)
+  }
+
+  @Test func replacesAnOutdatedScriptBeforeBeginningRemoval() async {
+    let rig = Rig(rule: .ready)
+    installed(rig, recordRule: false)
+    rig.files.put(rig.paths.scriptPath, Data("old".utf8), mode: 0o755)
+    #expect(await rig.setup.remove() == .completed)
+    #expect(Array(rig.log.events.prefix(2)) == ["write \(rig.paths.scriptPath)", "begin removal"])
   }
 
   @Test func neverRemovesARuleItDidNotInstall() async {
@@ -379,6 +558,7 @@ struct ClosedLidSetupRemoveTests {
   @Test func removingWhenNothingIsInstalledIsFine() async {
     let rig = Rig(rule: .notInstalled)
     #expect(await rig.setup.remove() == .completed)
+    #expect(!rig.log.events.contains("begin removal"))
   }
 }
 
