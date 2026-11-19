@@ -85,9 +85,14 @@ final class FakeLaunchd: LaunchAgentControlling, @unchecked Sendable {
 struct FakePower: PowerScriptRunning {
   let log: SetupLog
   var fails = false
-  func off(scriptPath: String) async throws {
-    log.add("power off")
+  var sleepRestored = true
+  func beginRemoval(scriptPath: String) async throws {
+    log.add("begin removal")
     if fails { throw ClosedLidSetupLiveError(message: "nope") }
+  }
+  func confirmsNormalSleep() async -> Bool {
+    log.add("readback")
+    return sleepRestored
   }
 }
 
@@ -141,7 +146,8 @@ private struct Rig {
     rule ruleState: ClosedLidPermissionState = .notInstalled,
     afterInstall: ClosedLidPermissionOutcome = .completed(.ready),
     afterRemove: ClosedLidPermissionOutcome = .completed(.notInstalled),
-    powerFails: Bool = false, bootstrapFails: Bool = false, neverLoads: Bool = false,
+    powerFails: Bool = false, sleepRestored: Bool = true, bootstrapFails: Bool = false,
+    neverLoads: Bool = false,
     assets: ClosedLidSetupAssets? = nil
   ) {
     let log = log
@@ -157,7 +163,8 @@ private struct Rig {
         ?? ClosedLidSetupAssets(
           script: scriptBytes, plistTemplate: templateText,
           expectedScriptSHA256: digest(scriptBytes)),
-      files: files, launchd: launchd, power: FakePower(log: log, fails: powerFails), rule: rule)
+      files: files, launchd: launchd,
+      power: FakePower(log: log, fails: powerFails, sleepRestored: sleepRestored), rule: rule)
   }
 }
 
@@ -174,6 +181,7 @@ struct ClosedLidSetupInstallTests {
         "write \(p.agentPlistPath)",
         "bootout gui/501/com.codeswhat.dilated.closed-lid-repair",
         "bootstrap gui/501",
+        "remove \(p.removalMarker)",
       ])
   }
 
@@ -250,6 +258,7 @@ struct ClosedLidSetupInstallTests {
         "write \(rig.paths.agentPlistPath)",
         "bootout gui/501/com.codeswhat.dilated.closed-lid-repair",
         "bootstrap gui/501",
+        "remove \(rig.paths.removalMarker)",
       ])
     #expect(rig.files.entry(rig.paths.scriptPath) == first)
     // The second run found a working rule, so the record from the first run stays.
@@ -315,6 +324,19 @@ struct ClosedLidSetupInstallTests {
     #expect(!(await rig.setup.status().isInstalled))
   }
 
+  @Test func installClearsTheRemovalMarkerOnlyAfterTheAgentIsLoaded() async {
+    for (neverLoads, cleared) in [(false, true), (true, false)] {
+      let rig = Rig(rule: .ready, neverLoads: neverLoads)
+      rig.files.put(rig.paths.removalMarker, Data("removing\n".utf8))
+      _ = await rig.setup.install()
+      #expect((rig.files.entry(rig.paths.removalMarker) == nil) == cleared)
+    }
+    let failed = Rig(rule: .ready, bootstrapFails: true)
+    failed.files.put(failed.paths.removalMarker, Data("removing\n".utf8))
+    _ = await failed.setup.install()
+    #expect(failed.files.entry(failed.paths.removalMarker) != nil)
+  }
+
   @Test func aSuccessfulInstallLeavesTheAgentLoaded() async {
     let rig = Rig(rule: .ready)
     #expect(await rig.setup.install() == .completed)
@@ -340,6 +362,8 @@ struct ClosedLidSetupRemoveTests {
     let p = rig.paths
     #expect(
       rig.log.events == [
+        "begin removal",
+        "readback",
         "bootout gui/501/com.codeswhat.dilated.closed-lid-repair",
         "remove \(p.agentPlistPath)",
         "remove \(p.scriptPath)",
@@ -350,20 +374,16 @@ struct ClosedLidSetupRemoveTests {
       ])
   }
 
-  @Test func revertsAnActiveSessionBeforeAnythingElse() async {
-    let rig = Rig(rule: .ready)
-    installed(rig, recordRule: false)
-    rig.files.put(rig.paths.sessionFile, Data("123 Mon".utf8))
-    #expect(await rig.setup.remove() == .completed)
-    #expect(rig.log.events.first == "power off")
-    #expect(rig.log.events[1].hasPrefix("bootout"))
-  }
-
-  @Test func doesNotRunOffWithoutASession() async {
-    let rig = Rig(rule: .ready)
-    installed(rig, recordRule: false)
-    _ = await rig.setup.remove()
-    #expect(!rig.log.events.contains("power off"))
+  @Test func blocksEnablesAndRevertsBeforeAnythingElseWithOrWithoutASession() async {
+    for hasSession in [true, false] {
+      let rig = Rig(rule: .ready)
+      installed(rig, recordRule: false)
+      if hasSession { rig.files.put(rig.paths.sessionFile, Data("123 Mon".utf8)) }
+      #expect(await rig.setup.remove() == .completed)
+      #expect(Array(rig.log.events.prefix(3)).first == "begin removal")
+      #expect(rig.log.events[1] == "readback")
+      #expect(rig.log.events[2].hasPrefix("bootout"))
+    }
   }
 
   @Test func stopsWhenTheSessionCannotBeReverted() async {
@@ -374,8 +394,30 @@ struct ClosedLidSetupRemoveTests {
       Issue.record("expected a failure")
       return
     }
-    #expect(rig.log.events == ["power off"])
+    #expect(rig.log.events == ["begin removal"])
     #expect(rig.files.entry(rig.paths.scriptPath) != nil)
+    #expect(rig.files.entry(rig.paths.agentPlistPath) != nil)
+  }
+
+  @Test func keepsTheRecoveryAssetsUntilNormalSleepIsConfirmed() async {
+    let rig = Rig(rule: .ready, sleepRestored: false)
+    installed(rig, recordRule: true)
+    guard case .failed = await rig.setup.remove() else {
+      Issue.record("expected a failure")
+      return
+    }
+    #expect(rig.log.events == ["begin removal", "readback"])
+    #expect(rig.files.entry(rig.paths.scriptPath) != nil)
+    #expect(rig.files.entry(rig.paths.agentPlistPath) != nil)
+    #expect(rig.files.entry(rig.paths.stateFile) != nil)
+  }
+
+  @Test func replacesAnOutdatedScriptBeforeBeginningRemoval() async {
+    let rig = Rig(rule: .ready)
+    installed(rig, recordRule: false)
+    rig.files.put(rig.paths.scriptPath, Data("old".utf8), mode: 0o755)
+    #expect(await rig.setup.remove() == .completed)
+    #expect(Array(rig.log.events.prefix(2)) == ["write \(rig.paths.scriptPath)", "begin removal"])
   }
 
   @Test func neverRemovesARuleItDidNotInstall() async {
@@ -408,6 +450,7 @@ struct ClosedLidSetupRemoveTests {
   @Test func removingWhenNothingIsInstalledIsFine() async {
     let rig = Rig(rule: .notInstalled)
     #expect(await rig.setup.remove() == .completed)
+    #expect(!rig.log.events.contains("begin removal"))
   }
 }
 

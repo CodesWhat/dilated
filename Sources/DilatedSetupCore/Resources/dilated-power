@@ -4,18 +4,21 @@
 # them when the app is gone. The Mac App Store build can't spawn sudo, so it runs this script from
 # ~/Library/Application Scripts/<bundle id>/ through NSUserUnixTask.
 #
-# Usage: dilated-power on <pid> | beat | off | check | repair | probe
+# Usage: dilated-power on <pid> | beat | off | check | repair | probe | begin-removal
 # Output: one word on stdout, then the exit status.
 #   ok        0   the command ran (or, for probe, sudo allows both commands)
 #   reverted  4   (on) the agent already reverted this pid's session; enable again to continue
 #   norule    3   sudo needs a password, doesn't allow the command, or the user may not run sudo
-#   noagent   3   (on, probe) the repair LaunchAgent isn't loaded.
+#   noagent   3   (on, probe) the repair LaunchAgent isn't loaded, or the companion is removing it.
 #                 Shares norule's exit status on purpose: an app that predates this word reads an
 #                 unknown first word as a failed command and refuses the enable, so nothing turns
 #                 sleep off without the agent that can turn it back on. Run the setup companion again.
 #   failed    N   anything else; N is the failing command's status, or 1
 #   none      0   (beat, check) there is no session
 #   live | dead | stale | reverted   (check) what `repair` would see; nothing is changed
+#   begin-removal (companion only) takes the lock, writes the removal marker, turns sleep back on and
+#                 clears the session. While the marker exists `on` and `probe` answer noagent; off and
+#                 repair still work. Installing the companion again clears the marker once the agent is loaded.
 # Anything but a valid verb with its exact arguments prints usage to stderr and exits 64.
 #
 # Session record: $HOME/Library/Application Support/dilated-power/session holds
@@ -25,7 +28,7 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: dilated-power on <pid>|beat|off|check|repair|probe" >&2
+  echo "usage: dilated-power on <pid>|beat|off|check|repair|probe|begin-removal" >&2
   exit 64
 }
 
@@ -42,7 +45,7 @@ case "$verb" in
     pid=$((10#$pid))
     [ "$pid" -gt 0 ] || usage
     ;;
-  beat | off | check | repair | probe) [ "$#" -eq 1 ] || usage ;;
+  beat | off | check | repair | probe | begin-removal) [ "$#" -eq 1 ] || usage ;;
   *) usage ;;
 esac
 
@@ -107,6 +110,8 @@ session_dir="$home/Library/Application Support/dilated-power"
 session_file="$session_dir/session"
 tombstone_file="$session_dir/tombstone"
 lock_dir="$session_dir/lock.d"
+# Written by begin-removal and cleared only by the companion's install. It outlives the script.
+removal_file="$session_dir/removal"
 agent_label="com.codeswhat.dilated.closed-lid-repair"
 
 # True when the repair LaunchAgent is loaded in this user's GUI domain. Without it nothing can
@@ -224,6 +229,8 @@ case "$verb" in
       echo failed
       exit 1
     }
+    # Under the lock, so a begin-removal that got here first is always seen.
+    [ ! -f "$removal_file" ] || refuse_unready
     agent_loaded || refuse_unready
     if [ -f "$tombstone_file" ] && [ "$(<"$tombstone_file")" = "reverted $pid" ]; then
       /bin/rm -f "$tombstone_file"
@@ -269,6 +276,18 @@ case "$verb" in
     echo ok
     exit 0
     ;;
+  begin-removal)
+    take_lock || {
+      echo failed
+      exit 1
+    }
+    # The marker goes down first, so a failed pmset still leaves new enables blocked.
+    write_atomic "$removal_file" "removing"
+    run_pmset 0
+    /bin/rm -f "$session_file" "$tombstone_file"
+    echo ok
+    exit 0
+    ;;
   check)
     classify
     exit 0
@@ -290,7 +309,7 @@ case "$verb" in
     exit 0
     ;;
   probe)
-    agent_loaded || refuse_unready
+    { [ ! -f "$removal_file" ] && agent_loaded; } || refuse_unready
     # One `sudo -n -l` per command, mirroring ClosedLidPermission.probeArgumentSets.
     for value in 1 0; do
       detail=$(run_sudo -l /usr/bin/pmset -a disablesleep "$value") || status=$?

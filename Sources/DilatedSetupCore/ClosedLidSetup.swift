@@ -99,17 +99,37 @@ public struct ClosedLidSetup: Sendable {
     guard await launchd.isLoaded(target: paths.agentTarget) else {
       return .failed("The repair agent didn't load. Closed-lid mode stays off until it does.")
     }
+    // Only now can the script accept closed-lid enables again.
+    do { try files.remove(paths.removalMarker) } catch {
+      return .failed("Couldn't clear the removal marker: \(error.localizedDescription)")
+    }
     return .completed
   }
 
   // MARK: Remove
 
   public func remove() async -> ClosedLidSetupOutcome {
-    // 1. Put sleep back before the script that can do it goes away.
-    if files.exists(paths.sessionFile), files.exists(paths.scriptPath) {
-      do { try await power.off(scriptPath: paths.scriptPath) } catch {
+    // 1. Block new enables and put sleep back before the script that can do it goes away. An
+    // installed script from before begin-removal existed is replaced first, since the old one
+    // would answer with usage.
+    if let installed = files.read(paths.scriptPath) {
+      if Self.sha256(installed) != assets.expectedScriptSHA256,
+        Self.sha256(assets.script) == assets.expectedScriptSHA256
+      {
+        do {
+          try files.writeAtomically(
+            assets.script, to: paths.scriptPath, mode: 0o755, directoryMode: 0o755)
+        } catch {
+          return .failed("Couldn't update the dilated-power script: \(error.localizedDescription)")
+        }
+      }
+      do { try await power.beginRemoval(scriptPath: paths.scriptPath) } catch {
         return .failed(
-          "Closed-lid mode is still on and couldn't be turned off: \(error.localizedDescription)")
+          "Closed-lid mode couldn't be turned off: \(error.localizedDescription)")
+      }
+      // The recovery assets stay until macOS itself says sleep is back to normal.
+      guard await power.confirmsNormalSleep() else {
+        return .failed("macOS hasn't confirmed normal sleep, so the repair agent was kept.")
       }
     }
 
