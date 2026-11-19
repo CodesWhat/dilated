@@ -136,14 +136,15 @@ public struct LiveLaunchAgentControl: LaunchAgentControlling {
 public struct LivePowerScript: PowerScriptRunning {
   public init() {}
 
-  public func beginRemoval(scriptPath: String) async throws {
+  public func beginRemoval(scriptPath: String) async throws -> Bool {
     guard let result = await SetupProcess.run("/bin/bash", [scriptPath, "begin-removal"]) else {
       throw ClosedLidSetupLiveError(message: "The script couldn't start.")
     }
     let word = result.output.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
-    guard !result.timedOut, result.status == 0, word == "ok" else {
+    guard !result.timedOut, result.status == 0, word == "ok" || word == "none" else {
       throw ClosedLidSetupLiveError(message: "dilated-power begin-removal printed '\(word)'.")
     }
+    return word == "ok"
   }
 
   public func confirmsNormalSleep() async -> Bool {

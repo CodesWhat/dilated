@@ -86,9 +86,12 @@ struct FakePower: PowerScriptRunning {
   let log: SetupLog
   var fails = false
   var sleepRestored = true
-  func beginRemoval(scriptPath: String) async throws {
+  /// What the script reports: whether a session or tombstone was ours.
+  var owned = true
+  func beginRemoval(scriptPath: String) async throws -> Bool {
     log.add("begin removal")
     if fails { throw ClosedLidSetupLiveError(message: "nope") }
+    return owned
   }
   func confirmsNormalSleep() async -> Bool {
     log.add("readback")
@@ -146,7 +149,8 @@ private struct Rig {
     rule ruleState: ClosedLidPermissionState = .notInstalled,
     afterInstall: ClosedLidPermissionOutcome = .completed(.ready),
     afterRemove: ClosedLidPermissionOutcome = .completed(.notInstalled),
-    powerFails: Bool = false, sleepRestored: Bool = true, bootstrapFails: Bool = false,
+    powerFails: Bool = false, sleepRestored: Bool = true, ownsSleep: Bool = true,
+    bootstrapFails: Bool = false,
     neverLoads: Bool = false,
     assets: ClosedLidSetupAssets? = nil
   ) {
@@ -164,7 +168,8 @@ private struct Rig {
           script: scriptBytes, plistTemplate: templateText,
           expectedScriptSHA256: digest(scriptBytes)),
       files: files, launchd: launchd,
-      power: FakePower(log: log, fails: powerFails, sleepRestored: sleepRestored), rule: rule)
+      power: FakePower(
+        log: log, fails: powerFails, sleepRestored: sleepRestored, owned: ownsSleep), rule: rule)
   }
 }
 
@@ -370,6 +375,7 @@ struct ClosedLidSetupRemoveTests {
         "rmdir \(p.scriptsDirectory)",
         "rule remove",
         "remove \(p.stateFile)",
+        "remove \(p.removalMarker)",
         "rmdir \(p.stateDirectory)",
       ])
   }
@@ -410,6 +416,59 @@ struct ClosedLidSetupRemoveTests {
     #expect(rig.files.entry(rig.paths.scriptPath) != nil)
     #expect(rig.files.entry(rig.paths.agentPlistPath) != nil)
     #expect(rig.files.entry(rig.paths.stateFile) != nil)
+  }
+
+  @Test func aForeignDisableWithNoSessionLetsRemoveComplete() async {
+    // Another app holds disablesleep: begin-removal answers none, so there's no readback to fail.
+    let rig = Rig(rule: .ready, sleepRestored: false, ownsSleep: false)
+    installed(rig, recordRule: false)
+    #expect(await rig.setup.remove() == .completed)
+    #expect(rig.log.events.contains("begin removal"))
+    #expect(!rig.log.events.contains("readback"))
+    #expect(rig.files.entry(rig.paths.scriptPath) == nil)
+    #expect(rig.files.entry(rig.paths.agentPlistPath) == nil)
+  }
+
+  @Test func aMissingScriptWithALiveSessionKeepsTheAgentUntilSleepReadsNormal() async {
+    let rig = Rig(rule: .ready, sleepRestored: false)
+    installed(rig, recordRule: false)
+    try? rig.files.remove(rig.paths.scriptPath)
+    rig.files.put(rig.paths.sessionFile, Data("123 Mon".utf8))
+    let before = rig.log.events.count
+    guard case .failed = await rig.setup.remove() else {
+      Issue.record("expected a failure")
+      return
+    }
+    #expect(Array(rig.log.events.dropFirst(before)) == ["readback"])
+    #expect(rig.files.entry(rig.paths.agentPlistPath) != nil)
+  }
+
+  @Test func aMissingScriptWithNoSessionRemovesTheAgentWithoutAReadback() async {
+    let rig = Rig(rule: .ready, sleepRestored: false)
+    installed(rig, recordRule: false)
+    try? rig.files.remove(rig.paths.scriptPath)
+    #expect(await rig.setup.remove() == .completed)
+    #expect(!rig.log.events.contains("readback"))
+    #expect(rig.files.entry(rig.paths.agentPlistPath) == nil)
+  }
+
+  @Test func aSuccessfulRemoveDeletesTheRemovalMarker() async {
+    let rig = Rig(rule: .ready)
+    installed(rig, recordRule: false)
+    rig.files.put(rig.paths.removalMarker, Data("removing\n".utf8))
+    #expect(await rig.setup.remove() == .completed)
+    #expect(rig.files.entry(rig.paths.removalMarker) == nil)
+  }
+
+  @Test func aFailedRemoveKeepsTheRemovalMarker() async {
+    let rig = Rig(rule: .ready, sleepRestored: false)
+    installed(rig, recordRule: false)
+    rig.files.put(rig.paths.removalMarker, Data("removing\n".utf8))
+    guard case .failed = await rig.setup.remove() else {
+      Issue.record("expected a failure")
+      return
+    }
+    #expect(rig.files.entry(rig.paths.removalMarker) != nil)
   }
 
   @Test func replacesAnOutdatedScriptBeforeBeginningRemoval() async {

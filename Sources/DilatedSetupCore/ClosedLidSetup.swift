@@ -112,6 +112,9 @@ public struct ClosedLidSetup: Sendable {
     // 1. Block new enables and put sleep back before the script that can do it goes away. An
     // installed script from before begin-removal existed is replaced first, since the old one
     // would answer with usage.
+    // Only sleep this setup turned off (a session or tombstone on disk) has to read back normal;
+    // another app's disablesleep is left alone and never blocks removal.
+    var ownedSleep = files.exists(paths.sessionFile) || files.exists(paths.tombstoneFile)
     if let installed = files.read(paths.scriptPath) {
       if Self.sha256(installed) != assets.expectedScriptSHA256,
         Self.sha256(assets.script) == assets.expectedScriptSHA256
@@ -123,14 +126,15 @@ public struct ClosedLidSetup: Sendable {
           return .failed("Couldn't update the dilated-power script: \(error.localizedDescription)")
         }
       }
-      do { try await power.beginRemoval(scriptPath: paths.scriptPath) } catch {
+      do { ownedSleep = try await power.beginRemoval(scriptPath: paths.scriptPath) } catch {
         return .failed(
           "Closed-lid mode couldn't be turned off: \(error.localizedDescription)")
       }
-      // The recovery assets stay until macOS itself says sleep is back to normal.
-      guard await power.confirmsNormalSleep() else {
-        return .failed("macOS hasn't confirmed normal sleep, so the repair agent was kept.")
-      }
+    }
+    // The recovery assets stay until macOS itself says sleep is back to normal. With the script
+    // gone nothing can put it back, so a session left behind keeps the agent and its plist.
+    if ownedSleep, !(await power.confirmsNormalSleep()) {
+      return .failed("macOS hasn't confirmed normal sleep, so the repair agent was kept.")
     }
 
     // 2. Agent.
@@ -158,6 +162,8 @@ public struct ClosedLidSetup: Sendable {
     do { try files.remove(paths.stateFile) } catch {
       return .failed("Couldn't delete the setup record: \(error.localizedDescription)")
     }
+    // The script is gone, so the marker no longer guards anything.
+    try? files.remove(paths.removalMarker)
     files.removeDirectoryIfEmpty(paths.stateDirectory)
     return .completed
   }

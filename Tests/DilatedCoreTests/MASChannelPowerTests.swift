@@ -387,6 +387,7 @@ struct MASChannelRepairScriptTests {
   @Test func beginRemovalWithoutARuleStillBlocksEnables() throws {
     let box = try Sandbox()
     let child = try box.spawnSleeper()
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
     try """
     #!/bin/bash
     echo "sudo: a password is required"
@@ -396,6 +397,76 @@ struct MASChannelRepairScriptTests {
     #expect(result.out == "norule")
     #expect(FileManager.default.fileExists(atPath: Self.marker(box).path))
     #expect(try box.run(["on", String(child.processIdentifier)]).out == "noagent")
+  }
+
+  @Test func beginRemovalLeavesAForeignDisableAloneWhenNoSessionIsOurs() throws {
+    let box = try Sandbox()
+    let result = try box.run(["begin-removal"])
+    #expect(result.out == "none")
+    #expect(result.status == 0)
+    #expect(box.sudoCalls.isEmpty)
+    #expect(FileManager.default.fileExists(atPath: Self.marker(box).path))
+  }
+
+  @Test func beginRemovalRestoresSleepForATombstoneAlone() throws {
+    let box = try Sandbox()
+    try FileManager.default.createDirectory(
+      at: box.sessionDirectory, withIntermediateDirectories: true)
+    try "reverted 7\n".write(
+      to: box.sessionDirectory.appendingPathComponent("tombstone"), atomically: true,
+      encoding: .utf8)
+    #expect(try box.run(["begin-removal"]).out == "ok")
+    #expect(box.sudoCalls == ["/usr/bin/pmset -a disablesleep 0"])
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: box.sessionDirectory.appendingPathComponent("tombstone").path))
+  }
+
+  @Test func aFailedMarkerWritePrintsFailed() throws {
+    let box = try Sandbox()
+    try FileManager.default.createDirectory(
+      at: box.sessionDirectory, withIntermediateDirectories: true)
+    let marker = Self.marker(box)
+    try "removing\n".write(to: marker, atomically: true, encoding: .utf8)
+    // mv can't replace an immutable file, so write_atomic fails under set -e.
+    try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: marker.path)
+    defer {
+      try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: marker.path)
+    }
+    let result = try box.run(["begin-removal"])
+    #expect(result.out == "failed")
+    #expect(result.status == 1)
+    #expect(box.sudoCalls.isEmpty)
+  }
+
+  @Test func aSlowLaunchctlKeepsOnInsideTheAppTimeout() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    try """
+    #!/bin/bash
+    exec /bin/sleep 30
+    """.write(to: box.fakeLaunchctl, atomically: true, encoding: .utf8)
+    let started = Date()
+    let result = try box.run(["on", String(child.processIdentifier)])
+    #expect(Date().timeIntervalSince(started) < 2.5)
+    #expect(result.out == "noagent")
+    #expect(result.status == 3)
+    #expect(box.sudoCalls.isEmpty)
+  }
+
+  @Test func aHeldLockMakesOnAnswerBusyInsideTheAppTimeout() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    try FileManager.default.createDirectory(
+      at: box.sessionDirectory.appendingPathComponent("lock.d"),
+      withIntermediateDirectories: true)
+    let started = Date()
+    let result = try box.run(["on", String(child.processIdentifier)])
+    #expect(Date().timeIntervalSince(started) < 3)
+    #expect(result.out == "busy")
+    #expect(result.status == 1)
+    #expect(box.sudoCalls.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
   }
 
   @Test func anOnThatTookTheLockFirstIsFollowedByRemoval() throws {
@@ -432,10 +503,9 @@ struct MASChannelRepairScriptTests {
   @Test func anOnThatWaitsOnTheLockSeesTheMarkerBeginRemovalLeft() throws {
     let box = try Sandbox()
     let child = try box.spawnSleeper()
-    // Removal holds the lock and has written the marker; `on` arrives and queues.
+    // Removal holds the lock; `on` arrives, passes its first marker check and queues.
     let lock = box.sessionDirectory.appendingPathComponent("lock.d")
     try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: true)
-    try "removing\n".write(to: Self.marker(box), atomically: true, encoding: .utf8)
     let on = Process()
     on.executableURL = URL(fileURLWithPath: "/bin/bash")
     on.arguments = [Self.script.path, "on", String(child.processIdentifier)]
@@ -449,6 +519,8 @@ struct MASChannelRepairScriptTests {
     try on.run()
     Thread.sleep(forTimeInterval: 0.4)
     #expect(on.isRunning)
+    // The marker lands while `on` is queued, past its first check, so only the re-check sees it.
+    try "removing\n".write(to: Self.marker(box), atomically: true, encoding: .utf8)
     try FileManager.default.removeItem(at: lock)
     let output = String(
       decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
@@ -462,9 +534,9 @@ struct MASChannelRepairScriptTests {
   @Test func removalFollowedByOnRefusesTheEnable() throws {
     let box = try Sandbox()
     let child = try box.spawnSleeper()
-    #expect(try box.run(["begin-removal"]).out == "ok")
+    #expect(try box.run(["begin-removal"]).out == "none")
     #expect(try box.run(["on", String(child.processIdentifier)]).out == "noagent")
-    #expect(box.sudoCalls == ["/usr/bin/pmset -a disablesleep 0"])
+    #expect(box.sudoCalls.isEmpty)
     // Clearing the marker (what install does) lets the enable through again.
     try FileManager.default.removeItem(at: Self.marker(box))
     #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")

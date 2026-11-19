@@ -28,6 +28,8 @@ public struct ClosedLidSetupPaths: Equatable, Sendable {
   public var agentDomain: String { "gui/\(uid)" }
   /// The session record `dilated-power on` writes. A file here means closed-lid mode may be on.
   public var sessionFile: String { "\(home)/Library/Application Support/dilated-power/session" }
+  /// Written when the repair agent reverts a session; its presence means this script owned sleep.
+  public var tombstoneFile: String { "\(home)/Library/Application Support/dilated-power/tombstone" }
   /// Written by `dilated-power begin-removal`. While it exists the script refuses `on`; install
   /// clears it once the repair agent is loaded again.
   public var removalMarker: String { "\(home)/Library/Application Support/dilated-power/removal" }
@@ -42,7 +44,7 @@ public struct ClosedLidSetupAssets: Sendable {
   /// SHA-256 of `packaging/mas/dilated-power`. A test fails when the script changes without this
   /// being updated, so a stale value can't ship.
   public static let expectedScriptSHA256 =
-    "a7799d12f84d1cb7731462962495badd373f4b5f1ecd5b5a7542481e30e05922"
+    "73ab5626b261a8d0e1f8062390bb7f110bb184a01059fb91ebddc475d1d84e8b"
 
   public var script: Data
   public var plistTemplate: String
@@ -172,8 +174,9 @@ public protocol LaunchAgentControlling: Sendable {
 
 public protocol PowerScriptRunning: Sendable {
   /// Runs `dilated-power begin-removal`: under the script's lock it writes the removal marker,
-  /// turns sleep back on and clears the session, so a running app can't enable again.
-  func beginRemoval(scriptPath: String) async throws
+  /// turns sleep back on and clears the session, so a running app can't enable again. Returns
+  /// whether a session or tombstone was ours; when it wasn't, sleep was left untouched.
+  func beginRemoval(scriptPath: String) async throws -> Bool
   /// Whether macOS reads back normal sleep (not disabled, stored or effective).
   func confirmsNormalSleep() async -> Bool
 }
