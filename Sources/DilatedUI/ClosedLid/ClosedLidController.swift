@@ -190,10 +190,15 @@ import Observation
   }
 
   private func observe(_ value: HelperState) {
-    // A reply the service built before a state already applied doesn't roll it back.
-    if value.sequence > appliedSequence || value.sequence == 0 {
+    // A reply the service built before a state already applied is dropped whole: it neither rolls
+    // the state back nor reconciles the lease, so a stale no-lease answer can't end a newer one.
+    // Sequence zero is the compatibility case and is always processed.
+    if value.sequence != 0 {
+      guard value.sequence >= appliedSequence else { return }
       state = value
-      appliedSequence = max(appliedSequence, value.sequence)
+      appliedSequence = value.sequence
+    } else {
+      state = value
     }
     if let leaseID, value.leaseID != leaseID || value.generation != leaseGeneration {
       self.leaseID = nil

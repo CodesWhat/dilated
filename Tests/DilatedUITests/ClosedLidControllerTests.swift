@@ -408,6 +408,62 @@ import os
     #expect(state.confirmedDisabled)
   }
 
+  @Test func aStaleNoLeaseReplyDeliveredAfterTheEnableReplyKeepsTheLease() async throws {
+    let fixture = await ControllerFixture()
+    let controller = fixture.controller()
+    defer { controller.invalidate() }
+    var ended: [String] = []
+    controller.onEnded = { ended.append($0) }
+    let transport = fixture.transport
+    let box = TaskBox()
+    // A status captured while the enable is being handled: built before the lease exists, so its
+    // sequence is older than the enable reply's, but it reaches the controller afterwards.
+    transport.duringEnable = {
+      transport.holdNextStatus = true
+      box.task = Task { try await controller.refresh() }
+      await transport.waitForHeldStatus()
+    }
+    try await controller.enable(policy: .init())
+    #expect(controller.hasLease)
+    let applied = controller.state
+    transport.releaseHeldStatus()
+    try await #require(box.task).value
+    #expect(controller.hasLease)
+    #expect(controller.active)
+    #expect(ended.isEmpty)
+    #expect(controller.state == applied)
+    try await controller.heartbeat()
+  }
+
+  @Test func aNewerLeaseEndingReplyStillClearsTheLease() async throws {
+    let fixture = await ControllerFixture()
+    let controller = fixture.controller()
+    defer { controller.invalidate() }
+    var ended: [String] = []
+    controller.onEnded = { ended.append($0) }
+    try await controller.enable(policy: .init())
+    fixture.inputs.overheat()
+    await fixture.service.tick()
+    try await controller.refresh()
+    #expect(!controller.hasLease)
+    #expect(ended.count == 1)
+  }
+
+  @Test func sequenceZeroRepliesAreStillReconciled() async throws {
+    let fixture = await ControllerFixture()
+    let controller = fixture.controller()
+    defer { controller.invalidate() }
+    var ended: [String] = []
+    controller.onEnded = { ended.append($0) }
+    try await controller.enable(policy: .init())
+    fixture.inputs.overheat()
+    await fixture.service.tick()
+    fixture.transport.zeroSequence = true
+    try await controller.refresh()
+    #expect(!controller.hasLease)
+    #expect(ended.count == 1)
+  }
+
   @Test func stopDuringAnEnableReplyCannotRearmTheClient() async throws {
     let fixture = await ControllerFixture()
     let controller = fixture.controller()
@@ -798,6 +854,10 @@ import os
   }
 }
 
+@MainActor private final class TaskBox {
+  var task: Task<Void, any Error>?
+}
+
 @MainActor private final class InProcessHelperTransport: HelperTransporting {
   var onDisconnect: (() -> Void)?
   var actions: [HelperAction] = []
@@ -808,6 +868,13 @@ import os
   private let owner = UUID()
   private var pending: (HelperReply, CheckedContinuation<HelperReply, Never>)?
   private var waiting: CheckedContinuation<Void, Never>?
+  /// Runs after the controller sent `enable` and before the service handles it.
+  var duringEnable: (() async -> Void)?
+  /// Holds the next status reply after the service built it, until `releaseHeldStatus`.
+  var holdNextStatus = false
+  var zeroSequence = false
+  private var held: (HelperReply, CheckedContinuation<HelperReply, Never>)?
+  private var heldWaiter: CheckedContinuation<Void, Never>?
   init(service: ClosedLidService) { self.service = service }
   func send(_ request: HelperRequest) async throws -> HelperReply {
     actions.append(request.action)
@@ -816,7 +883,17 @@ import os
       if disconnectBeforeFailure { onDisconnect?() }
       throw error
     }
-    let response = await service.handle(request, owner: owner)
+    if request.action == .enable, let duringEnable { await duringEnable() }
+    var response = await service.handle(request, owner: owner)
+    if zeroSequence { response.state?.sequence = 0 }
+    if request.action == .status && holdNextStatus {
+      holdNextStatus = false
+      return await withCheckedContinuation { continuation in
+        held = (response, continuation)
+        heldWaiter?.resume()
+        heldWaiter = nil
+      }
+    }
     if request.action == .enable && delayEnableReply {
       return await withCheckedContinuation { continuation in
         pending = (response, continuation)
@@ -829,6 +906,14 @@ import os
   func waitForEnableReply() async {
     guard pending == nil else { return }
     await withCheckedContinuation { waiting = $0 }
+  }
+  func waitForHeldStatus() async {
+    guard held == nil else { return }
+    await withCheckedContinuation { heldWaiter = $0 }
+  }
+  func releaseHeldStatus() {
+    held?.1.resume(returning: held!.0)
+    held = nil
   }
   func releaseReply() {
     pending?.1.resume(returning: pending!.0)
