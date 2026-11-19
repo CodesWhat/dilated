@@ -422,8 +422,8 @@ runs unsandboxed. Install order: the sudoers rule (skipped with no prompt when `
 `~/Library/Application Scripts/com.codeswhat.dilated.appstore/` (0755, temp file and rename, SHA-256 checked against
 `ClosedLidSetupAssets.expectedScriptSHA256` before anything is written; a test fails if the script changes without it), then
 the rendered LaunchAgent plist and `launchctl bootstrap gui/<uid>` after a `bootout`, so reinstall is idempotent. Remove order:
-`dilated-power begin-removal` (replacing an outdated installed script first), then, only if the script answered `ok` (a session file was ours), a readback that must say sleep is normal
-or the agent and script are kept, then `finish-removal` (deletes the session), boot out the agent and delete the plist, delete the script and its empty folder, then the
+`dilated-power begin-removal` (replacing an outdated installed script first; a missing script is first restored from the bundled copy when a session or the restore-pending latch exists and the bundle's SHA-256 checks out, and nothing is deleted if that check or the write fails), then, only if the script answered `ok` (a session file or the latch was ours), a readback that must say sleep is normal
+or the agent and script are kept, then `finish-removal` (deletes the session and latch), boot out the agent and delete the plist, delete the script and its empty folder, then the
 rule only if the companion created it. The removal marker stays after a successful Remove; install clears it only after `launchctl` shows the agent loaded, and
 reports failure if it doesn't. That fact is a 0600 record under `~/Library/Application Support/Dilated
 Closed-Lid Setup/`, set only when the rule file was absent at install. The rule is the direct build's (same path and content),
@@ -435,11 +435,14 @@ admin prompt.
 The script takes one verb: `on <pid>` (exactly one argument, all digits, at most 10), or `beat`, `off`, `check`, `repair`,
 `probe`, `begin-removal`, `finish-removal` with no argument. Both removal verbs are the companion's. `begin-removal`, under
 the lock, writes the removal marker `~/Library/Application Support/dilated-power/removal` and, only when a `session` file
-exists (a tombstone never means ours), runs `pmset -a disablesleep 0` and prints `ok`; with no session it prints `none` and
-leaves sleep alone. The session stays, so a retry still answers `ok`. `finish-removal` deletes the session and tombstone
-once the readback confirmed normal sleep. While the marker exists `on` and `probe` answer `noagent`; `off` and `repair` still
+exists (a tombstone or a plain marker never means ours), writes the restore-pending latch `restore-pending` next to it, runs
+`pmset -a disablesleep 0` and prints `ok`; with no session and no latch it prints `none` and leaves sleep alone. The session
+stays, so a retry still answers `ok`. The latch is separate from the marker and survives `off` and `repair`, which can delete
+the session before the readback passed: with only the latch left, `begin-removal` still answers `ok` (without running pmset
+again) so the companion keeps owing the readback. `finish-removal` deletes the session, tombstone and latch once the
+readback confirmed normal sleep. While the marker exists `on` and `probe` answer `noagent`; `off` and `repair` still
 work. `on` and `probe` also require `launchctl print gui/<uid>/com.codeswhat.dilated.closed-lid-repair` to succeed (bounded to
-1s). `on` checks the marker before the lock, waits at most 1.5s for it (`busy`, exit 1; build 18 refuses any word but `ok`),
+1s). `on` checks the marker before the lock, waits at most 1.5s for it, and checks that wall-clock cap again after a successful acquisition, releasing the lock when it has passed (`busy`, exit 1; build 18 refuses any word but `ok`),
 and re-checks the marker and the agent under it before `pmset 1`. Anything else prints `usage` to stderr and exits 64. It uses absolute paths, runs
 `/usr/bin/env -i /usr/bin/sudo -n`, and reads only `HOME`. `probe` runs `sudo -n -l` for both `pmset -a disablesleep`
 commands. It prints one word, then exits:

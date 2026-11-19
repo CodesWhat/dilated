@@ -546,6 +546,100 @@ struct MASChannelRepairScriptTests {
     #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
   }
 
+  /// A scripted clock for the lock's wall-clock cap: the first reading is 100, every later one is
+  /// `later`, so the cap passes (or not) at a fixed point instead of depending on machine load.
+  private static func scriptedClock(_ box: Sandbox, later: Int) throws -> String {
+    let counter = box.home.appendingPathComponent("clock-count")
+    let clock = box.home.appendingPathComponent("fake-clock")
+    try """
+    #!/bin/bash
+    n=$(cat "\(counter.path)" 2>/dev/null || echo 0)
+    echo $((n + 1)) > "\(counter.path)"
+    if [ "$n" -eq 0 ]; then echo 100; else echo \(later); fi
+    """.write(to: clock, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: clock.path)
+    return clock.path
+  }
+
+  @Test func aLockAcquiredAfterTheWallClockCapAnswersBusyAndReleasesIt() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    let clock = try Self.scriptedClock(box, later: 103)
+    let result = try box.run(
+      ["on", String(child.processIdentifier)], environment: ["DILATED_POWER_TEST_CLOCK": clock])
+    #expect(result.out == "busy")
+    #expect(result.status == 1)
+    #expect(box.sudoCalls.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: box.sessionDirectory.appendingPathComponent("lock.d").path))
+    // Nothing is left to block the next verb.
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
+  }
+
+  @Test func aLockAcquiredInsideTheWallClockCapStillEnables() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    let clock = try Self.scriptedClock(box, later: 101)
+    let result = try box.run(
+      ["on", String(child.processIdentifier)], environment: ["DILATED_POWER_TEST_CLOCK": clock])
+    #expect(result.out == "ok")
+    #expect(box.sudoCalls == ["/usr/bin/pmset -a disablesleep 1"])
+    #expect(FileManager.default.fileExists(atPath: box.sessionFile.path))
+  }
+
+  private static func latch(_ box: Sandbox) -> URL {
+    box.sessionDirectory.appendingPathComponent("restore-pending")
+  }
+
+  @Test func theRestoreLatchSurvivesOffSoARetryStillOwesTheReadback() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
+    #expect(try box.run(["begin-removal"]).out == "ok")
+    #expect(FileManager.default.fileExists(atPath: Self.latch(box).path))
+    // The companion's readback failed; before it retries, `off` restores and deletes the session.
+    #expect(try box.run(["off"]).out == "ok")
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
+    #expect(FileManager.default.fileExists(atPath: Self.latch(box).path))
+    // The retry is still ours (so the readback runs) and doesn't touch pmset again.
+    let sudoBefore = box.sudoCalls.count
+    #expect(try box.run(["begin-removal"]).out == "ok")
+    #expect(box.sudoCalls.count == sudoBefore)
+    #expect(try box.run(["begin-removal"]).out == "ok")
+    #expect(try box.run(["finish-removal"]).out == "ok")
+    #expect(!FileManager.default.fileExists(atPath: Self.latch(box).path))
+    #expect(try box.run(["begin-removal"]).out == "none")
+    #expect(FileManager.default.fileExists(atPath: Self.marker(box).path))
+  }
+
+  @Test func theRestoreLatchSurvivesRepairDeletingTheSession() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
+    #expect(try box.run(["begin-removal"]).out == "ok")
+    box.kill(child)
+    #expect(try box.run(["repair"]).out == "reverted")
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
+    #expect(FileManager.default.fileExists(atPath: Self.latch(box).path))
+    #expect(try box.run(["begin-removal"]).out == "ok")
+    #expect(try box.run(["finish-removal"]).out == "ok")
+    #expect(try box.run(["begin-removal"]).out == "none")
+  }
+
+  @Test func aPlainMarkerOrTombstoneNeverImpliesOwnership() throws {
+    let box = try Sandbox()
+    #expect(try box.run(["begin-removal"]).out == "none")
+    // The marker is on disk now; a second removal still isn't ours.
+    #expect(try box.run(["begin-removal"]).out == "none")
+    let tombstone = box.sessionDirectory.appendingPathComponent("tombstone")
+    try "reverted 7\n".write(to: tombstone, atomically: true, encoding: .utf8)
+    #expect(try box.run(["begin-removal"]).out == "none")
+    #expect(!FileManager.default.fileExists(atPath: Self.latch(box).path))
+    #expect(box.sudoCalls.isEmpty)
+  }
+
   @Test func anOnThatTookTheLockFirstIsFollowedByRemoval() throws {
     let box = try Sandbox()
     let child = try box.spawnSleeper()

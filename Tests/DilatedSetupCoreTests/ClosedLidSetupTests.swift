@@ -22,6 +22,8 @@ final class FakeSetupFiles: SetupFileSystem, @unchecked Sendable {
   private let lock = NSLock()
   private var files: [String: Entry] = [:]
   private var directories: Set<String> = []
+  /// Paths whose atomic write throws.
+  var failingWrites: Set<String> = []
   let log: SetupLog
 
   init(log: SetupLog) { self.log = log }
@@ -40,6 +42,7 @@ final class FakeSetupFiles: SetupFileSystem, @unchecked Sendable {
 
   func writeAtomically(_ data: Data, to path: String, mode: UInt16, directoryMode: UInt16) throws {
     log.add("write \(path)")
+    if failingWrites.contains(path) { throw ClosedLidSetupLiveError(message: "disk full") }
     lock.withLock {
       directories.insert((path as NSString).deletingLastPathComponent)
       files[path] = Entry(data: data, mode: mode)
@@ -433,7 +436,30 @@ struct ClosedLidSetupRemoveTests {
     #expect(rig.files.entry(rig.paths.agentPlistPath) == nil)
   }
 
-  @Test func aMissingScriptWithALiveSessionKeepsTheAgentUntilSleepReadsNormal() async {
+  @Test func aMissingScriptWithAnOwnedSessionIsRestoredThenRemovedThroughTheStagedFlow() async {
+    let rig = Rig(rule: .ready)
+    installed(rig, recordRule: false)
+    try? rig.files.remove(rig.paths.scriptPath)
+    rig.files.put(rig.paths.sessionFile, Data("123 Mon".utf8))
+    let before = rig.log.events.count
+    #expect(await rig.setup.remove() == .completed)
+    let p = rig.paths
+    #expect(
+      Array(rig.log.events.dropFirst(before)) == [
+        "write \(p.scriptPath)",
+        "begin removal",
+        "readback",
+        "finish removal",
+        "bootout gui/501/com.codeswhat.dilated.closed-lid-repair",
+        "remove \(p.agentPlistPath)",
+        "remove \(p.scriptPath)",
+        "rmdir \(p.scriptsDirectory)",
+        "remove \(p.stateFile)",
+        "rmdir \(p.stateDirectory)",
+      ])
+  }
+
+  @Test func aRestoredScriptStaysWhenTheReadbackFails() async {
     let rig = Rig(rule: .ready, sleepRestored: false)
     installed(rig, recordRule: false)
     try? rig.files.remove(rig.paths.scriptPath)
@@ -443,8 +469,80 @@ struct ClosedLidSetupRemoveTests {
       Issue.record("expected a failure")
       return
     }
-    #expect(Array(rig.log.events.dropFirst(before)) == ["readback"])
+    #expect(
+      Array(rig.log.events.dropFirst(before)) == [
+        "write \(rig.paths.scriptPath)", "begin removal", "readback",
+      ])
+    #expect(rig.files.entry(rig.paths.scriptPath)?.data == scriptBytes)
+    #expect(rig.files.entry(rig.paths.scriptPath)?.mode == 0o755)
     #expect(rig.files.entry(rig.paths.agentPlistPath) != nil)
+    #expect(rig.files.entry(rig.paths.sessionFile) != nil)
+  }
+
+  @Test func aMissingScriptWithBadBundledBytesKeepsEverythingAndRunsNothing() async {
+    let rig = Rig(
+      rule: .ready,
+      assets: ClosedLidSetupAssets(
+        script: scriptBytes, plistTemplate: templateText, expectedScriptSHA256: "not-the-hash"))
+    installed(rig, recordRule: true)
+    try? rig.files.remove(rig.paths.scriptPath)
+    rig.files.put(rig.paths.sessionFile, Data("123 Mon".utf8))
+    let before = rig.log.events.count
+    guard case .failed = await rig.setup.remove() else {
+      Issue.record("expected a failure")
+      return
+    }
+    #expect(rig.log.events.count == before)
+    #expect(rig.files.entry(rig.paths.scriptPath) == nil)
+    #expect(rig.files.entry(rig.paths.agentPlistPath) != nil)
+    #expect(rig.files.entry(rig.paths.sessionFile) != nil)
+    #expect(rig.files.entry(rig.paths.stateFile) != nil)
+  }
+
+  @Test func aFailedScriptRestoreKeepsTheAgentAndNeverBeginsRemoval() async {
+    let rig = Rig(rule: .ready)
+    installed(rig, recordRule: true)
+    try? rig.files.remove(rig.paths.scriptPath)
+    rig.files.put(rig.paths.sessionFile, Data("123 Mon".utf8))
+    rig.files.failingWrites = [rig.paths.scriptPath]
+    let before = rig.log.events.count
+    guard case .failed = await rig.setup.remove() else {
+      Issue.record("expected a failure")
+      return
+    }
+    #expect(Array(rig.log.events.dropFirst(before)) == ["write \(rig.paths.scriptPath)"])
+    #expect(rig.files.entry(rig.paths.agentPlistPath) != nil)
+    #expect(rig.files.entry(rig.paths.sessionFile) != nil)
+    #expect(rig.files.entry(rig.paths.stateFile) != nil)
+  }
+
+  @Test func aMissingScriptWithOnlyTheRestoreLatchIsRestoredAndStillOwesTheReadback() async {
+    let rig = Rig(rule: .ready, sleepRestored: false)
+    installed(rig, recordRule: false)
+    try? rig.files.remove(rig.paths.scriptPath)
+    rig.files.put(rig.paths.restorePendingFile, Data("pending".utf8))
+    let before = rig.log.events.count
+    guard case .failed = await rig.setup.remove() else {
+      Issue.record("expected a failure")
+      return
+    }
+    #expect(
+      Array(rig.log.events.dropFirst(before)) == [
+        "write \(rig.paths.scriptPath)", "begin removal", "readback",
+      ])
+    #expect(rig.files.entry(rig.paths.agentPlistPath) != nil)
+  }
+
+  @Test func aMissingScriptWithAForeignDisableAndNoSessionKeepsTheCurrentCleanup() async {
+    let rig = Rig(rule: .ready, sleepRestored: false, ownsSleep: false)
+    installed(rig, recordRule: false)
+    try? rig.files.remove(rig.paths.scriptPath)
+    let before = rig.log.events.count
+    #expect(await rig.setup.remove() == .completed)
+    #expect(!rig.log.events.dropFirst(before).contains("write \(rig.paths.scriptPath)"))
+    #expect(!rig.log.events.contains("begin removal"))
+    #expect(!rig.log.events.contains("readback"))
+    #expect(rig.files.entry(rig.paths.agentPlistPath) == nil)
   }
 
   @Test func aMissingScriptWithNoSessionRemovesTheAgentWithoutAReadback() async {
