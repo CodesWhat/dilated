@@ -224,6 +224,29 @@ struct ClosedLidSessionTests {
     #expect(await guardian.recovery == .clean)
   }
 
+  @Test func aCleanMacNeedsNoPowerCommandToRestoreSleep() async throws {
+    let store = makeStore()
+    let power = RecordingPower(store: store, state: enabledState)
+    let guardian = ClosedLidSessionGuard(power: power, store: store)
+    // A failing runner would throw if the guard ran the command at all.
+    await power.fail(true)
+    for _ in 0..<5 {
+      let observed = try await guardian.setSleepDisabled(false)
+      #expect(observed.confirmedDisabled)
+    }
+    #expect(await power.calls.isEmpty)
+    #expect(await guardian.recovery == .clean)
+  }
+
+  @Test func anOwnedSessionStillRunsTheRestoreCommand() async throws {
+    let store = makeStore()
+    let power = RecordingPower(store: store)
+    let guardian = ClosedLidSessionGuard(power: power, store: store)
+    _ = try await guardian.setSleepDisabled(true)
+    _ = try await guardian.setSleepDisabled(false)
+    #expect(await power.calls == ["disable marker=true", "enable marker=true"])
+  }
+
   @Test func aFailedRelaunchRevertKeepsTheMarkerAndFailsClosed() async throws {
     let store = makeStore()
     let marker = staleMarker()

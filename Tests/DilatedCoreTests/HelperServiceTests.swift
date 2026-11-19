@@ -233,6 +233,134 @@ struct HelperServiceTests {
     #expect(repaired.state?.readback.confirmedDisabled == true)
   }
 
+  @Test func aFailedRestorationThenALaterRecoveryWithTheLidOpenDoesNotSleep() async throws {
+    let power = TestHelperPower()
+    let inputs = HelperInputs()
+    inputs.update(now: 0, closed: true)
+    let service = makeService(power, inputs)
+    await service.start()
+    _ = await service.handle(.init(action: .enable, policy: .init()), owner: owner)
+    await power.denyReset()
+    inputs.update(now: 90, closed: true)
+    await service.tick()
+    #expect(await service.snapshot().phase == .failed)
+    inputs.update(now: 91, closed: false)
+    await power.allowReset()
+    await service.tick()
+    let status = await service.handle(.init(action: .status), owner: owner)
+    #expect(status.state?.phase == .off)
+    #expect(status.state?.ready == true)
+    #expect(await power.sleeps == 0)
+  }
+
+  @Test func aFailedClosedLidStopDoesNotSleepEvenIfTheLidIsStillClosedOnRecovery() async throws {
+    let power = TestHelperPower()
+    let inputs = HelperInputs()
+    inputs.update(now: 0, closed: true)
+    let service = makeService(power, inputs)
+    await service.start()
+    _ = await service.handle(.init(action: .enable, policy: .init()), owner: owner)
+    await power.denyReset()
+    inputs.update(now: 90, closed: true)
+    await service.tick()
+    await power.allowReset()
+    await service.tick()
+    #expect(await service.snapshot().ready)
+    #expect(await power.sleeps == 0)
+  }
+
+  @Test func aFailedExplicitSleepIsNotRetriedByALaterRecovery() async throws {
+    let power = TestHelperPower()
+    let service = makeService(power, HelperInputs())
+    await service.start()
+    _ = await service.handle(.init(action: .enable, policy: .init()), owner: owner)
+    await power.denyReset()
+    let failed = await service.handle(.init(action: .sleep), owner: owner)
+    #expect(!failed.ok)
+    await power.allowReset()
+    await service.tick()
+    let status = await service.handle(.init(action: .status), owner: owner)
+    #expect(status.state?.ready == true)
+    #expect(await power.sleeps == 0)
+  }
+
+  @Test func anExplicitSleepStillSleepsWithTheLidOpen() async throws {
+    let power = TestHelperPower()
+    let service = makeService(power, HelperInputs())
+    await service.start()
+    _ = await service.handle(.init(action: .enable, policy: .init()), owner: owner)
+    let slept = await service.handle(.init(action: .sleep), owner: owner)
+    #expect(slept.ok)
+    #expect(await power.sleeps == 1)
+  }
+
+  @Test func aClosedLidStopSleepsOnlyWhileTheLidIsStillClosed() async throws {
+    let power = TestHelperPower()
+    let inputs = HelperInputs()
+    inputs.update(now: 0, closed: true)
+    let service = makeService(power, inputs)
+    await service.start()
+    let enabled = await service.handle(.init(action: .enable, policy: .init()), owner: owner)
+    let id = try #require(enabled.state?.leaseID)
+    // The lid opens between the stop and the reset's sleep check.
+    inputs.update(now: 5, closed: true)
+    await power.openLidOnNextReset(inputs)
+    _ = await service.handle(.init(action: .disable, leaseID: id), owner: owner)
+    #expect(await power.sleeps == 0)
+  }
+
+  @Test func sleepAnotherAppDisabledIsNotAnOwnedRecoveryAndIsNeverSleptLater() async throws {
+    let power = TestHelperPower(foreign: true)
+    let inputs = HelperInputs()
+    let service = makeService(power, inputs)
+    await service.start()
+    let first = await service.snapshot()
+    #expect(first.foreignSleepDisabled)
+    #expect(first.phase == .off)
+    #expect(!first.ready)
+    #expect(await service.needsTicks == false)
+    #expect(await service.isRecovering)
+    let refused = await service.handle(.init(action: .enable, policy: .init()), owner: owner)
+    #expect(!refused.ok)
+    #expect(refused.code == "notReady")
+    let asked = await service.handle(.init(action: .sleep), owner: owner)
+    #expect(asked.ok)
+    #expect(asked.state?.foreignSleepDisabled == true)
+    await power.releaseForeign()
+    await service.tick()
+    let status = await service.handle(.init(action: .status), owner: owner)
+    #expect(status.state?.foreignSleepDisabled == false)
+    #expect(status.state?.ready == true)
+    #expect(await power.sleeps == 0)
+  }
+
+  @Test func idleTicksNeverReadTheEnvironment() async throws {
+    let power = TestHelperPower()
+    let reads = ReadCounter()
+    let service = ClosedLidService(
+      power: power, environment: { reads.bump() }, clock: { 0 }, buildIdentity: "test-helper")
+    await service.start()
+    #expect(await service.needsTicks == false)
+    for _ in 0..<5 { await service.tick() }
+    #expect(reads.count == 0)
+  }
+
+  @Test func theServiceNeedsTicksForALeaseAndForAnOwnedFailureOnly() async throws {
+    let power = TestHelperPower()
+    let service = makeService(power, HelperInputs())
+    await service.start()
+    #expect(await service.needsTicks == false)
+    _ = await service.handle(.init(action: .enable, policy: .init()), owner: owner)
+    #expect(await service.needsTicks)
+    await power.denyReset()
+    _ = await service.handle(.init(action: .disable), owner: owner)
+    #expect(await service.snapshot().phase == .failed)
+    #expect(await service.needsTicks)
+    await power.allowReset()
+    await service.tick()
+    #expect(await service.needsTicks == false)
+  }
+
   private func makeService(_ power: TestHelperPower, _ inputs: HelperInputs) -> ClosedLidService {
     ClosedLidService(
       power: power, environment: { inputs.environment() }, clock: { inputs.now() },
@@ -256,18 +384,43 @@ private final class HelperInputs: @unchecked Sendable {
   func overheat() { lock.withLock { value.thermal = .serious } }
 }
 
+private final class ReadCounter: @unchecked Sendable {
+  private let lock = NSLock()
+  private var reads = 0
+  var count: Int { lock.withLock { reads } }
+  func bump() -> ClosedLidEnvironment {
+    lock.withLock { reads += 1 }
+    return ClosedLidEnvironment(powerSource: .ac, thermal: .nominal, lidClosed: false)
+  }
+}
+
 private actor TestHelperPower: ClosedLidPowerControlling {
   var calls: [Bool] = []
   var sleeps = 0
   private var state = ClosedLidReadback(effectiveDisabled: true, storedDisabled: true)
   private var failReset: Bool
   private let partialEnable: Bool
-  init(failReset: Bool = false, partialEnable: Bool = false) {
+  private var foreign: Bool
+  private var lidInputs: HelperInputs?
+  init(failReset: Bool = false, partialEnable: Bool = false, foreign: Bool = false) {
     self.failReset = failReset
     self.partialEnable = partialEnable
+    self.foreign = foreign
   }
+  func foreignSleepDisabled() -> Bool { foreign }
+  func releaseForeign() {
+    foreign = false
+    state = ClosedLidReadback(effectiveDisabled: false, storedDisabled: false)
+  }
+  func denyReset() { failReset = true }
+  func openLidOnNextReset(_ inputs: HelperInputs) { lidInputs = inputs }
   func setSleepDisabled(_ disabled: Bool) throws -> ClosedLidReadback {
     calls.append(disabled)
+    if !disabled, let lidInputs {
+      lidInputs.update(now: 6, closed: false)
+      self.lidInputs = nil
+    }
+    if !disabled && foreign { return state }
     if !disabled && failReset { throw ClosedLidPowerError.commandFailed(1) }
     state = ClosedLidReadback(
       effectiveDisabled: disabled && !partialEnable, storedDisabled: disabled)

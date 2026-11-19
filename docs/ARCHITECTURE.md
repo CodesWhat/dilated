@@ -62,10 +62,16 @@ Crash recovery has three layers. Before enabling, the app writes a session marke
 process, which restores sleep within seconds of the app exiting and then clears
 the marker. At launch, a leftover marker triggers a revert. Sleep that is
 disabled with no marker is treated as someone else's (Amphetamine, a manual
-`pmset`) and left alone with a notice. A reboot with no relaunch can leave sleep
-disabled, because the setting persists, until Dilated next launches. A failed
-disable keeps retrying and blocks quit and update until sleep is confirmed
-normal. These mechanisms are implemented, but real lid, crash, reboot and
+`pmset`) and left alone with a notice; it never runs the power command, never
+blocks quit or update, and never sleeps the Mac when it later clears. A Mac that
+already allows sleep with nothing of ours to restore runs no power command at
+launch or later. The service's tick sleeps with no lease and nothing of ours to
+restore, wakes on a request, and backs off while a restore keeps failing. A Sleep
+request or a closed-lid stop sleeps only inside the reset it started, and a
+stop sleeps only if the lid is still closed then. A reboot with no relaunch can
+leave sleep disabled, because the setting persists, until Dilated next launches. A
+failed disable of our own keeps retrying and blocks quit and update until sleep
+is confirmed normal. These mechanisms are implemented, but real lid, crash, reboot and
 power-transition acceptance remains open. Unit tests do not establish hardware
 recovery.
 

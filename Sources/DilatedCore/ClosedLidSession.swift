@@ -257,6 +257,11 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
   public func readback() async -> ClosedLidReadback { await power.readback() }
   public func sleep() async throws { try await power.sleep() }
 
+  /// True while the last disable found sleep disabled with no session or marker of ours.
+  public func foreignSleepDisabled() async -> Bool {
+    recovery == .foreignSleepDisabled && session == nil
+  }
+
   public func setSleepDisabled(_ disabled: Bool) async throws -> ClosedLidReadback {
     await recoverIfNeeded()
     if let recoveryError { throw recoveryError }
@@ -333,6 +338,8 @@ public actor ClosedLidSessionGuard: ClosedLidPowerControlling {
           return observed
         }
         if recovery == .foreignSleepDisabled { recovery = .clean }
+        // Nothing of ours to restore and sleep is already normal: don't run the power command.
+        if observed.confirmedDisabled { return observed }
       }
     }
     let observed = try await power.setSleepDisabled(false)
