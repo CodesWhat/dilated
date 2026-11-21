@@ -48,6 +48,21 @@ A JSON file tied to the exact artifacts:
 
 For GA releases, every check in `ACCEPTANCE_CHECKS` must be `passed`. For an alpha, beta or rc, `appCrashRecovery`, `heartbeatExpiry` and `stopResume` must be `passed`, and so must at least one of `macOS26ClosedLid` or `macOS27ClosedLid`, on any supported macOS. The others can be `failed` or `notRun`, with evidence saying why. Staging lists those, including whichever closed-lid check wasn't passed, as unverified in the manifest, `latest.json` and the cask caveats. Fixtures and mock runs aren't hardware evidence.
 
+A GA can ship with unrun checks only through an explicit owner waiver in the same record:
+
+```json
+"ownerWaiver": {
+  "by": "<name>",
+  "date": "YYYY-MM-DD",
+  "reason": "<why the checks are being skipped>",
+  "checks": ["rebootRecovery", "nativeUI"]
+}
+```
+
+`by`, `date` (`YYYY-MM-DD`) and `reason` must be non-empty, and `checks` must name only real `ACCEPTANCE_CHECKS` entries. It has to list every check that isn't `passed` (`notRun` or `failed`) and none that is. A passed check still needs its machine, macOS and evidence on this exact artifact. Staging then treats the waived checks like a prerelease's unverified ones (manifest, `latest.json`, cask caveats) and also writes `acceptanceVerified: false` and the `ownerWaiver` block into `release-manifest.json`. A waiver never loosens a prerelease's rules, and a GA without one still needs every check `passed`. A waiver records a decision. It never turns an unrun check into a passed one.
+
+`freshInstallVerified` in the public manifest is `true` only when the record has a `freshInstall` entry with status `passed`, plus machine, macOS and evidence. Otherwise it is `false`.
+
 The generated cask removes the closed-lid sudo rule (`/private/etc/sudoers.d/dilated`) with a `zap` stanza only. It is never in `uninstall`, because Homebrew runs uninstall during an upgrade and that would strip the rule from every upgraded install.
 
 ## 5. Stage the public release
