@@ -1,7 +1,7 @@
 # Installation and removal
 
-Dilated targets macOS 26 or later on Apple Silicon. Download the current public
-beta as a signed, notarized DMG from
+Dilated targets macOS 26 or later on Apple Silicon. Download the current
+release as a signed, notarized DMG from
 https://dilated.app/download/file, or run
 `brew install --cask codeswhat/tap/dilated`. The fully qualified name trusts that
 cask. Running `brew info` or `brew fetch` on the bare tap may ask for
@@ -15,7 +15,7 @@ macOS 27.2, and beta.10 through beta.12 don't change the direct closed-lid path:
 come from earlier betas. These hardware checks haven't run for this build and are
 listed in the cask caveats and `latest.json`: `sudoRuleRevoked`, `guardTransitions`,
 `rebootRecovery`, `adminPromptCancelled`, `helperMigration`, `uninstallNormalSleep`
-and `nativeUI`. A signed or notarized build alone does not close them.
+and `nativeUI`. Version 1.0.0 shipped with these checks waived by the owner, not passed (see `ownerWaiver` in `docs/RELEASING.md`). A signed or notarized build alone does not close them.
 
 ## Local builds and first launch
 

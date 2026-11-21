@@ -334,7 +334,7 @@ test.describe('release metadata', () => {
       await expect(download).toBeHidden();
       await expect(download).not.toHaveAttribute('href');
       await expect(page.locator('[data-testing-only]:visible')).toHaveCount(2);
-      await expect(page.locator('[data-release-status]')).toHaveText('PUBLIC BETA.');
+      await expect(page.locator('[data-release-status]')).toHaveText('VERSION 1.0.');
       await expect(page.locator('[data-release-details]')).toBeHidden();
       await expect(page.locator('[data-release-caveat]')).toBeHidden();
     });
