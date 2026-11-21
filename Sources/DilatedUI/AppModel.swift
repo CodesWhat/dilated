@@ -1517,19 +1517,17 @@ public struct AppSettings: Codable, Equatable, Sendable {
     else {
       throw InputError("Enable this trigger and its closed-lid option first.")
     }
-    try await requireClosedLidSetup()
     armingClosedLidTrigger = id
     let revision = triggerLidRevision
     defer {
       armingClosedLidTrigger = nil
       onChange?()
     }
+    try await requireClosedLidSetup()
+    try requireCurrentTriggerArm(id: id, rule: rule, revision: revision)
     try confirmClosedLidBatteryWarning(allowPrompt: true)
     try await closedLid.refresh()
-    guard !Task.isCancelled, revision == triggerLidRevision, !stopped, !preparingToQuit,
-      !updater.blocksNewWork, !engine.automationPaused, settings.triggersEnabled,
-      triggerRules.first(where: { $0.id == id }) == rule
-    else { throw CancellationError() }
+    try requireCurrentTriggerArm(id: id, rule: rule, revision: revision)
     guard closedLid.state?.ready == true else {
       throw InputError(
         "Closed-lid isn't ready. Check Closed Lid settings before arming a trigger.")
@@ -1544,6 +1542,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
     guard armedClosedLidTriggers.contains(id) else {
       throw InputError(message ?? "Closed-lid disarmed. Arm this trigger again to continue.")
     }
+  }
+  private func requireCurrentTriggerArm(id: UUID, rule: TriggerRule, revision: UUID) throws {
+    guard !Task.isCancelled, revision == triggerLidRevision, !stopped, !preparingToQuit,
+      !updater.blocksNewWork, !engine.automationPaused, settings.triggersEnabled,
+      triggerRules.first(where: { $0.id == id }) == rule
+    else { throw CancellationError() }
   }
   public func disarmClosedLidTrigger(id: UUID) async throws {
     resetTriggerLidArming(ids: [id])
