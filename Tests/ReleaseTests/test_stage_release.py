@@ -255,8 +255,19 @@ class PublicationGuardsTests(unittest.TestCase):
         def not_an_object(record):
             record['ownerWaiver'] = 'yes'
 
+        def waived_check_without_a_record(record):
+            del record['checks']['rebootRecovery']
+
+        def waived_check_without_a_status(record):
+            del record['checks']['rebootRecovery']['status']
+
+        def waived_check_without_evidence(record):
+            record['checks']['rebootRecovery']['evidence'] = ' '
+
         for mutate in [missing_entry, lists_a_passed_check, unknown_check, duplicate, blank('by'),
-                       blank('date'), blank('reason'), bad_date, not_an_object]:
+                       blank('date'), blank('reason'), bad_date, not_an_object,
+                       waived_check_without_a_record, waived_check_without_a_status,
+                       waived_check_without_evidence]:
             with self.subTest(mutate=getattr(mutate, '__name__', 'blank')):
                 record = self.waived_acceptance()
                 mutate(record)
