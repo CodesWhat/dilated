@@ -144,6 +144,34 @@ import os
     #expect(fixture.transport.actions.filter { $0 == .enable }.count == 1)
   }
 
+  @Test func stopDuringPermissionRefreshCannotArmAfterAnImmediateResume() async throws {
+    let fixture = await ControllerFixture()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let gate = RefreshGate()
+    let model = AppModel(
+      endpoint: .init(stateDirectory: directory), power: { .init() },
+      assertions: ControllerAssertions(),
+      closedLid: fixture.controller(),
+      closedLidPermission: readyPermissionModel(recovery: { await gate.hold() }))
+    defer { model.shutdown() }
+    var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
+    rule.closedLid = true
+    try model.saveTrigger(rule)
+    var input = TriggerInputs()
+    input.processNames = ["make"]
+    model.reconcileTriggers(input)
+    await gate.arm()
+    let arming = Task { try await model.armClosedLidTrigger(id: rule.id) }
+    await gate.waitUntilHeld()
+    model.stopAll()
+    model.resumeAutomation()
+    await gate.release()
+    await #expect(throws: (any Error).self) { try await arming.value }
+    #expect(model.armedClosedLidTriggers.isEmpty && !model.closedLid.active)
+    #expect(!fixture.transport.actions.contains(.enable))
+  }
+
   @Test(arguments: [false, true])
   func aNormalHoldPowerGuardAlsoDisarmsClosedLidTriggers(lowPower: Bool) async throws {
     let fixture = await ControllerFixture()
@@ -851,6 +879,32 @@ import os
   }
   func controller() -> ClosedLidController {
     ClosedLidController(transport: transport, expectedBuild: { "test-build" })
+  }
+}
+
+/// Holds one permission refresh until the test releases it.
+@MainActor private final class RefreshGate {
+  private var armed = false
+  private var held: CheckedContinuation<Void, Never>?
+  private var waiter: CheckedContinuation<Void, Never>?
+  func arm() { armed = true }
+  func hold() async -> ClosedLidSessionGuard.Recovery {
+    guard armed else { return .notChecked }
+    armed = false
+    await withCheckedContinuation { continuation in
+      held = continuation
+      waiter?.resume()
+      waiter = nil
+    }
+    return .notChecked
+  }
+  func waitUntilHeld() async {
+    guard held == nil else { return }
+    await withCheckedContinuation { waiter = $0 }
+  }
+  func release() {
+    held?.resume()
+    held = nil
   }
 }
 
