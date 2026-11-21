@@ -79,7 +79,10 @@ def validate_owner_waiver(waiver, checks):
     if unknown:
         raise RuntimeError(f'The owner waiver names an unknown check: {", ".join(unknown)}')
     for key in ACCEPTANCE_CHECKS:
-        status = (checks.get(key) or {}).get('status', 'notRun')
+        check = checks.get(key)
+        if not isinstance(check, dict) or 'status' not in check:
+            raise RuntimeError(f'Every check needs an acceptance record, waived or not: {key}')
+        status = check['status']
         if status not in ACCEPTANCE_STATUSES:
             raise RuntimeError(f'Acceptance must record a passed, failed or notRun status: {key}')
         if status == 'passed' and key in listed:
@@ -108,6 +111,8 @@ def validate_acceptance(record, manifest):
         for key in ACCEPTANCE_CHECKS:
             check = checks.get(key, {})
             if waived is not None and key in waived['checks']:
+                if not (isinstance(check.get('evidence'), str) and check['evidence'].strip()):
+                    raise RuntimeError(f'A waived acceptance check still needs evidence saying why: {key}')
                 continue
             if check.get('status') != 'passed' or not all(
                 isinstance(check.get(field), str) and check[field].strip()
