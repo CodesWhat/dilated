@@ -14,10 +14,10 @@ const metadata = {
   architecture: 'arm64',
 };
 
-test('the static page describes the public beta while downloads wait for verified metadata', async () => {
+test('the static page describes version 1.0 while downloads wait for verified metadata', async () => {
   const html = await readFile(new URL('../dist/index.html', import.meta.url), 'utf8');
   assert.doesNotMatch(html, /no public download|first release is in testing|currently in testing/i);
-  assert.match(html, /data-release-copy>[^<]*public beta/i);
+  assert.match(html, /data-release-copy>[^<]*Dilated 1\.0 is free/i);
   assert.match(html, /<a[^>]*href="https:\/\/github\.com\/CodesWhat\/dilated\/releases"[^>]*>Release history/);
   const downloadLinks = [...html.matchAll(/<a\b[^>]*data-release-link[^>]*>/g)].map(match => match[0]);
   assert.ok(downloadLinks.length > 0);
@@ -111,4 +111,7 @@ test('a beta release changes the download label, copy, summary and caveat', () =
   assert.equal(ga.copy, 'Dilated 1.0.0 is ready for macOS 26.0+ on Apple Silicon. Free software from CodesWhat, under MIT.');
   assert.equal(ga.summary, 'V1.0.0 · MACOS 26.0+ · APPLE SILICON · MIT LICENSE');
   assert.equal(ga.caveat, '');
+  const waived = release.releaseCopy(release.validateRelease({ ...metadata, unverified: ['rebootRecovery', 'nativeUI'] }, baseURL));
+  assert.equal(waived.label, 'Download for Mac');
+  assert.equal(waived.caveat, 'Closed-lid mode is experimental in this release. Not yet verified on hardware: recovery after a reboot and the native interface.');
 });

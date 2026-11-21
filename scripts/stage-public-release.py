@@ -61,6 +61,45 @@ def validate_archive(directory):
     return manifest
 
 
+def validate_owner_waiver(waiver, checks):
+    """A GA may ship with unrun checks only when the owner names each one, with a reason."""
+    if not isinstance(waiver, dict):
+        raise RuntimeError('The owner waiver must be an object')
+    for field in ('by', 'date', 'reason'):
+        if not isinstance(waiver.get(field), str) or not waiver[field].strip():
+            raise RuntimeError(f'The owner waiver needs a non-empty {field}')
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', waiver['date']):
+        raise RuntimeError('The owner waiver date must be YYYY-MM-DD')
+    listed = waiver.get('checks')
+    if not isinstance(listed, list) or not listed or not all(isinstance(key, str) for key in listed):
+        raise RuntimeError('The owner waiver must list the waived checks')
+    if len(set(listed)) != len(listed):
+        raise RuntimeError('The owner waiver lists a check twice')
+    unknown = [key for key in listed if key not in ACCEPTANCE_CHECKS]
+    if unknown:
+        raise RuntimeError(f'The owner waiver names an unknown check: {", ".join(unknown)}')
+    for key in ACCEPTANCE_CHECKS:
+        check = checks.get(key)
+        if not isinstance(check, dict) or 'status' not in check:
+            raise RuntimeError(f'Every check needs an acceptance record, waived or not: {key}')
+        status = check['status']
+        if status not in ACCEPTANCE_STATUSES:
+            raise RuntimeError(f'Acceptance must record a passed, failed or notRun status: {key}')
+        if status == 'passed' and key in listed:
+            raise RuntimeError(f'The owner waiver lists a check that passed: {key}')
+        if status != 'passed' and key not in listed:
+            raise RuntimeError(f'Required acceptance check has not passed and is not waived: {key}')
+    return {'by': waiver['by'].strip(), 'date': waiver['date'], 'reason': waiver['reason'].strip(),
+            'checks': [key for key in ACCEPTANCE_CHECKS if key in listed]}
+
+
+def fresh_install_verified(record):
+    """Only a recorded, passed fresh-install check counts; nothing is assumed."""
+    check = record.get('freshInstall')
+    return (isinstance(check, dict) and check.get('status') == 'passed' and
+            all(isinstance(check.get(f), str) and check[f].strip() for f in ('machine', 'macOS', 'evidence')))
+
+
 def validate_acceptance(record, manifest):
     for key in ('version', 'build', 'sourceRevision', 'archiveSHA256', 'dmgSHA256'):
         if record.get(key) != manifest.get(key):
@@ -68,17 +107,30 @@ def validate_acceptance(record, manifest):
     checks = record.get('checks', {})
     prerelease = bool(PRERELEASE_VERSION.search(manifest['version']))
     if not prerelease:
+        waived = validate_owner_waiver(record.get('ownerWaiver'), checks) if 'ownerWaiver' in record else None
         for key in ACCEPTANCE_CHECKS:
             check = checks.get(key, {})
+            if waived is not None and key in waived['checks']:
+                if not (isinstance(check.get('evidence'), str) and check['evidence'].strip()):
+                    raise RuntimeError(f'A waived acceptance check still needs evidence saying why: {key}')
+                continue
             if check.get('status') != 'passed' or not all(
                 isinstance(check.get(field), str) and check[field].strip()
                 for field in ('machine', 'macOS', 'evidence')
             ):
                 raise RuntimeError(f'Required acceptance check has not passed: {key}')
         for major in ('26', '27'):
-            if not checks[f'macOS{major}ClosedLid']['macOS'].startswith(major + '.'):
+            lid = checks.get(f'macOS{major}ClosedLid', {})
+            if lid.get('status') == 'passed' and not lid['macOS'].startswith(major + '.'):
                 raise RuntimeError(f'The lid check must run on macOS {major}')
-        return {'prerelease': False, 'passed': list(ACCEPTANCE_CHECKS), 'failed': [], 'notRun': []}
+        if waived is None:
+            return {'prerelease': False, 'passed': list(ACCEPTANCE_CHECKS), 'failed': [], 'notRun': []}
+        return {'prerelease': False, 'ownerWaiver': waived, **{
+            status: [key for key in ACCEPTANCE_CHECKS
+                     if (checks.get(key) or {}).get('status', 'notRun') == status and
+                     (status == 'passed' or key in waived['checks'])]
+            for status in ACCEPTANCE_STATUSES
+        }}
 
     def text(check, field):
         return isinstance(check.get(field), str) and bool(check[field].strip())
@@ -110,7 +162,7 @@ def validate_acceptance(record, manifest):
 
 
 def acceptance_verified(summary):
-    return not summary['prerelease'] or not (summary['failed'] or summary['notRun'])
+    return not (summary['failed'] or summary['notRun'])
 
 
 def latest_metadata(manifest, acceptance):
@@ -233,9 +285,10 @@ def cask_text(manifest, acceptance=None):
     if not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest):
         raise ValueError('Invalid cask DMG checksum')
     caveats = ''
-    unverified = acceptance['failed'] + acceptance['notRun'] if acceptance and acceptance['prerelease'] else []
+    unverified = acceptance['failed'] + acceptance['notRun'] if acceptance else []
     if unverified:
-        caveats = (f'    Beta release. Closed-lid mode is experimental.\n'
+        lead = 'Beta release. ' if acceptance['prerelease'] else ''
+        caveats = (f'    {lead}Closed-lid mode is experimental.\n'
                    f'    Not yet verified on hardware: {", ".join(unverified)}.\n\n')
     livecheck = ''
     if PRERELEASE_VERSION.search(version):
@@ -290,7 +343,8 @@ def main():
     warn_if_history_missing(args.public_dir.resolve())
     directory = args.release_directory.resolve()
     manifest = validate_archive(directory)
-    summary = validate_acceptance(json.loads(args.acceptance.read_text()), manifest)
+    record = json.loads(args.acceptance.read_text())
+    summary = validate_acceptance(record, manifest)
     version = manifest['version']
     metadata = release.release_metadata(ROOT)
     source = release.verify_source(ROOT, version)
@@ -335,9 +389,11 @@ def main():
     source_digest = hashlib.sha256(source_archive.read_bytes()).hexdigest()
     (releases / f'{source_archive.name}.sha256').write_text(f'{source_digest}  {source_archive.name}\n')
     public_manifest = {**manifest, 'sourceArchive': source_archive.name, 'sourceSHA256': source_digest,
-                       'freshInstallVerified': True, 'prerelease': summary['prerelease'],
-                       'acceptance': summary,
+                       'freshInstallVerified': fresh_install_verified(record),
+                       'prerelease': summary['prerelease'], 'acceptance': summary,
                        'acceptanceVerified': acceptance_verified(summary)}
+    if 'ownerWaiver' in summary:
+        public_manifest['ownerWaiver'] = summary['ownerWaiver']
     cask = cask_text(manifest, summary).encode()
     (releases / 'dilated.rb').write_bytes(cask)
     public_manifest.update(cask='dilated.rb', caskSHA256=hashlib.sha256(cask).hexdigest())
