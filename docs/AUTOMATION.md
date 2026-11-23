@@ -115,6 +115,20 @@ Stop/pause state are preserved. Custom icon files aren't exported; the file uses
 the selected built-in icon. Imports are limited to regular files up to 64 KB and
 reject unsupported versions, invalid choices and inconsistent duration presets.
 
+## Sleep when holds finish
+
+Choose **Sleep when holds finish** in the menu or run `dilated leaving`. Existing
+holds continue, including agent renewals. Once the last hold ends, Dilated waits
+five seconds and requests system sleep once. An indefinite hold keeps it waiting.
+The menu and `dilated status` show when the request is armed.
+
+New holds, Stop, quitting and any system sleep cancel the request. Use the menu's
+**Cancel sleep when idle** or `dilated leaving --cancel` to cancel it explicitly.
+It doesn't survive relaunch. Closed-lid cleanup keeps its existing sleep path;
+the system sleep notification cancels Leaving so waking won't trigger a second
+sleep. A refused sleep is reported without automatic retries. This feature adds
+no scheduled wake or display-off behavior.
+
 ## Shortcuts actions
 
 The signed app exposes four actions in the Mac's Shortcuts action library:
