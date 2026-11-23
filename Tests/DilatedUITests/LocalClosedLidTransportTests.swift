@@ -204,6 +204,92 @@ import Testing
     #expect(await model.prepareToQuit())
   }
 
+  @Test func aFailedLiveRevertOffersRestoreRaisesTheAlertAndBlocksQuitAndUpdate() async throws {
+    let runner = FakeSudoRunner()
+    let fixture = GuardedFixture(
+      runner: runner, tickInterval: .milliseconds(5),
+      backoff: RetryBackoff(initial: .milliseconds(5), cap: .milliseconds(20)))
+    let permission = readyPermissionModel()
+    let model = AppModel(
+      endpoint: .init(stateDirectory: fixture.directory), power: { .init() },
+      closedLid: fixture.controller, closedLidPermission: permission)
+    defer { model.shutdown() }
+    let alerts = AlertLog()
+    model.onSleepRestoreFailed = { alerts.record($0) }
+    try await fixture.controller.enable(policy: .init())
+    #expect(!permission.canRestoreNormalSleep && !model.sleepRestoreAlertRaised)
+    await runner.deny()
+    await #expect(throws: (any Error).self) { try await fixture.controller.disable() }
+    await waitUntil { await MainActor.run { permission.canRestoreNormalSleep } }
+    #expect(permission.recoveryTitle == "Dilated couldn't restore normal sleep")
+    #expect(permission.recoveryDetail != nil)
+    #expect(model.sleepRestoreAlertRaised)
+    await waitUntil { alerts.count == 1 }
+    // The service keeps retrying, and the alert isn't repeated for the same failure.
+    try? await Task.sleep(for: .milliseconds(100))
+    #expect(alerts.count == 1)
+    #expect(fixture.controller.restorationPending)
+    #expect(await model.prepareToQuit() == false)
+    #expect(await model.prepareToUpdate() == false)
+    #expect(permission.canRestoreNormalSleep)
+  }
+
+  @Test func sleepRestoredByTheServiceRetryClearsTheFailedState() async throws {
+    let runner = FakeSudoRunner()
+    let fixture = GuardedFixture(
+      runner: runner, tickInterval: .milliseconds(5),
+      backoff: RetryBackoff(initial: .milliseconds(5), cap: .milliseconds(20)))
+    let permission = readyPermissionModel()
+    let model = AppModel(
+      endpoint: .init(stateDirectory: fixture.directory), power: { .init() },
+      closedLid: fixture.controller, closedLidPermission: permission)
+    defer { model.shutdown() }
+    try await fixture.controller.enable(policy: .init())
+    await runner.deny()
+    await #expect(throws: (any Error).self) { try await fixture.controller.disable() }
+    await waitUntil { await MainActor.run { permission.canRestoreNormalSleep } }
+    await runner.allow()
+    await waitUntil { await MainActor.run { !permission.canRestoreNormalSleep } }
+    #expect(!model.sleepRestoreAlertRaised)
+    #expect(await model.prepareToQuit())
+  }
+
+  #if !MAS_CHANNEL
+    @Test func aSuccessfulRestoreClearsTheFailedStateAndUnblocksQuit() async throws {
+      let runner = FakeSudoRunner()
+      let fixture = GuardedFixture(
+        runner: runner, tickInterval: .milliseconds(5),
+        backoff: RetryBackoff(initial: .milliseconds(5), cap: .milliseconds(20)))
+      let controller = fixture.controller
+      // The admin prompt's pmset works even though the sudo rule doesn't.
+      let prompt = RestoringPrompt(runner: runner)
+      let permission = ClosedLidPermissionModel(
+        permission: ClosedLidPermission(
+          seams: .init(
+            stat: { _ in ClosedLidFileInfo(isRegularFile: true, owner: 0, group: 0, mode: 0o440) },
+            readFile: { _ in ClosedLidPermission.ruleContent }, probe: { true }, isAdmin: { true }),
+          runner: prompt),
+        recovery: { await controller.localTransport?.recovery() ?? .notChecked },
+        acknowledgeRestore: { await controller.localTransport?.acknowledgeRestore() ?? false })
+      let model = AppModel(
+        endpoint: .init(stateDirectory: fixture.directory), power: { .init() },
+        closedLid: controller, closedLidPermission: permission)
+      defer { model.shutdown() }
+      try await controller.enable(policy: .init())
+      await runner.deny()
+      await #expect(throws: (any Error).self) { try await controller.disable() }
+      await waitUntil { await MainActor.run { permission.canRestoreNormalSleep } }
+      #expect(await model.prepareToQuit() == false)
+      await model.restoreNormalSleep()
+      #expect(prompt.runs == 1)
+      #expect(!permission.canRestoreNormalSleep && permission.liveRevertFailure == nil)
+      #expect(!model.sleepRestoreAlertRaised)
+      await waitUntil { await MainActor.run { !controller.restorationPending } }
+      #expect(!permission.canRestoreNormalSleep)
+      #expect(await model.prepareToQuit())
+    }
+  #endif
+
   @Test func aBlockedMainActorNeverStallsAnOwnedRestoreRetry() async throws {
     let runner = FakeSudoRunner()
     await runner.setValue(.init(effectiveDisabled: true, storedDisabled: true))
@@ -460,4 +546,25 @@ private final class LocalInputs: @unchecked Sendable {
     }
   }
   func overheat() { lock.withLock { thermal = .serious } }
+}
+
+private final class AlertLog: @unchecked Sendable {
+  private let lock = NSLock()
+  private var reasons: [String] = []
+  var count: Int { lock.withLock { reasons.count } }
+  func record(_ reason: String) { lock.withLock { reasons.append(reason) } }
+}
+
+/// Stands in for the password prompt: running the restore script turns sleep back on.
+private final class RestoringPrompt: PrivilegedScriptRunning, @unchecked Sendable {
+  private let runner: FakeSudoRunner
+  private let lock = NSLock()
+  private var count = 0
+  var runs: Int { lock.withLock { count } }
+  init(runner: FakeSudoRunner) { self.runner = runner }
+  func run(script: String) async -> PrivilegedScriptOutcome {
+    lock.withLock { count += 1 }
+    await runner.setValue(.init(effectiveDisabled: false, storedDisabled: false))
+    return .succeeded
+  }
 }

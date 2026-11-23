@@ -97,6 +97,18 @@ import os
       NSApp.activate()
       return alert.runModal() == .alertSecondButtonReturn
     }
+    model.onSleepRestoreFailed = { [weak model] reason in
+      let alert = NSAlert()
+      alert.messageText = "Dilated couldn't turn sleep back on"
+      alert.informativeText =
+        "\(reason) Dilated keeps retrying. Restore normal sleep asks for your password. Quit and update stay blocked until sleep is confirmed normal."
+      alert.addButton(withTitle: "Restore Normal Sleep")
+      alert.addButton(withTitle: "Not Now")
+      NSApp.activate()
+      if alert.runModal() == .alertFirstButtonReturn {
+        Task { await model?.restoreNormalSleep() }
+      }
+    }
     model.onShortcutAssignment = { [weak self] configuration in
       guard let self else { return "Dilated is quitting." }
       return self.shortcutBindings.update(configuration) { [weak self] in self?.performShortcut($0)
