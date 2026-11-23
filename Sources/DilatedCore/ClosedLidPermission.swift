@@ -201,7 +201,7 @@ public struct ClosedLidPermission: Sendable {
 
   static func liveProbe() async -> Bool {
     await probe(
-      readCurrent: { NativeClosedLidPower.readback().effectiveDisabled },
+      readCurrent: { NativeClosedLidPower.readback() },
       run: { arguments in
         try? await BoundedProcess.run(
           executable: URL(fileURLWithPath: SudoPowerRunner.sudoPath), arguments: arguments,
@@ -209,13 +209,16 @@ public struct ClosedLidPermission: Sendable {
       })
   }
 
-  /// True only when `sudo` runs `pmset` with no password. An unreadable current value, a timeout
-  /// or any failure to run all read as not allowed.
+  /// True only when `sudo` runs `pmset` with no password. `pmset -a disablesleep` writes the stored
+  /// value, so the probe only runs when the effective and stored values are both known and agree.
+  /// Otherwise re-setting one of them wouldn't be a no-op. An unreadable value, a timeout or any
+  /// failure to run all read as not allowed.
   static func probe(
-    readCurrent: @Sendable () -> Bool?,
+    readCurrent: @Sendable () -> ClosedLidReadback,
     run: @Sendable ([String]) async -> ProcessOutcome?
   ) async -> Bool {
-    guard let current = readCurrent(),
+    let readback = readCurrent()
+    guard let current = readback.effectiveDisabled, readback.storedDisabled == current,
       let result = await run(probeArguments(current: current)),
       !result.timedOut, result.status == 0
     else { return false }

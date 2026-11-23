@@ -181,9 +181,14 @@ struct ClosedLidPermissionTests {
     }
   }
 
+  private static func readback(_ value: Bool) -> ClosedLidReadback {
+    ClosedLidReadback(effectiveDisabled: value, storedDisabled: value)
+  }
+
   @Test func aPasswordRequiredRuleReadsAsNotAllowed() async {
     let sudo = FakeSudo(runStatus: 1)
-    let allowed = await ClosedLidPermission.probe(readCurrent: { false }, run: sudo.run)
+    let allowed = await ClosedLidPermission.probe(
+      readCurrent: { Self.readback(false) }, run: sudo.run)
     #expect(!allowed)
     #expect(sudo.calls.count == 1)
   }
@@ -191,7 +196,8 @@ struct ClosedLidPermissionTests {
   @Test func aPasswordlessRuleReadsAsAllowedAndUsesTheCurrentValue() async {
     for current in [false, true] {
       let sudo = FakeSudo(runStatus: 0)
-      let allowed = await ClosedLidPermission.probe(readCurrent: { current }, run: sudo.run)
+      let allowed = await ClosedLidPermission.probe(
+        readCurrent: { Self.readback(current) }, run: sudo.run)
       #expect(allowed)
       #expect(
         sudo.calls == [
@@ -201,17 +207,27 @@ struct ClosedLidPermissionTests {
     }
   }
 
-  @Test func anUnreadableCurrentValueReadsAsNotAllowedWithoutRunningSudo() async {
-    let sudo = FakeSudo(runStatus: 0)
-    let allowed = await ClosedLidPermission.probe(readCurrent: { nil }, run: sudo.run)
-    #expect(!allowed)
-    #expect(sudo.calls.isEmpty)
+  @Test func anUnreadableOrDisagreeingValueReadsAsNotAllowedWithoutRunningSudo() async {
+    let unreadable = [
+      ClosedLidReadback(),
+      ClosedLidReadback(effectiveDisabled: nil, storedDisabled: true),
+      ClosedLidReadback(effectiveDisabled: false, storedDisabled: nil),
+      ClosedLidReadback(effectiveDisabled: true, storedDisabled: false),
+      ClosedLidReadback(effectiveDisabled: false, storedDisabled: true),
+    ]
+    for readback in unreadable {
+      let sudo = FakeSudo(runStatus: 0)
+      let allowed = await ClosedLidPermission.probe(readCurrent: { readback }, run: sudo.run)
+      #expect(!allowed, "\(readback)")
+      #expect(sudo.calls.isEmpty, "\(readback)")
+    }
   }
 
   @Test func aTimedOutOrUnlaunchableProbeReadsAsNotAllowed() async {
     let slow = FakeSudo(runStatus: 0, timedOut: true)
-    #expect(!(await ClosedLidPermission.probe(readCurrent: { true }, run: slow.run)))
-    #expect(!(await ClosedLidPermission.probe(readCurrent: { true }, run: { _ in nil })))
+    #expect(!(await ClosedLidPermission.probe(readCurrent: { Self.readback(true) }, run: slow.run)))
+    #expect(
+      !(await ClosedLidPermission.probe(readCurrent: { Self.readback(true) }, run: { _ in nil })))
   }
 
   @Test func theOsascriptRunnerMapsExitStatusAndStderr() async {

@@ -265,7 +265,10 @@ classify() {
   echo live
 }
 
-# The SleepDisabled value macOS reports now: 0, 1, or empty when it can't be read.
+# The SleepDisabled value macOS reports now: 0, 1, or empty when it can't be read. This is the
+# effective value only. The app also checks the stored value (the one pmset writes) and requires
+# the two to agree, but the stored value sits in a per-host preferences file that `defaults` can't
+# be trusted to resolve the way CFPreferences does, so the script doesn't try.
 current_sleep_disabled() {
   if [ "$test_sleepdisabled" != "__real__" ]; then
     echo "$test_sleepdisabled"
