@@ -35,7 +35,8 @@ jobs:
       - name: Select Xcode 26
         run: |
           set -euo pipefail
-          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n 1 || true)
+          xcode=$(printf '%s\n' /Applications/Xcode_26*.app | sort -V | tail -n 1)
+          [ -d "$xcode" ] || xcode=
           if [ -z "$xcode" ]; then
             echo "No Xcode 26 found under /Applications" >&2
             exit 1
