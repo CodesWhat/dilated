@@ -53,7 +53,7 @@ jobs:
       - name: Download release assets
         run: |
           set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/assets"
+          mkdir -p "${RUNNER_TEMP}/assets" "${RUNNER_TEMP}/sbom"
           # Only the DMG, ZIP and appcast. Checksums, the manifest and any
           # earlier bundles or SBOM are not signing subjects.
           gh release download "${RELEASE_TAG}" \
