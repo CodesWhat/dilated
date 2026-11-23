@@ -17,7 +17,8 @@ jobs:
       pull-requests: read
     outputs:
       # The gate is skipped on push, so its output is empty there and the push-diff result is used.
-      macos: ${{ steps.gate.outputs.run || steps.filter.outputs.macos }}
+      # Normalized so it is exactly 'true' or 'false': only an explicit 'false' skips verify.
+      macos: ${{ (steps.gate.outputs.run || steps.filter.outputs.macos) == 'false' && 'false' || 'true' }}
     steps:
       - name: Gate pull requests on build inputs
         id: gate
@@ -97,7 +98,10 @@ jobs:
           npx playwright test
   verify:
     needs: changes
-    if: needs.changes.outputs.macos == 'true'
+    # Fail closed. A bare output check carries an implicit success(), so if `changes` fails, times
+    # out or crashes, verify would be skipped, and a skipped job satisfies the required `verify`
+    # check. Run unless `changes` succeeded and said 'false' explicitly.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.macos != 'false') }}
     runs-on: macos-26
     timeout-minutes: 40
     steps:
