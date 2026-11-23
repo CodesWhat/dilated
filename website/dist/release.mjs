@@ -59,7 +59,7 @@ export function releaseCopy(release) {
       : `Dilated ${release.version} is ready for macOS ${release.minimumMacOS}+ on Apple Silicon. Free software from CodesWhat, under MIT.`,
     summary: `${beta ? 'BETA ' : 'V'}${release.version} · MACOS ${release.minimumMacOS}+ · APPLE SILICON · MIT LICENSE`,
     caveat: release.unverified.length
-      ? `Closed-lid mode is experimental in this beta. Not yet verified on hardware: ${describeUnverified(release.unverified)}.`
+      ? `Closed-lid mode is experimental in this ${beta ? 'beta' : 'release'}. Not yet verified on hardware: ${describeUnverified(release.unverified)}.`
       : '',
   };
 }

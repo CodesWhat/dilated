@@ -94,17 +94,71 @@ public struct ClosedLidSetup: Sendable {
     } catch {
       return .failed("Couldn't load the repair agent: \(error.localizedDescription)")
     }
+    // A bootstrap that returned cleanly isn't proof. Until the agent is loaded the script refuses
+    // closed-lid enables, so a failure here leaves them blocked rather than unguarded.
+    guard await launchd.isLoaded(target: paths.agentTarget) else {
+      return .failed("The repair agent didn't load. Closed-lid mode stays off until it does.")
+    }
+    // Only now can the script accept closed-lid enables again.
+    do { try files.remove(paths.removalMarker) } catch {
+      return .failed("Couldn't clear the removal marker: \(error.localizedDescription)")
+    }
     return .completed
   }
 
   // MARK: Remove
 
   public func remove() async -> ClosedLidSetupOutcome {
-    // 1. Put sleep back before the script that can do it goes away.
-    if files.exists(paths.sessionFile), files.exists(paths.scriptPath) {
-      do { try await power.off(scriptPath: paths.scriptPath) } catch {
+    // 1. Block new enables and put sleep back before the script that can do it goes away. An
+    // installed script from before begin-removal existed is replaced first, since the old one
+    // would answer with usage.
+    // Only sleep this setup turned off (a session file on disk; a tombstone is a finished revert)
+    // has to read back normal. Another app's disablesleep is left alone and never blocks removal.
+    var ownedSleep = files.exists(paths.sessionFile) || files.exists(paths.restorePendingFile)
+    var installed = files.read(paths.scriptPath)
+    if installed == nil, ownedSleep {
+      // An owned session with no script: the agent has nothing to run and begin-removal can't
+      // answer. Put the bundled script back (only if it checks out), then take the normal staged
+      // path. Nothing is deleted when the bundled bytes are bad or the write fails.
+      guard Self.sha256(assets.script) == assets.expectedScriptSHA256 else {
         return .failed(
-          "Closed-lid mode is still on and couldn't be turned off: \(error.localizedDescription)")
+          "The dilated-power script is missing and the bundled copy doesn't match its expected checksum, so the repair agent was kept."
+        )
+      }
+      do {
+        try files.writeAtomically(
+          assets.script, to: paths.scriptPath, mode: 0o755, directoryMode: 0o755)
+      } catch {
+        return .failed(
+          "Couldn't restore the dilated-power script, so the repair agent was kept: \(error.localizedDescription)"
+        )
+      }
+      installed = assets.script
+    }
+    if let installed {
+      if Self.sha256(installed) != assets.expectedScriptSHA256,
+        Self.sha256(assets.script) == assets.expectedScriptSHA256
+      {
+        do {
+          try files.writeAtomically(
+            assets.script, to: paths.scriptPath, mode: 0o755, directoryMode: 0o755)
+        } catch {
+          return .failed("Couldn't update the dilated-power script: \(error.localizedDescription)")
+        }
+      }
+      do { ownedSleep = try await power.beginRemoval(scriptPath: paths.scriptPath) } catch {
+        return .failed(
+          "Closed-lid mode couldn't be turned off: \(error.localizedDescription)")
+      }
+    }
+    // The recovery assets stay until macOS itself says sleep is back to normal.
+    if ownedSleep {
+      guard await power.confirmsNormalSleep() else {
+        return .failed("macOS hasn't confirmed normal sleep, so the repair agent was kept.")
+      }
+      // The session record goes only now, so a retry after a failed readback is still ours.
+      do { try await power.finishRemoval(scriptPath: paths.scriptPath) } catch {
+        return .failed("Couldn't clear the closed-lid session: \(error.localizedDescription)")
       }
     }
 
@@ -133,6 +187,8 @@ public struct ClosedLidSetup: Sendable {
     do { try files.remove(paths.stateFile) } catch {
       return .failed("Couldn't delete the setup record: \(error.localizedDescription)")
     }
+    // The removal marker stays: only a verified install clears it, so an `on` that queued behind
+    // this removal can't run without the repair agent.
     files.removeDirectoryIfEmpty(paths.stateDirectory)
     return .completed
   }

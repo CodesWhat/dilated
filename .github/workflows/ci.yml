@@ -1,11 +1,84 @@
 name: Swift CI
 on:
   push:
+    branches: [main, 'dev/**']
   pull_request:
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      macos: ${{ steps.filter.outputs.macos }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Decide whether macOS verify is needed
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            range="$PR_BASE_SHA...$PR_HEAD_SHA"
+          elif [ "$REF" = "refs/heads/main" ]; then
+            echo "macos=true" >> "$GITHUB_OUTPUT"; exit 0
+          elif [ -z "$PUSH_BEFORE" ] || [ "$PUSH_BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "macos=true" >> "$GITHUB_OUTPUT"; exit 0
+          else
+            range="$PUSH_BEFORE..$PUSH_SHA"
+          fi
+          if ! files=$(git diff --no-renames --name-only "$range"); then
+            echo "macos=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          macos=false
+          if [ -z "$files" ]; then macos=true; fi
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              website/*|docs/*|*.md|.github/ISSUE_TEMPLATE/*|LICENSE) ;;
+              *) macos=true ;;
+            esac
+          done <<< "$files"
+          echo "macos=$macos" >> "$GITHUB_OUTPUT"
+  website:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Browsers and their system packages come preinstalled; apt installs on the bare runner can hang.
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Website unit tests
+        run: |
+          node --test website/tests/*.test.mjs
+          for m in website/dist/*.mjs website/dist/analytics/*.mjs; do node --check "$m"; done
+      - name: Website browser checks
+        working-directory: website
+        env:
+          HOME: /root
+        run: |
+          npm ci
+          npx playwright test
   verify:
+    needs: changes
+    if: needs.changes.outputs.macos == 'true'
     runs-on: macos-26
     timeout-minutes: 40
     steps:
@@ -21,8 +94,6 @@ jobs:
         env:
           DILATED_COVERAGE: '1'
         run: bash scripts/verify.sh
-      - name: Website browser checks
-        run: bash scripts/verify-website-browsers.sh
       - name: MAS channel build and tests
         run: |
           bash scripts/check-mas-build.sh

@@ -1,4 +1,3 @@
-Start a 15-minute hold from Control Center. Turning the control off ends all holds and pauses automation until you resume in Dilated.
-Trigger storage preserves newer rules across older builds and reconciles edits when you return.
-Fix shared menu icon mutation.
-Closed-lid mode remains experimental.
+Dilated 1.0.0 is the first stable release.
+Fixes since beta.13: closed-lid mode now restores normal sleep when enabling fails, when the app or its repair agent goes away, and when something else changed the sleep setting. The control socket moved to a per-user directory and checks the connecting peer. The dilated run command stays awake across sleep, and trigger rules restart after a power-safety stop.
+Closed-lid mode is still experimental. Its hardware recovery checks were not run for this release.

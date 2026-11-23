@@ -13,7 +13,12 @@ public actor ClosedLidService {
   private var started = false
   private var startup: Task<Void, Never>?
   private var resetConfirmed = false
-  private var pendingSleep = false
+  /// Why the next reset may put the Mac to sleep. Taken when that reset starts and used only
+  /// inside it, so a failed or superseded reset never leaves a sleep for a later one.
+  private enum SleepIntent { case explicit, closedLidStop }
+  private var sleepIntent: SleepIntent?
+  private var foreignSleepDisabled = false
+  private var revision: UInt64 = 0
   private var permissionFailure = false
   private var operation = UUID()
 
@@ -51,7 +56,10 @@ public actor ClosedLidService {
       let current = operation
       let currentPhase = phase
       let observed = await power.readback()
-      if operation == current, phase == currentPhase { readback = observed }
+      if operation == current, phase == currentPhase {
+        readback = observed
+        settleForeignDisposition()
+      }
       return reply(true)
     case .enable:
       guard phase == .off, resetConfirmed, readback.confirmedDisabled else {
@@ -92,7 +100,11 @@ public actor ClosedLidService {
         return reply(false, code: "busy", text: "The helper is finishing a power operation.")
       }
       let stopped = governor.stop(reason: .disabled, environment: environment())
-      pendingSleep = pendingSleep || request.action == .sleep || stopped?.requestSleep == true
+      if request.action == .sleep {
+        sleepIntent = .explicit
+      } else if stopped?.requestSleep == true, sleepIntent == nil {
+        sleepIntent = .closedLidStop
+      }
       await reset()
       return reply(phase == .off, code: phase == .off ? nil : "powerFailure")
     }
@@ -102,9 +114,29 @@ public actor ClosedLidService {
   /// caller can slow its retries without giving up.
   public var isRetryingForPermission: Bool { phase == .failed && permissionFailure }
 
+  /// True while the tick has something to do: a lease to guard, or our own restoration of sleep
+  /// still unconfirmed. Sleep another app disabled is not ours to restore, so it doesn't count.
+  public var needsTicks: Bool {
+    if governor.lease != nil { return true }
+    switch phase {
+    case .starting, .enabling, .on, .disabling, .sleeping, .failed: return true
+    case .off: return !foreignSleepDisabled && !readback.confirmedDisabled
+    }
+  }
+
+  /// True while the service is retrying its own failed restoration or holding off on another
+  /// app's sleep-disable, so a caller can push the changing state to its UI.
+  public var isRecovering: Bool { phase == .failed || foreignSleepDisabled }
+
+  public var holdsLease: Bool { governor.lease != nil }
+
+  public func snapshot() -> HelperState { state() }
+
   public func tick() async {
     guard started else { return }
-    if let stopped = governor.reconcile(environment: environment(), now: clock()) {
+    if governor.lease != nil,
+      let stopped = governor.reconcile(environment: environment(), now: clock())
+    {
       await stop(stopped)
       return
     }
@@ -118,13 +150,14 @@ public actor ClosedLidService {
     let observed = await power.readback()
     guard operation == current else { return }
     readback = observed
+    settleForeignDisposition()
     if phase == .on, governor.lease != nil, !observed.confirmedEnabled {
       if let stopped = governor.reconcile(environment: environment(), now: clock()) {
         await stop(stopped)
       } else {
         _ = await enable()
       }
-    } else if phase == .off, !observed.confirmedDisabled {
+    } else if phase == .off, !observed.confirmedDisabled || foreignSleepDisabled {
       await reset()
     }
   }
@@ -133,6 +166,15 @@ public actor ClosedLidService {
     if let stopped = governor.disconnected(owner: owner, environment: environment()) {
       await stop(stopped)
     }
+  }
+
+  /// Another app's sleep-disable that has since cleared leaves nothing of ours to restore, so
+  /// the reset counts as confirmed without running any power command.
+  private func settleForeignDisposition() {
+    guard foreignSleepDisabled, phase == .off, readback.confirmedDisabled else { return }
+    foreignSleepDisabled = false
+    resetConfirmed = true
+    message = nil
   }
 
   private func enable() async -> HelperReply {
@@ -157,14 +199,14 @@ public actor ClosedLidService {
       let revertedByWatchdog = error as? ClosedLidSessionError == .revertedWhileUnresponsive
       let stopped = governor.stop(
         reason: revertedByWatchdog ? .leaseExpired : .disabled, environment: environment())
-      pendingSleep = pendingSleep || stopped?.requestSleep == true
+      if stopped?.requestSleep == true, sleepIntent == nil { sleepIntent = .closedLidStop }
       await reset()
       return reply(false, code: "powerFailure", text: failureText)
     }
   }
 
   private func stop(_ stopped: ClosedLidStop) async {
-    pendingSleep = pendingSleep || stopped.requestSleep
+    if stopped.requestSleep, sleepIntent == nil { sleepIntent = .closedLidStop }
     await reset()
   }
 
@@ -173,17 +215,28 @@ public actor ClosedLidService {
     operation = current
     phase = .disabling
     resetConfirmed = false
+    foreignSleepDisabled = false
+    let intent = sleepIntent
+    sleepIntent = nil
     do {
       let observed = try await power.setSleepDisabled(false)
       guard operation == current else { return }
       readback = observed
-      guard observed.confirmedDisabled else { throw ClosedLidPowerError.readbackMismatch }
+      guard observed.confirmedDisabled else {
+        guard await power.foreignSleepDisabled() else { throw ClosedLidPowerError.readbackMismatch }
+        guard operation == current else { return }
+        foreignSleepDisabled = true
+        phase = .off
+        message = "Another app has turned sleep off, so Dilated left it alone."
+        permissionFailure = false
+        return
+      }
       resetConfirmed = true
-      if pendingSleep {
+      // An automatic stop sleeps only if the lid is closed right now, not when it was stopped.
+      if let intent, intent == .explicit || environment().lidClosed == true {
         phase = .sleeping
         try await power.sleep()
         guard operation == current else { return }
-        pendingSleep = false
       }
       phase = .off
       message = nil
@@ -203,8 +256,14 @@ public actor ClosedLidService {
   }
 
   private func reply(_ ok: Bool, code: String? = nil, text: String? = nil) -> HelperReply {
+    let state = state()
+    return HelperReply(ok: ok, code: code, message: text ?? message, state: state)
+  }
+
+  private func state() -> HelperState {
     let remaining = governor.lease.map { max(0, $0.expiry - clock()) }
-    let state = HelperState(
+    revision += 1
+    return HelperState(
       protocolVersion: HelperIdentity.protocolVersion, buildIdentity: buildIdentity,
       generation: governor.generation,
       ready: resetConfirmed
@@ -213,8 +272,8 @@ public actor ClosedLidService {
       phase: phase,
       enabled: phase == .on && governor.lease != nil && readback.confirmedEnabled,
       leaseID: governor.lease?.id, leaseRemainingSeconds: remaining, readback: readback,
-      environment: environment(), stopReason: governor.lastStop, message: message)
-    return HelperReply(ok: ok, code: code, message: text ?? message, state: state)
+      environment: environment(), stopReason: governor.lastStop, message: message,
+      foreignSleepDisabled: foreignSleepDisabled, sequence: revision)
   }
 
   private func failure(_ error: any Error) -> HelperReply {

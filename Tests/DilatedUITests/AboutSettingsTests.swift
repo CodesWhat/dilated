@@ -34,7 +34,8 @@ import ViewInspector
   @Test func aboutIsTheLastPageAndLinksAreWellFormed() {
     #expect(SettingsPage.allCases.last == .about)
     #expect(AboutInfo.links.allSatisfy { $0.url.scheme == "https" })
-    #expect(AboutInfo.links.count == 5)
+    #expect(AboutInfo.links.count == 6)
+    #expect(AboutInfo.links.contains { $0.url.absoluteString == "https://dilated.app/privacy" })
   }
 
   #if DEBUG

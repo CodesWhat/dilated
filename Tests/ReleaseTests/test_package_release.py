@@ -1,7 +1,9 @@
+import ctypes
 import hashlib
 import importlib.util
 import pathlib
 import plistlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -13,6 +15,15 @@ SCRIPT = pathlib.Path(__file__).resolve().parents[2] / 'scripts/package-release.
 spec = importlib.util.spec_from_file_location('package_release', SCRIPT)
 release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
+
+
+def socket_directories_for(state):
+    """Candidate control-socket directories under the per-user Darwin temp dir (mirrors SocketEndpoint)."""
+    buffer = ctypes.create_string_buffer(1024)
+    ctypes.CDLL(None).confstr(65537, buffer, len(buffer))  # _CS_DARWIN_USER_TEMP_DIR
+    base = pathlib.Path(buffer.value.decode())
+    digest = hashlib.sha256(str(state).encode()).hexdigest()
+    return [base / f"com.codeswhat.dilated-{digest[:16]}", base / f"dilated-{digest[:12]}", base / f"d-{digest[:8]}"]
 
 
 class ReleaseGuardsTests(unittest.TestCase):
@@ -165,11 +176,8 @@ class ReleaseGuardsTests(unittest.TestCase):
             if process.poll() is None:
                 process.terminate()
             process.communicate(timeout=5)
-            digest = hashlib.sha256(str(state).encode()).hexdigest()[:16]
-            socket_directory = pathlib.Path(f'/tmp/com.codeswhat.dilated-{os.getuid()}-{digest}')
-            if socket_directory.exists():
-                (socket_directory / 'control.sock').unlink(missing_ok=True)
-                socket_directory.rmdir()
+            for socket_directory in socket_directories_for(state):
+                shutil.rmtree(socket_directory, ignore_errors=True)
         release.verify_requirement(app, 'identifier "com.codeswhat.dilated"')
         with self.assertRaises(RuntimeError):
             release.verify_requirement(app, 'identifier "com.codeswhat.other"')

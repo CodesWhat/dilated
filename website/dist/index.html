@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="The render. The download. The agent having a moment. Dilated keeps your Mac awake until the job is done. Free Mac software from CodesWhat. Public beta for macOS 26+ on Apple Silicon.">
+  <meta name="description" content="The render. The download. The agent having a moment. Dilated keeps your Mac awake until the job is done. Free Mac software from CodesWhat. Version 1.0 for macOS 26+ on Apple Silicon.">
   <link rel="canonical" href="https://dilated.app/">
   <meta name="theme-color" content="#ffdf24">
   <title>Dilated · Keep your Mac awake.</title>
   <meta property="og:type" content="website">
   <meta property="og:title" content="Dilated · Keep your Mac awake.">
-  <meta property="og:description" content="One small menu bar app for work that hasn't quite clocked out. Free Mac software from CodesWhat. Public beta for macOS 26+ on Apple Silicon.">
+  <meta property="og:description" content="One small menu bar app for work that hasn't quite clocked out. Free Mac software from CodesWhat. Version 1.0 for macOS 26+ on Apple Silicon.">
   <meta property="og:url" content="https://dilated.app/">
   <meta property="og:site_name" content="Dilated">
   <meta property="og:image" content="https://dilated.app/assets/social-card.png">
@@ -19,7 +19,7 @@
   <meta property="og:image:alt" content="Dilated: keep your Mac awake. Free menu bar app for macOS 26+ on Apple Silicon.">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Dilated · Keep your Mac awake.">
-  <meta name="twitter:description" content="One small menu bar app for work that hasn't quite clocked out. Free Mac software from CodesWhat. Public beta for macOS 26+ on Apple Silicon.">
+  <meta name="twitter:description" content="One small menu bar app for work that hasn't quite clocked out. Free Mac software from CodesWhat. Version 1.0 for macOS 26+ on Apple Silicon.">
   <meta name="twitter:image" content="https://dilated.app/assets/social-card.png">
   <meta name="twitter:image:alt" content="Dilated: keep your Mac awake. Free menu bar app for macOS 26+ on Apple Silicon.">
   <script type="application/ld+json">
@@ -27,7 +27,7 @@
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "Dilated",
-    "description": "Dilated is a free, open-source menu bar app that keeps your Mac awake for a set time or until you stop it. Public beta for macOS 26 or later on Apple Silicon.",
+    "description": "Dilated is a free, open-source menu bar app that keeps your Mac awake for a set time or until you stop it. Version 1.0 for macOS 26 or later on Apple Silicon.",
     "applicationCategory": "UtilitiesApplication",
     "operatingSystem": "macOS 26 or later",
     "url": "https://dilated.app/",
@@ -49,13 +49,16 @@
   </script>
   <link rel="icon" href="./assets/icon-gas-station.svg" type="image/svg+xml" id="favicon">
   <link rel="stylesheet" href="./styles.css">
+  <link rel="preload" href="./assets/fonts/BarlowCondensed-Bold.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="./assets/fonts/instrument-sans-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
   <script type="module" src="./app.mjs"></script>
+  <script type="module" src="./analytics/client.mjs"></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
   <header class="masthead page-width">
     <a class="brand" href="./" aria-label="Dilated home"><img src="./assets/icon-gas-station.svg" alt="" width="43" height="43"><span>dilated</span></a>
-    <nav aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#command-line">Command line</a><a class="nav-source" data-release-link href="#availability"><span data-release-label>Beta details</span> <span aria-hidden="true">↗</span></a></nav>
+    <nav aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#command-line">Command line</a><a class="nav-source" data-release-link href="#availability"><span data-release-label>1.0 details</span> <span aria-hidden="true">↗</span></a></nav>
   </header>
   <main id="main">
     <article class="direction gas-station" data-panel="gas-station" aria-labelledby="gas-station-title">
@@ -63,7 +66,7 @@
         <div class="gas-station-copy">
           <h1 id="gas-station-title">NOT<br>DONE<br><span>YET.</span></h1>
           <div class="gas-station-bottom"><p>The render. The download. The agent having a moment. Keep your Mac up until the job is done.</p><div class="hero-actions"><a class="button solid" data-release-link href="#availability"><span data-release-label>See download details</span> <span aria-hidden="true">↘</span></a><a class="hero-preview-link" href="#gas-station-details">See how it works ↓</a></div></div>
-          <p class="hero-availability" data-release-summary>PUBLIC BETA · MACOS 26+ · APPLE SILICON</p>
+          <p class="hero-availability" data-release-summary>VERSION 1.0 · MACOS 26+ · APPLE SILICON</p>
         </div>
         <div class="package-stage" aria-label="Dilated package design: keep awake, for as long as it takes">
           <div class="retail-pack">
@@ -118,10 +121,10 @@
       <div class="manners"><div><h3>The screen can sleep.</h3><p>Keeping your Mac awake doesn't have to keep the display on.</p></div><div><h3>Stop is a full stop.</h3><p>Clears every hold. Automation waits until you explicitly resume it.</p></div><div><h3>Power gets a say.</h3><p>Battery and Low Power Mode guards help put a limit on late nights.</p></div></div>
     </section>
 
-    <section class="availability page-width" id="availability"><div class="app-dock"><img class="availability-icon" src="./assets/icon-gas-station.svg" alt="Dilated app icon: yellow with pixel eyes" width="100" height="100"><span class="dock-indicator" aria-hidden="true"></span></div><p class="eyebrow" data-release-status aria-live="polite">PUBLIC BETA.</p><h2 data-release-heading>Try the<br>public beta.</h2><p data-release-copy>Dilated is a free public beta for macOS 26+ on Apple Silicon. From CodesWhat, under MIT.</p><p class="testing-note" data-testing-only>Closed-lid mode is experimental. Hardware recovery checks remain incomplete. If the download details don't load, see the release history for published builds and their verification status.</p><a class="button solid" href="https://github.com/CodesWhat/dilated/releases" data-testing-only>Release history <span aria-hidden="true">↗</span></a><a class="button solid" data-release-link hidden><span data-release-label>Download for Mac</span> <span aria-hidden="true">↓</span></a><p class="release-caveat" data-release-caveat hidden></p><div class="release-details" data-release-details hidden><p data-release-version></p><details><summary>SHA-256 checksum</summary><code data-release-checksum></code></details></div><p class="support-note">Free and open source. If it saves you time, you can <a href="https://github.com/sponsors/CodesWhat">sponsor it on GitHub</a> or <a href="https://codeswhat.com/support">donate directly</a>.</p><p class="availability-spec" data-release-summary>PUBLIC BETA · MACOS 26+ · APPLE SILICON · MIT LICENSE</p></section>
+    <section class="availability page-width" id="availability"><div class="app-dock"><img class="availability-icon" src="./assets/icon-gas-station.svg" alt="Dilated app icon: yellow with pixel eyes" width="100" height="100"><span class="dock-indicator" aria-hidden="true"></span></div><p class="eyebrow" data-release-status aria-live="polite">VERSION 1.0.</p><h2 data-release-heading>Try<br>Dilated 1.0.</h2><p data-release-copy>Dilated 1.0 is free for macOS 26+ on Apple Silicon. From CodesWhat, under MIT.</p><p class="testing-note" data-testing-only>Closed-lid mode is experimental. Its hardware recovery checks were not run for 1.0. If the download details don't load, see the release history for published builds and their verification status.</p><a class="button solid" href="https://github.com/CodesWhat/dilated/releases" data-testing-only data-cta="release_history" data-cta-placement="availability">Release history <span aria-hidden="true">↗</span></a><a class="button solid" data-release-link data-cta="download" data-cta-placement="availability" hidden><span data-release-label>Download for Mac</span> <span aria-hidden="true">↓</span></a><p class="release-caveat" data-release-caveat hidden></p><div class="release-details" data-release-details hidden><p data-release-version></p><details><summary>SHA-256 checksum</summary><code data-release-checksum></code></details></div><p class="support-note">Free and open source. If it saves you time, you can <a href="https://github.com/sponsors/CodesWhat" data-cta="sponsor" data-cta-placement="availability">sponsor it on GitHub</a> or <a href="https://codeswhat.com/support" data-cta="donate" data-cta-placement="availability">donate directly</a>.</p><p class="availability-spec" data-release-summary>VERSION 1.0 · MACOS 26+ · APPLE SILICON · MIT LICENSE</p></section>
 
   </main>
-  <footer class="page-width"><a class="footer-brand" href="./">dilated</a><p>Made by <a href="https://codeswhat.com">CodesWhat</a>.<br>small, sharp tools from one developer and a lot of agents</p><div><a href="https://mouthtype.app">Also from CodesWhat: Mouthtype ↗</a><a href="https://codeswhat.com/support">SUPPORT</a><a href="./privacy">PRIVACY</a></div><span>FREE SOFTWARE<br>MIT LICENSE</span></footer>
+  <footer class="page-width"><a class="footer-brand" href="./">dilated</a><p>Made by <a href="https://codeswhat.com">CodesWhat</a>.<br>small, sharp tools from one developer and a lot of agents</p><div><a href="https://mouthtype.app">Also from CodesWhat: Mouthtype ↗</a><a href="https://codeswhat.com/support">SUPPORT</a><a href="./closed-lid-setup">CLOSED-LID SETUP</a><a href="./privacy">PRIVACY</a></div><span>FREE SOFTWARE<br>MIT LICENSE</span></footer>
   <div class="toast" role="status" aria-live="polite" id="toast"></div>
 
   <template id="awake-demo">
@@ -129,15 +132,17 @@
       <div class="sample-menubar">
         <span class="sample-app" aria-hidden="true">Finder <span>File &nbsp; Edit &nbsp; View</span></span>
         <div class="sample-tray">
+          <div class="sample-anchor">
           <button type="button" class="sample-trigger" data-sample-trigger aria-label="Open Dilated preview menu" aria-haspopup="menu" aria-expanded="false">
             <svg viewBox="0 0 16 10" aria-hidden="true"><use class="sample-eye-base" data-sample-eyes href="./assets/symbols.svg#eyes-closed"/><use class="sample-eye-left" href="./assets/symbols.svg#eyes-left"/><use class="sample-eye-right" href="./assets/symbols.svg#eyes-right"/></svg>
             <span data-sample-countdown></span>
           </button>
+            <p class="sample-invitation">Click the eyes <span aria-hidden="true">↗</span></p>
+          </div>
           <svg class="sample-wifi" viewBox="0 0 16 13" aria-hidden="true"><path d="M1.5 4.2a9.5 9.5 0 0 1 13 0M3.6 6.6a6.4 6.4 0 0 1 8.8 0M5.8 9a3.2 3.2 0 0 1 4.4 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.5" r="1.2" fill="currentColor"/></svg>
           <span class="sample-time" aria-hidden="true">9:41</span>
         </div>
       </div>
-      <p class="sample-invitation">Click the eyes <span aria-hidden="true">↗</span></p>
       <div class="desktop-message" aria-hidden="true"><svg viewBox="0 0 16 10"><use href="./assets/symbols.svg#eyes"/></svg><p>The screen can rest.<br>The work can stay up.</p></div>
       <div class="sample-menu" data-sample-menu role="menu" aria-label="Dilated preview" tabindex="-1" hidden></div>
       <p class="sample-disclaimer">Try it here. This preview doesn't change your Mac's sleep settings.</p>

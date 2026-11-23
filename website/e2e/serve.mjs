@@ -1,17 +1,18 @@
 // Dependency-free static server for website/dist. It sends the headers from the
-// first route in vercel.json, so the production CSP applies to every page here.
+// vercel.json route that carries the CSP, so the production CSP applies to every page here.
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { brotliCompressSync, gzipSync } from 'node:zlib';
 
 const websiteRoot = fileURLToPath(new URL('..', import.meta.url));
 const distRoot = join(websiteRoot, 'dist');
 const port = Number(process.env.PORT ?? 4791);
 
 const config = JSON.parse(readFileSync(join(websiteRoot, 'vercel.json'), 'utf8'));
-const headers = config.routes[0].headers;
+const headers = config.routes.find(route => route.headers?.['Content-Security-Policy']).headers;
 
 const types = {
   '.html': 'text/html; charset=utf-8',
@@ -28,7 +29,12 @@ const types = {
 
 const server = createServer(async (request, response) => {
   const send = (status, body, type = 'text/plain; charset=utf-8') => {
-    response.writeHead(status, { ...headers, 'Content-Type': type });
+    // Vercel compresses text responses; do the same so local Lighthouse runs measure what production sends.
+    const accepted = String(request.headers['accept-encoding'] ?? '');
+    const compressible = /^(text\/|application\/(json|xml)|image\/svg)/.test(type);
+    const encoding = compressible && /\bbr\b/.test(accepted) ? 'br' : compressible && /\bgzip\b/.test(accepted) ? 'gzip' : null;
+    if (encoding) body = (encoding === 'br' ? brotliCompressSync : gzipSync)(body);
+    response.writeHead(status, { ...headers, 'Content-Type': type, ...(encoding ? { 'Content-Encoding': encoding, Vary: 'Accept-Encoding' } : {}) });
     response.end(request.method === 'HEAD' ? undefined : body);
   };
   try {

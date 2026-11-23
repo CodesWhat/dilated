@@ -203,6 +203,93 @@ class PublicationGuardsTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'acceptance'):
             stage.validate_acceptance(partial, self.manifest)
 
+    def waived_acceptance(self):
+        record = self.beta_acceptance()
+        waived = [key for key, check in record['checks'].items() if check['status'] != 'passed']
+        record['ownerWaiver'] = {'by': 'Scott Benson', 'date': '2026-11-21',
+                                 'reason': 'Shipping direct 1.0.0 without the hardware runs.',
+                                 'checks': waived}
+        return record
+
+    def test_a_ga_with_a_complete_owner_waiver_stages_and_lists_the_waived_checks(self):
+        self.use_ga_version()
+        record = self.waived_acceptance()
+        summary = stage.validate_acceptance(record, self.manifest)
+        waived = record['ownerWaiver']['checks']
+        self.assertFalse(summary['prerelease'])
+        self.assertEqual(summary['ownerWaiver']['checks'], waived)
+        self.assertEqual(sorted(summary['failed'] + summary['notRun']), sorted(waived))
+        self.assertFalse(stage.acceptance_verified(summary))
+        latest = stage.latest_metadata(self.manifest, summary)
+        self.assertFalse(latest['prerelease'])
+        self.assertEqual(sorted(latest['unverified']), sorted(waived))
+        cask = stage.cask_text(self.manifest, summary)
+        self.assertIn('Closed-lid mode is experimental.', cask)
+        self.assertNotIn('Beta release.', cask)
+        self.assertIn('Not yet verified on hardware: ', cask)
+        self.assertIn('sudoRuleRevoked', cask)
+
+    def test_a_ga_owner_waiver_must_cover_every_unpassed_check_and_nothing_else(self):
+        self.use_ga_version()
+
+        def missing_entry(record):
+            record['ownerWaiver']['checks'].remove('rebootRecovery')
+
+        def lists_a_passed_check(record):
+            record['ownerWaiver']['checks'].append('stopResume')
+
+        def unknown_check(record):
+            record['ownerWaiver']['checks'].append('madeUp')
+
+        def duplicate(record):
+            record['ownerWaiver']['checks'].append('rebootRecovery')
+
+        def blank(field):
+            def mutate(record):
+                record['ownerWaiver'][field] = ' '
+            return mutate
+
+        def bad_date(record):
+            record['ownerWaiver']['date'] = 'yesterday'
+
+        def not_an_object(record):
+            record['ownerWaiver'] = 'yes'
+
+        def waived_check_without_a_record(record):
+            del record['checks']['rebootRecovery']
+
+        def waived_check_without_a_status(record):
+            del record['checks']['rebootRecovery']['status']
+
+        def waived_check_without_evidence(record):
+            record['checks']['rebootRecovery']['evidence'] = ' '
+
+        for mutate in [missing_entry, lists_a_passed_check, unknown_check, duplicate, blank('by'),
+                       blank('date'), blank('reason'), bad_date, not_an_object,
+                       waived_check_without_a_record, waived_check_without_a_status,
+                       waived_check_without_evidence]:
+            with self.subTest(mutate=getattr(mutate, '__name__', 'blank')):
+                record = self.waived_acceptance()
+                mutate(record)
+                with self.assertRaisesRegex(RuntimeError, 'waiver|acceptance'):
+                    stage.validate_acceptance(record, self.manifest)
+
+    def test_a_ga_without_a_waiver_needs_every_check_and_a_waiver_never_loosens_a_prerelease(self):
+        self.use_ga_version()
+        record = self.beta_acceptance()
+        with self.assertRaisesRegex(RuntimeError, 'acceptance'):
+            stage.validate_acceptance(record, self.manifest)
+        self.assertEqual(stage.validate_acceptance(self.acceptance(), self.manifest)['passed'],
+                         list(stage.ACCEPTANCE_CHECKS))
+
+    def test_fresh_install_is_only_verified_from_recorded_evidence(self):
+        self.assertFalse(stage.fresh_install_verified(self.acceptance()))
+        record = self.acceptance()
+        record['freshInstall'] = {'status': 'passed', 'machine': 'primary-mac', 'macOS': '26.6.2', 'evidence': 'Clean install.'}
+        self.assertTrue(stage.fresh_install_verified(record))
+        record['freshInstall']['evidence'] = ''
+        self.assertFalse(stage.fresh_install_verified(record))
+
     def test_latest_metadata_names_the_unverified_checks(self):
         summary = stage.validate_acceptance(self.beta_acceptance(), self.manifest)
         latest = stage.latest_metadata(self.manifest, summary)

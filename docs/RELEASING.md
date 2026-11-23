@@ -48,6 +48,21 @@ A JSON file tied to the exact artifacts:
 
 For GA releases, every check in `ACCEPTANCE_CHECKS` must be `passed`. For an alpha, beta or rc, `appCrashRecovery`, `heartbeatExpiry` and `stopResume` must be `passed`, and so must at least one of `macOS26ClosedLid` or `macOS27ClosedLid`, on any supported macOS. The others can be `failed` or `notRun`, with evidence saying why. Staging lists those, including whichever closed-lid check wasn't passed, as unverified in the manifest, `latest.json` and the cask caveats. Fixtures and mock runs aren't hardware evidence.
 
+A GA can ship with unrun checks only through an explicit owner waiver in the same record:
+
+```json
+"ownerWaiver": {
+  "by": "<name>",
+  "date": "YYYY-MM-DD",
+  "reason": "<why the checks are being skipped>",
+  "checks": ["rebootRecovery", "nativeUI"]
+}
+```
+
+`by`, `date` (`YYYY-MM-DD`) and `reason` must be non-empty, and `checks` must name only real `ACCEPTANCE_CHECKS` entries. It has to list every check that isn't `passed` (`notRun` or `failed`) and none that is. A passed check still needs its machine, macOS and evidence on this exact artifact. Staging then treats the waived checks like a prerelease's unverified ones (manifest, `latest.json`, cask caveats) and also writes `acceptanceVerified: false` and the `ownerWaiver` block into `release-manifest.json`. A waiver never loosens a prerelease's rules, and a GA without one still needs every check `passed`. A waiver records a decision. It never turns an unrun check into a passed one.
+
+`freshInstallVerified` in the public manifest is `true` only when the record has a `freshInstall` entry with status `passed`, plus machine, macOS and evidence. Otherwise it is `false`.
+
 The generated cask removes the closed-lid sudo rule (`/private/etc/sudoers.d/dilated`) with a `zap` stanza only. It is never in `uninstall`, because Homebrew runs uninstall during an upgrade and that would strip the rule from every upgraded install.
 
 ## 5. Stage the public release
@@ -96,11 +111,13 @@ The Mac App Store build is a separate sandboxed bundle (`com.codeswhat.dilated.a
 
 ### Versions
 
-The MAS build reads the same `packaging/Version.plist` as the direct build, so `DilatedDisplayVersion` and `CFBundleShortVersionString` are the same on both channels. A MAS build is only cut from a tag the direct build already shipped.
+The MAS build reads `packaging/Version.plist` and uses its numeric `CFBundleShortVersionString` for both version fields in the store bundle. The direct channel keeps its own display label, including prerelease suffixes.
+
+The store release can ship before direct-channel GA. Build from a clean, reviewed `main` revision with a signed tag such as `mas/v1.0.0-build18`. Keep the source revision in the bundle, preserve signing and bundle validation, and verify the uploaded build before submitting it. A store release does not mark the direct channel's hardware acceptance checks passed.
 
 `CFBundleVersion` is one global counter shared with the direct build, not a second MAS-only series. App Store Connect rejects an upload whose build number isn't higher than every earlier upload, and a direct hotfix bumps the number too, so a single counter can't fall behind in either channel. Gaps are fine. A number that App Store Connect has already processed is spent even if the build is rejected: bump `CFBundleVersion` and rebuild instead of re-uploading.
 
-The store can't carry a beta. Ship prereleases through TestFlight only, and submit to the store from GA onward.
+The store can't carry a beta. Test the store release through TestFlight before submitting that build for review. The direct channel can remain in public beta while the store release uses its numeric version.
 
 ### Build
 

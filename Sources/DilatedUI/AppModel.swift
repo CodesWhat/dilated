@@ -424,7 +424,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     {
       return .closedLid
     }
-    if closedLid.state.map({ !$0.readback.confirmedDisabled }) == true { return .recovering }
+    if closedLid.restorationPending { return .recovering }
     return .idle
   }
   public func startDefault() {
@@ -468,7 +468,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
     let hold: Hold
     do {
-      engine.updatePower(readPower())
+      applyPower(readPower())
       hold = try engine.start(
         source: .manual, label: "Download: \(target.url.lastPathComponent)",
         displayAwake: !settings.allowDisplaySleep, lowPowerOverride: settings.overrideLowPower)
@@ -601,7 +601,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       } else {
         try await closedLid.enable(policy: policy)
       }
-      engine.updatePower(readPower())
+      applyPower(readPower())
       guard !Task.isCancelled, pendingLidRequest?.operation == operation, validPendingLidRequest
       else {
         throw CancellationError()
@@ -634,9 +634,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public func synchronizeClosedLid() async throws {
     queueClosedLidReset()
     try await lidChange?.value
-    if !engine.desiredState.closedLid,
-      closedLid.state.map({ !$0.readback.confirmedDisabled }) == true
-    {
+    if !engine.desiredState.closedLid, closedLid.restorationPending {
       try await closedLid.disable()
     }
   }
@@ -743,9 +741,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   /// Sleep must not be left disabled across a quit, update or removal. Reverts through the sudo
   /// path whenever a session is active or the last reading wasn't normal sleep.
   private func ensureClosedLidOff() async throws {
-    if closedLid.hasLease || closedLid.pendingEnable
-      || closedLid.state.map({ !$0.readback.confirmedDisabled }) == true
-    {
+    if closedLid.hasLease || closedLid.pendingEnable || closedLid.restorationPending {
       try await closedLid.disable()
     }
   }
@@ -871,7 +867,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
   public func toggle() { engine.holds.isEmpty ? startDefault() : stopAll() }
   public func refreshPower() {
-    engine.updatePower(readPower())
+    applyPower(readPower())
     commit()
     refreshTriggers()
   }
@@ -929,7 +925,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         ok: false, message: "Renewals can't enable closed-lid. Start a new hold or use the menu.",
         code: "invalidRequest")
     }
-    engine.updatePower(readPower())
+    applyPower(readPower())
     var effective = request
     effective.closedLid = false
     effective.lowPowerOverride = request.lowPowerOverride || settings.overrideLowPower
@@ -1114,7 +1110,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @discardableResult private func mutate(_ change: (inout WakeEngine) throws -> Void) -> WakeError?
   {
     do {
-      engine.updatePower(readPower())
+      applyPower(readPower())
       try change(&engine)
       message = nil
       commit()
@@ -1273,7 +1269,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
   func startScript(_ options: ScriptStartOptions) async throws -> UUID {
     guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
-    engine.updatePower(readPower())
+    applyPower(readPower())
     var candidate = engine
     let previous = candidate.holds.filter { $0.source == .appleScript }.map(\.id)
     let duration =
@@ -1315,7 +1311,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
   }
   func setAutomationClosedLid(id: UUID, enabled: Bool) async throws {
-    engine.updatePower(readPower())
+    applyPower(readPower())
     commit()
     if enabled {
       if engine.automationPaused { throw WakeError.automationPaused }
@@ -1367,7 +1363,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
   func setScriptDisplayAwake(_ enabled: Bool) throws {
     guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
-    engine.updatePower(readPower())
+    applyPower(readPower())
     if engine.holds.isEmpty {
       var value = settings
       value.allowDisplaySleep = !enabled
@@ -1525,19 +1521,17 @@ public struct AppSettings: Codable, Equatable, Sendable {
     else {
       throw InputError("Enable this trigger and its closed-lid option first.")
     }
-    try await requireClosedLidSetup()
     armingClosedLidTrigger = id
     let revision = triggerLidRevision
     defer {
       armingClosedLidTrigger = nil
       onChange?()
     }
+    try await requireClosedLidSetup()
+    try requireCurrentTriggerArm(id: id, rule: rule, revision: revision)
     try confirmClosedLidBatteryWarning(allowPrompt: true)
     try await closedLid.refresh()
-    guard !Task.isCancelled, revision == triggerLidRevision, !stopped, !preparingToQuit,
-      !updater.blocksNewWork, !engine.automationPaused, settings.triggersEnabled,
-      triggerRules.first(where: { $0.id == id }) == rule
-    else { throw CancellationError() }
+    try requireCurrentTriggerArm(id: id, rule: rule, revision: revision)
     guard closedLid.state?.ready == true else {
       throw InputError(
         "Closed-lid isn't ready. Check Closed Lid settings before arming a trigger.")
@@ -1552,6 +1546,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
     guard armedClosedLidTriggers.contains(id) else {
       throw InputError(message ?? "Closed-lid disarmed. Arm this trigger again to continue.")
     }
+  }
+  private func requireCurrentTriggerArm(id: UUID, rule: TriggerRule, revision: UUID) throws {
+    guard !Task.isCancelled, revision == triggerLidRevision, !stopped, !preparingToQuit,
+      !updater.blocksNewWork, !engine.automationPaused, settings.triggersEnabled,
+      triggerRules.first(where: { $0.id == id }) == rule
+    else { throw CancellationError() }
   }
   public func disarmClosedLidTrigger(id: UUID) async throws {
     resetTriggerLidArming(ids: [id])
@@ -1702,6 +1702,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
     triggerRules = rules
   }
+  /// Routes every power update through here so a trigger hold the engine drops for power safety
+  /// restarts its rule instead of reading as a user stop.
+  private func applyPower(_ power: PowerState) {
+    let removed = engine.updatePower(power)
+    guard !removed.isEmpty else { return }
+    for (ruleID, holdID) in triggerEvaluator.activeHoldIDs where removed.contains(holdID) {
+      triggerEvaluator.resume(id: ruleID, engine: &engine)
+    }
+  }
   func reconcileTriggers(_ input: TriggerInputs) {
     guard !stopped, !preparingToQuit, !updater.blocksNewWork, settingsRecoveryIssue == nil else {
       return
@@ -1710,7 +1719,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     input.power = readPower()
     lastTriggerInputs = input
     let before = engine.holds
-    engine.updatePower(input.power)
+    applyPower(input.power)
     let rules = triggerRules.map { rule in
       var rule = rule
       rule.enabled = rule.enabled && settings.triggersEnabled

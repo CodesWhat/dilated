@@ -64,10 +64,16 @@ Crash recovery has three layers. Before enabling, the app writes a session marke
 process, which restores sleep within seconds of the app exiting and then clears
 the marker. At launch, a leftover marker triggers a revert. Sleep that is
 disabled with no marker is treated as someone else's (Amphetamine, a manual
-`pmset`) and left alone with a notice. A reboot with no relaunch can leave sleep
-disabled, because the setting persists, until Dilated next launches. A failed
-disable keeps retrying and blocks quit and update until sleep is confirmed
-normal. These mechanisms are implemented, but real lid, crash, reboot and
+`pmset`) and left alone with a notice; it never runs the power command, never
+blocks quit or update, and never sleeps the Mac when it later clears. A Mac that
+already allows sleep with nothing of ours to restore runs no power command at
+launch or later. The service's tick sleeps with no lease and nothing of ours to
+restore, wakes on a request, and backs off while a restore keeps failing. A Sleep
+request or a closed-lid stop sleeps only inside the reset it started, and a
+stop sleeps only if the lid is still closed then. A reboot with no relaunch can
+leave sleep disabled, because the setting persists, until Dilated next launches. A
+failed disable of our own keeps retrying and blocks quit and update until sleep
+is confirmed normal. These mechanisms are implemented, but real lid, crash, reboot and
 power-transition acceptance remains open. Unit tests do not establish hardware
 recovery.
 
@@ -418,8 +424,10 @@ runs unsandboxed. Install order: the sudoers rule (skipped with no prompt when `
 `~/Library/Application Scripts/com.codeswhat.dilated.appstore/` (0755, temp file and rename, SHA-256 checked against
 `ClosedLidSetupAssets.expectedScriptSHA256` before anything is written; a test fails if the script changes without it), then
 the rendered LaunchAgent plist and `launchctl bootstrap gui/<uid>` after a `bootout`, so reinstall is idempotent. Remove order:
-`dilated-power off` if a session file exists, boot out the agent and delete the plist, delete the script and its empty folder,
-then the rule only if the companion created it. That fact is a 0600 record under `~/Library/Application Support/Dilated
+`dilated-power begin-removal` (replacing an outdated installed script first; a missing script is first restored from the bundled copy when a session or the restore-pending latch exists and the bundle's SHA-256 checks out, and nothing is deleted if that check or the write fails), then, only if the script answered `ok` (a session file or the latch was ours), a readback that must say sleep is normal
+or the agent and script are kept, then `finish-removal` (deletes the session and latch), boot out the agent and delete the plist, delete the script and its empty folder, then the
+rule only if the companion created it. The removal marker stays after a successful Remove; install clears it only after `launchctl` shows the agent loaded, and
+reports failure if it doesn't. That fact is a 0600 record under `~/Library/Application Support/Dilated
 Closed-Lid Setup/`, set only when the rule file was absent at install. The rule is the direct build's (same path and content),
 so the two builds share it: the direct build's "remove" also removes the rule the Mac App Store build relies on, and the
 companion never removes a rule it didn't create (Amphetamine's, or one the direct build installed first). Hidden headless mode
@@ -427,7 +435,17 @@ for `scripts/closed-lid-setup-check.sh`: `DilatedSetup --install --yes`, `--remo
 admin prompt.
 
 The script takes one verb: `on <pid>` (exactly one argument, all digits, at most 10), or `beat`, `off`, `check`, `repair`,
-`probe` with no argument. Anything else prints `usage` to stderr and exits 64. It uses absolute paths, runs
+`probe`, `begin-removal`, `finish-removal` with no argument. Both removal verbs are the companion's. `begin-removal`, under
+the lock, writes the removal marker `~/Library/Application Support/dilated-power/removal` and, only when a `session` file
+exists (a tombstone or a plain marker never means ours), writes the restore-pending latch `restore-pending` next to it, runs
+`pmset -a disablesleep 0` and prints `ok`; with no session and no latch it prints `none` and leaves sleep alone. The session
+stays, so a retry still answers `ok`. The latch is separate from the marker and survives `off` and `repair`, which can delete
+the session before the readback passed: with only the latch left, `begin-removal` still answers `ok` (without running pmset
+again) so the companion keeps owing the readback. `finish-removal` deletes the session, tombstone and latch once the
+readback confirmed normal sleep. While the marker exists `on` and `probe` answer `noagent`; `off` and `repair` still
+work. `on` and `probe` also require `launchctl print gui/<uid>/com.codeswhat.dilated.closed-lid-repair` to succeed (bounded to
+1s). `on` checks the marker before the lock, waits at most 1.5s for it, and checks that wall-clock cap again after a successful acquisition, releasing the lock when it has passed (`busy`, exit 1; build 18 refuses any word but `ok`),
+and re-checks the marker and the agent under it before `pmset 1`. Anything else prints `usage` to stderr and exits 64. It uses absolute paths, runs
 `/usr/bin/env -i /usr/bin/sudo -n`, and reads only `HOME`. `probe` runs `sudo -n -l` for both `pmset -a disablesleep`
 commands. It prints one word, then exits:
 
@@ -436,11 +454,16 @@ commands. It prints one word, then exits:
 | `ok` | 0 | The command ran, or sudo allows both commands. |
 | `reverted` | 4 | `on` from a pid the repair agent already reverted. |
 | `norule` | 3 | sudo needs a password, doesn't allow the command, or the user may not run sudo. |
+| `noagent` | 3 | `on` or `probe` while the repair agent isn't loaded or removal is under way. |
 | `failed` | the failing status, or 1 | Anything else. |
 | `none` | 0 | `beat` or `check` with no session. |
 | `live`, `dead`, `stale`, `reverted` | 0 | `check` only. It reads and changes nothing. |
 
-The script test hooks (`DILATED_POWER_TEST_SUDO`, `DILATED_POWER_TEST_WAKE`) are honored only when the script runs from
+`noagent` shares `norule`'s exit status on purpose. A build that predates the word (build 18) reads an unknown first word as
+`.commandFailed` for `on`, so a newer script still makes it refuse the enable, and as `.ruleMissing` for `probe`. The new app
+maps `noagent` to `permissionUnavailable` for `on` and `ClosedLidScriptState.agentMissing` for `probe`.
+
+The script test hooks (`DILATED_POWER_TEST_SUDO`, `DILATED_POWER_TEST_WAKE`, `DILATED_POWER_TEST_LAUNCHCTL`) are honored only when the script runs from
 `<repo>/packaging/mas` next to `Package.swift`. The installed copy ignores them, so the environment of a `NSUserUnixTask`
 or a local shell can't redirect sudo.
 
@@ -462,7 +485,7 @@ within 150, and a forced logout or reboot at the next login. `scripts/mas-repair
 
 The app reads the first stdout word, not the exit status, because `NSUserUnixTask` only reports an `Error`. `norule` and a
 missing script become `ClosedLidPowerError.permissionUnavailable`, a timeout becomes `.commandTimedOut`, and the rest
-`.commandFailed`. `ClosedLidScriptState` (`scriptMissing`, `ruleMissing`, `ready`) comes from `probe`; a timeout or failure
+`.commandFailed`. `ClosedLidScriptState` (`scriptMissing`, `ruleMissing`, `agentMissing`, `ready`) comes from `probe`; a timeout or failure
 reads as `ruleMissing`. `ClosedLidPermissionModel` shows plain copy for each state and no install or remove button.
 
 Download targets in this channel are `DownloadTargetRecord`s (path, folder flag, optional `bookmark`; old records decode with no bookmark). `SecurityScopedBookmarks` creates `.withSecurityScope` data from an open-panel URL, re-creates stale data, throws `missingTarget` for a deleted target, and hands `AppModel.startDownload` a `BookmarkAccess` that the monitor holds until it's released. Every download target comes from an open panel, so `~/Downloads` is bookmarked like any other folder and the build carries no `files.downloads.read-only` entitlement. The direct build keeps plain paths.

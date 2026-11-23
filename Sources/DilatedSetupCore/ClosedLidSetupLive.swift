@@ -136,14 +136,29 @@ public struct LiveLaunchAgentControl: LaunchAgentControlling {
 public struct LivePowerScript: PowerScriptRunning {
   public init() {}
 
-  public func off(scriptPath: String) async throws {
-    guard let result = await SetupProcess.run("/bin/bash", [scriptPath, "off"]) else {
+  public func beginRemoval(scriptPath: String) async throws -> Bool {
+    guard let result = await SetupProcess.run("/bin/bash", [scriptPath, "begin-removal"]) else {
+      throw ClosedLidSetupLiveError(message: "The script couldn't start.")
+    }
+    let word = result.output.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+    guard !result.timedOut, result.status == 0, word == "ok" || word == "none" else {
+      throw ClosedLidSetupLiveError(message: "dilated-power begin-removal printed '\(word)'.")
+    }
+    return word == "ok"
+  }
+
+  public func finishRemoval(scriptPath: String) async throws {
+    guard let result = await SetupProcess.run("/bin/bash", [scriptPath, "finish-removal"]) else {
       throw ClosedLidSetupLiveError(message: "The script couldn't start.")
     }
     let word = result.output.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
     guard !result.timedOut, result.status == 0, word == "ok" else {
-      throw ClosedLidSetupLiveError(message: "dilated-power off printed '\(word)'.")
+      throw ClosedLidSetupLiveError(message: "dilated-power finish-removal printed '\(word)'.")
     }
+  }
+
+  public func confirmsNormalSleep() async -> Bool {
+    NativeClosedLidPower.readback().confirmedDisabled
   }
 }
 
