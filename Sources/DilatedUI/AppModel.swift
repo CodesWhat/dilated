@@ -212,6 +212,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored public var onChange: (() -> Void)?
   @ObservationIgnored public var onBatteryOverrideNeeded: ((TimeInterval?) -> Void)?
   @ObservationIgnored public var onClosedLidBatteryWarning: (() -> Bool)?
+  /// Called once per failure when a live closed-lid session can't turn sleep back on.
+  @ObservationIgnored public var onSleepRestoreFailed: ((String) -> Void)?
+  /// True from the moment a live revert fails until sleep is confirmed normal.
+  public private(set) var sleepRestoreAlertRaised = false
+  @ObservationIgnored private var restoredAtSequence: UInt64 = 0
   public let closedLid: ClosedLidController
   #if !MAS_CHANNEL
     public let helperMigration: HelperMigration
@@ -369,7 +374,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
       batteryFloorIgnoresAC: loadedSettings.batteryFloorIgnoresAC)
     settingsRecoveryIssue = recoveryIssue
     message = loadMessage
-    self.closedLid.onChange = { [weak self] in self?.onChange?() }
+    self.closedLid.onChange = { [weak self] in
+      self?.syncLiveRevertFailure()
+      self?.onChange?()
+    }
     self.closedLid.onEnded = { [weak self] reason in
       guard let self, !self.stopped else { return }
       self.resetTriggerLidArming()
@@ -1085,12 +1093,37 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
   public func restoreNormalSleep() async {
     #if MAS_CHANNEL
-      _ = await closedLidPermission.restoreNormalSleep()
+      let restored = await closedLidPermission.restoreNormalSleep() == .done
     #else
-      if await closedLidPermission.restoreNormalSleep() == .done { helperMigration.sleepRestored() }
+      let restored = await closedLidPermission.restoreNormalSleep() == .done
+      if restored { helperMigration.sleepRestored() }
     #endif
+    // The service may still hold a failed state from before the restore until its next tick, so
+    // ignore anything it built earlier than this.
+    if restored { restoredAtSequence = closedLid.state?.sequence ?? 0 }
     message = closedLidPermission.lastError
+    syncLiveRevertFailure()
     onChange?()
+  }
+
+  /// A live session's revert that macOS hasn't confirmed: the service is retrying, and the user
+  /// gets Restore normal sleep and an alert. Sleep another app disabled isn't ours to restore.
+  private func syncLiveRevertFailure() {
+    let failure: String? = {
+      guard let state = closedLid.state, state.phase == .failed, !state.foreignSleepDisabled,
+        !state.readback.confirmedDisabled, state.sequence > restoredAtSequence
+      else { return nil }
+      return state.message ?? "macOS hasn't confirmed normal sleep."
+    }()
+    closedLidPermission.setLiveRevertFailure(failure)
+    guard let failure else {
+      sleepRestoreAlertRaised = false
+      return
+    }
+    guard !sleepRestoreAlertRaised else { return }
+    sleepRestoreAlertRaised = true
+    // Outside the controller's callback so a modal alert can't re-enter its snapshot drain.
+    Task { @MainActor [weak self] in self?.onSleepRestoreFailed?(failure) }
   }
   /// `dilated helper ...` is kept one release as an alias of `lid-permission`.
   private func controlHelper(_ action: ControlAction) async -> ControlResponse {
