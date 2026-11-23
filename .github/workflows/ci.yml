@@ -12,27 +12,46 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
-      macos: ${{ steps.filter.outputs.macos }}
+      # The gate is skipped on push, so its output is empty there and the push-diff result is used.
+      macos: ${{ steps.gate.outputs.run || steps.filter.outputs.macos }}
     steps:
+      - name: Gate pull requests on build inputs
+        id: gate
+        if: github.event_name == 'pull_request'
+        uses: CodesWhat/.github/actions/changes-gate@f763dd4e8fea25a36892f4689f9f667adbbe197b
+        with:
+          patterns: |
+            Sources/**
+            Tests/**
+            scripts/**
+            packaging/**
+            design/**
+            **/*.swift
+            **/*.plist
+            **/*.entitlements
+            Package.swift
+            Package.resolved
+            .github/workflows/ci.yml
+            !**/*.md
       - uses: actions/checkout@v4
+        if: github.event_name != 'pull_request'
         with:
           fetch-depth: 0
           persist-credentials: false
       - name: Decide whether macOS verify is needed
         id: filter
+        if: github.event_name != 'pull_request'
         env:
-          EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
           PUSH_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            range="$PR_BASE_SHA...$PR_HEAD_SHA"
-          elif [ "$REF" = "refs/heads/main" ]; then
+          if [ "$REF" = "refs/heads/main" ]; then
             echo "macos=true" >> "$GITHUB_OUTPUT"; exit 0
           elif [ -z "$PUSH_BEFORE" ] || [ "$PUSH_BEFORE" = "0000000000000000000000000000000000000000" ]; then
             echo "macos=true" >> "$GITHUB_OUTPUT"; exit 0
