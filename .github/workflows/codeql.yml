@@ -29,6 +29,20 @@ jobs:
         with:
           persist-credentials: false
 
+      # CodeQL Swift tracing doesn't support Xcode 27 and the image default can move,
+      # so pin the newest Xcode 26. runs-on macos-26 is ARM (Intel CodeQL is deprecated).
+      # Scheduled runs scan the default branch (main, the released code) on purpose.
+      - name: Select Xcode 26
+        run: |
+          set -euo pipefail
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -z "$xcode" ]; then
+            echo "No Xcode 26 found under /Applications" >&2
+            exit 1
+          fi
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+
       - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           languages: swift
