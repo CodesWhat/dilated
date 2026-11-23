@@ -247,6 +247,23 @@ struct ClosedLidPermissionTests {
       await run("exec sleep 5", timeout: 0.3) == .failed("The administrator prompt timed out."))
   }
 
+  @Test(.timeLimit(.minutes(1)))
+  func theOsascriptRunnerReturnsPromptlyForFastAndTimedOutChildren() async {
+    let clock = ContinuousClock()
+    let fast = await clock.measure {
+      let outcome = await OsascriptAdminRunner.execute(
+        executable: URL(fileURLWithPath: "/usr/bin/true"), arguments: [], timeout: 30)
+      #expect(outcome == .succeeded)
+    }
+    #expect(fast < .seconds(5))
+    let slow = await clock.measure {
+      let outcome = await OsascriptAdminRunner.execute(
+        executable: URL(fileURLWithPath: "/bin/sleep"), arguments: ["30"], timeout: 0.3)
+      #expect(outcome == .failed("The administrator prompt timed out."))
+    }
+    #expect(slow < .seconds(10))
+  }
+
   @Test func theAdminPromptBoundIsFiveMinutes() {
     // Separate from BoundedProcess, which caps at 3 seconds and would kill the prompt.
     #expect(OsascriptAdminRunner.promptTimeout == 300)

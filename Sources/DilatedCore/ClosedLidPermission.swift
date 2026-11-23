@@ -290,7 +290,8 @@ public struct OsascriptAdminRunner: PrivilegedScriptRunning {
           }
           DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
           let data = errors.fileHandleForReading.readDataToEndOfFile()
-          process.waitUntilExit()
+          // Foundation's waitUntilExit can spin its run loop after the child is gone; poll instead.
+          while process.isRunning { usleep(10_000) }
           watchdog.cancel()
           continuation.resume(
             returning: ClosedLidPermission.outcome(
