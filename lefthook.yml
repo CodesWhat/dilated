@@ -3,7 +3,7 @@
 # scripts/verify.sh, which CI runs. Each command fails with an install hint
 # when its tool is missing instead of skipping.
 #
-# Setup: brew install lefthook gitleaks && lefthook install
+# Setup: brew install lefthook gitleaks && curl https://qlty.sh | sh && lefthook install
 
 pre-commit:
   parallel: true
@@ -33,6 +33,13 @@ pre-commit:
       run: |
         command -v bash >/dev/null 2>&1 || { echo "bash is required: brew install bash" >&2; exit 1; }
         bash -n packaging/mas/dilated-power
+
+pre-push:
+  commands:
+    qlty:
+      run: |
+        command -v qlty >/dev/null 2>&1 || { echo "qlty is required: curl https://qlty.sh | sh" >&2; exit 1; }
+        qlty check --no-progress --upstream origin/dev/m2
 
 commit-msg:
   commands:
