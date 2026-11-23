@@ -1,9 +1,27 @@
+import Darwin
 import Foundation
 import Testing
 
 @testable import DilatedCore
 
 struct PackageHelperTests {
+  /// Ends the child without `waitUntilExit`, which parks a cooperative thread on a run loop that
+  /// can miss the exit and never return. Polls `isRunning` under a deadline, escalating to
+  /// SIGKILL, and fails the test instead of hanging when the child will not go.
+  private static func stop(_ process: Process) async throws {
+    process.terminate()
+    let grace = ContinuousClock.now.advanced(by: .seconds(2))
+    while process.isRunning && ContinuousClock.now < grace {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+    let reap = ContinuousClock.now.advanced(by: .seconds(5))
+    while process.isRunning && ContinuousClock.now < reap {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    try #require(!process.isRunning, "The child did not exit after SIGKILL.")
+  }
+
   @Test func processCheckRefusesARunningAppEvenWhenWorkspaceCannotSeeIt() async throws {
     let executable = URL(
       fileURLWithPath: "/tmp/Dilated [check]-\(UUID().uuidString).app/Contents/MacOS/DilatedApp")
@@ -13,12 +31,7 @@ struct PackageHelperTests {
       "-c", "exec -a \"$1\" /bin/sleep 120", "package-check-test", executable.path,
     ]
     try process.run()
-    defer {
-      if process.isRunning {
-        process.terminate()
-        process.waitUntilExit()
-      }
-    }
+    defer { if process.isRunning { kill(process.processIdentifier, SIGKILL) } }
     let deadline = ContinuousClock.now.advanced(by: .seconds(30))
     let pattern = "^" + NSRegularExpression.escapedPattern(for: executable.path) + "($|[[:space:]])"
     var ready = false
@@ -36,8 +49,7 @@ struct PackageHelperTests {
     await #expect(throws: (any Error).self) {
       try await PackageHelperCheck.verifyAppAbsent(executable: executable)
     }
-    process.terminate()
-    process.waitUntilExit()
+    try await Self.stop(process)
     try await PackageHelperCheck.verifyAppAbsent(executable: executable)
   }
 
