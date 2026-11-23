@@ -762,4 +762,14 @@ struct ClosedLidSetupLiveFileSystemTests {
     fileSystem.removeDirectoryIfEmpty((target as NSString).deletingLastPathComponent)
     #expect(!fileSystem.exists((target as NSString).deletingLastPathComponent))
   }
+
+  @Test(.timeLimit(.minutes(1)))
+  func setupProcessReturnsPromptlyForFastAndTimedOutChildren() async {
+    let fast = await SetupProcess.run("/usr/bin/true", [], timeout: 30)
+    #expect(fast?.status == 0)
+    #expect(fast?.timedOut == false)
+    let slow = await SetupProcess.run("/bin/sleep", ["30"], timeout: 0.3)
+    #expect(slow?.timedOut == true)
+    #expect(await SetupProcess.run("/nonexistent/tool", []) == nil)
+  }
 }

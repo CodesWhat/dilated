@@ -299,7 +299,7 @@ import Foundation
       try? await Task.sleep(for: .seconds(1))
       keepAwake.refresh()
     }
-    process.waitUntilExit()
+    // isRunning is already false, so the status is available; waitUntilExit can spin forever here.
     return process.terminationReason == .uncaughtSignal
       ? 128 + process.terminationStatus : process.terminationStatus
   }
