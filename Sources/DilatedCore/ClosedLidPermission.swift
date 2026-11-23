@@ -67,9 +67,11 @@ public struct ClosedLidPermission: Sendable {
     "%admin ALL=(root) NOPASSWD: DILATED_PMSET",
   ]
   public static let ruleContent = Data((ruleLines.joined(separator: "\n") + "\n").utf8)
-  /// One `sudo -n -l` probe per command the rule has to cover. Both must succeed.
-  static let probeArgumentSets = ["1", "0"].map {
-    ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", $0]
+  /// The probe runs the command that sets `SleepDisabled` to the value it already has, which
+  /// changes nothing. `sudo -l` isn't enough: it succeeds for a rule that still wants a password.
+  /// `-k` ignores cached credentials and `-n` never prompts, so only a NOPASSWD rule passes.
+  static func probeArguments(current: Bool) -> [String] {
+    ["-n", "-k", "/usr/bin/pmset", "-a", "disablesleep", current ? "1" : "0"]
   }
 
   static let installScript = [
@@ -198,14 +200,25 @@ public struct ClosedLidPermission: Sendable {
   }
 
   static func liveProbe() async -> Bool {
-    for arguments in probeArgumentSets {
-      guard
-        let result = try? await BoundedProcess.run(
+    await probe(
+      readCurrent: { NativeClosedLidPower.readback().effectiveDisabled },
+      run: { arguments in
+        try? await BoundedProcess.run(
           executable: URL(fileURLWithPath: SudoPowerRunner.sudoPath), arguments: arguments,
-          timeout: 3, environment: [:]),
-        !result.timedOut, result.status == 0
-      else { return false }
-    }
+          timeout: 3, environment: [:])
+      })
+  }
+
+  /// True only when `sudo` runs `pmset` with no password. An unreadable current value, a timeout
+  /// or any failure to run all read as not allowed.
+  static func probe(
+    readCurrent: @Sendable () -> Bool?,
+    run: @Sendable ([String]) async -> ProcessOutcome?
+  ) async -> Bool {
+    guard let current = readCurrent(),
+      let result = await run(probeArguments(current: current)),
+      !result.timedOut, result.status == 0
+    else { return false }
     return true
   }
 

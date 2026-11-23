@@ -63,6 +63,7 @@ test_sudo=""
 test_wake=""
 test_launchctl=""
 test_clock=""
+test_sleepdisabled="__real__"
 self=${BASH_SOURCE[0]}
 case "$self" in
   */*) self_dir=${self%/*} ;;
@@ -76,6 +77,7 @@ if self_dir=$(cd "$self_dir" 2>/dev/null && pwd -P); then
         test_wake=${DILATED_POWER_TEST_WAKE:-}
         test_launchctl=${DILATED_POWER_TEST_LAUNCHCTL:-}
         test_clock=${DILATED_POWER_TEST_CLOCK:-}
+        test_sleepdisabled=${DILATED_POWER_TEST_SLEEPDISABLED-__real__}
       fi
       ;;
   esac
@@ -263,6 +265,15 @@ classify() {
   echo live
 }
 
+# The SleepDisabled value macOS reports now: 0, 1, or empty when it can't be read.
+current_sleep_disabled() {
+  if [ "$test_sleepdisabled" != "__real__" ]; then
+    echo "$test_sleepdisabled"
+    return
+  fi
+  /usr/bin/env -i /usr/bin/pmset -g 2>/dev/null | /usr/bin/awk '/SleepDisabled/ { print $2; exit }'
+}
+
 run_pmset() {
   local status=0 detail
   detail=$(run_sudo /usr/bin/pmset -a disablesleep "$1") || status=$?
@@ -395,11 +406,19 @@ case "$verb" in
     ;;
   probe)
     { [ ! -f "$removal_file" ] && agent_loaded; } || refuse_unready
-    # One `sudo -n -l` per command, mirroring ClosedLidPermission.probeArgumentSets.
-    for value in 1 0; do
-      detail=$(run_sudo -l /usr/bin/pmset -a disablesleep "$value") || status=$?
-      [ "$status" -eq 0 ] || break
-    done
+    # `sudo -l` succeeds for a rule that still wants a password, so the probe runs the command
+    # instead: it re-sets the current value (a no-op, nothing of another app's is changed). `-k`
+    # ignores cached credentials and `-n` never prompts, so only a NOPASSWD rule gets through.
+    # Mirrors ClosedLidPermission.probeArguments.
+    current=$(current_sleep_disabled)
+    case "$current" in
+      0 | 1) ;;
+      *)
+        echo failed
+        exit 1
+        ;;
+    esac
+    detail=$(run_sudo -k /usr/bin/pmset -a disablesleep "$current") || status=$?
     ;;
 esac
 

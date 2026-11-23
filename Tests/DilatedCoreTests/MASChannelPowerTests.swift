@@ -352,11 +352,46 @@ struct MASChannelRepairScriptTests {
     #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
 
     box.setAgentLoaded(true)
-    #expect(try box.run(["probe"]).out == "ok")
+    let probeEnvironment = ["DILATED_POWER_TEST_SLEEPDISABLED": "0"]
+    #expect(try box.run(["probe"], environment: probeEnvironment).out == "ok")
     #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
     let expected = "print gui/\(getuid())/com.codeswhat.dilated.closed-lid-repair"
     #expect(box.launchctlCalls.allSatisfy { $0 == expected })
     #expect(!box.launchctlCalls.isEmpty)
+  }
+
+  @Test func probeReSetsTheCurrentValueInsteadOfListing() throws {
+    for current in ["0", "1"] {
+      let box = try Sandbox()
+      let result = try box.run(
+        ["probe"], environment: ["DILATED_POWER_TEST_SLEEPDISABLED": current])
+      #expect(result.out == "ok")
+      #expect(box.sudoCalls == ["-k /usr/bin/pmset -a disablesleep \(current)"])
+    }
+  }
+
+  @Test func probeReadsAPasswordRequiredRuleAsNoRule() throws {
+    let box = try Sandbox()
+    // `sudo -l` would have succeeded here. Only actually running the command fails.
+    try """
+    #!/bin/bash
+    echo "$@" >> "\(box.sudoLog.path)"
+    case "$*" in *" -l "* | "-l "*) exit 0 ;; esac
+    echo "sudo: a password is required"
+    exit 1
+    """.write(to: box.fakeSudo, atomically: true, encoding: .utf8)
+    let result = try box.run(["probe"], environment: ["DILATED_POWER_TEST_SLEEPDISABLED": "0"])
+    #expect(result.out == "norule")
+    #expect(result.status == 3)
+    #expect(box.sudoCalls == ["-k /usr/bin/pmset -a disablesleep 0"])
+  }
+
+  @Test func probeWithAnUnreadableSleepStateFailsWithoutRunningSudo() throws {
+    let box = try Sandbox()
+    let result = try box.run(["probe"], environment: ["DILATED_POWER_TEST_SLEEPDISABLED": ""])
+    #expect(result.out == "failed")
+    #expect(result.status == 1)
+    #expect(box.sudoCalls.isEmpty)
   }
 
   private static func marker(_ box: Sandbox) -> URL {

@@ -66,7 +66,7 @@ mas_preflight() {
     say "pre-flight: $*"
     failed=1
   }
-  sudo -n -l /usr/bin/pmset -a disablesleep 1 >/dev/null 2>&1 || refuse "no sudo rule for pmset -a disablesleep 1"
+  sudo -n -k /usr/bin/pmset -a disablesleep "$(sleep_disabled)" >/dev/null 2>&1 || refuse "no passwordless sudo rule for pmset -a disablesleep"
   pmset -g batt | grep -q 'AC Power' || refuse "not on AC power"
   [ "$(sleep_disabled)" = 0 ] || refuse "SleepDisabled is already $(sleep_disabled)"
   [ ! -e "$installed_script" ] || refuse "$installed_script already exists"
