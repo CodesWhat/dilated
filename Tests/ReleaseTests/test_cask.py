@@ -116,9 +116,17 @@ class CaskTests(unittest.TestCase):
             self.assertLess(recipe.index('  homepage '), recipe.index(block))
             self.assertEqual(recipe.index(block) + len(block), recipe.index('  auto_updates '))
 
-    def test_a_ga_cask_has_no_livecheck(self):
+    def test_a_ga_cask_tracks_github_latest_once_between_homepage_and_auto_updates(self):
         ga = {'version': '1.0.0', 'dmgSHA256': 'a' * 64}
-        self.assertNotIn('livecheck', stage.cask_text(ga))
+        recipe = stage.cask_text(ga)
+        self.assertEqual(recipe.count('livecheck'), 1)
+        block = ('  livecheck do\n'
+                 '    url :url\n'
+                 '    strategy :github_latest\n'
+                 '  end\n\n')
+        self.assertEqual(recipe.count(block), 1)
+        self.assertLess(recipe.index('  homepage '), recipe.index(block))
+        self.assertEqual(recipe.index(block) + len(block), recipe.index('  auto_updates '))
 
     def test_release_identity_is_validated_before_creating_ruby(self):
         for manifest in [{'version': '../escape', 'dmgSHA256': 'a' * 64},
