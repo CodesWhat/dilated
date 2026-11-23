@@ -61,7 +61,7 @@ refuse() {
   say "pre-flight: $*"
   preflight_failed=1
 }
-if ! { sudo -n -l /usr/bin/pmset -a disablesleep 1 && sudo -n -l /usr/bin/pmset -a disablesleep 0; } >/dev/null 2>&1; then
+if ! sudo -n -k /usr/bin/pmset -a disablesleep "$(sleep_disabled)" >/dev/null 2>&1; then
   refuse "no sudo rule already allows pmset, so install would need an administrator prompt"
 fi
 [ "$(sleep_disabled)" = 0 ] || refuse "SleepDisabled is already $(sleep_disabled)"
