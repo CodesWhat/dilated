@@ -138,9 +138,17 @@ public struct ClosedLidPermission: Sendable {
       self.isAdmin = isAdmin
     }
 
-    public static let live = Seams(
-      stat: ClosedLidPermission.liveStat, readFile: { FileManager.default.contents(atPath: $0) },
-      probe: ClosedLidPermission.liveProbe, isAdmin: ClosedLidPermission.currentUserIsAdmin)
+    public static let live = live(lockFile: nil)
+
+    /// With a `lockFile` (the marker store's `lockFile`), the probe's read-and-write runs under the
+    /// lock every session enable and restore holds, so the two can't interleave.
+    public static func live(lockFile: URL?) -> Seams {
+      Seams(
+        stat: ClosedLidPermission.liveStat,
+        readFile: { FileManager.default.contents(atPath: $0) },
+        probe: { await ClosedLidPermission.liveProbe(lockFile: lockFile) },
+        isAdmin: ClosedLidPermission.currentUserIsAdmin)
+    }
   }
 
   private let seams: Seams
@@ -205,9 +213,15 @@ public struct ClosedLidPermission: Sendable {
       mode: info.st_mode & 0o7777, size: Int(info.st_size))
   }
 
-  static func liveProbe() async -> Bool {
+  static func liveProbe(lockFile: URL? = nil) async -> Bool {
     await probe(
       readCurrent: { NativeClosedLidPower.readback() },
+      lock: {
+        guard let lockFile else { return {} }
+        let held = try await ClosedLidFileLock.acquire(
+          at: lockFile, timeout: .seconds(5), retry: .milliseconds(25))
+        return { held.release() }
+      },
       run: { arguments in
         try? await BoundedProcess.run(
           executable: URL(fileURLWithPath: SudoPowerRunner.sudoPath), arguments: arguments,
@@ -220,8 +234,14 @@ public struct ClosedLidPermission: Sendable {
   /// stored value, so the no-op only runs when the effective and stored values are both known and
   /// agree. Otherwise re-setting one of them wouldn't be a no-op. An unreadable value, a timeout or
   /// any failure to run all read as not allowed.
+  ///
+  /// The read and the write run under `lock`, the same lock the session guard and the watchdog hold
+  /// around every enable and restore. Without it a restore could write 0 between the read of 1 and
+  /// the probe's write, and the probe would put 1 back with no session left to revert it. If the
+  /// lock can't be taken, the write is skipped and the two listings decide.
   static func probe(
     readCurrent: @Sendable () -> ClosedLidReadback,
+    lock: @Sendable () async throws -> @Sendable () -> Void = { {} },
     run: @Sendable ([String]) async -> ProcessOutcome?
   ) async -> Bool {
     for disabled in [false, true] {
@@ -229,6 +249,8 @@ public struct ClosedLidPermission: Sendable {
         !listing.timedOut, listing.status == 0
       else { return false }
     }
+    guard let release = try? await lock() else { return true }
+    defer { release() }
     let readback = readCurrent()
     guard let current = readback.effectiveDisabled, readback.storedDisabled == current,
       let result = await run(probeArguments(current: current)),
