@@ -64,6 +64,44 @@ import ViewInspector
     #expect(model.triggerRules.first { $0.id == b.id }?.enabled == false)
   }
 
+  @Test func savingAnEditedRuleKeepsTheFocusOwnedFields() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = model(directory)
+    defer { model.shutdown() }
+    let rule = disabled("Focus")
+    try model.saveTrigger(rule)
+    // The editor opens on this stale copy: not Focus-controlled, disabled.
+    var stale = try #require(model.triggerRules.first)
+    // Focus takes ownership and enables the rule while the editor is open.
+    try model.applyFocusRule(id: rule.id)
+    stale.name = "Renamed"
+    try model.saveEditedTrigger(stale)
+    var stored = try #require(model.triggerRules.first)
+    #expect(stored.name == "Renamed")
+    #expect(stored.enabled && stored.focusControlled)
+    // Focus ends and disables it; a stale Focus-owned copy must not bring it back.
+    var staleOwned = stored
+    try model.applyFocusRule(id: nil)
+    staleOwned.dwellSeconds = 5
+    try model.saveEditedTrigger(staleOwned)
+    stored = try #require(model.triggerRules.first)
+    #expect(stored.dwellSeconds == 5)
+    #expect(!stored.enabled && !stored.focusControlled)
+  }
+
+  @Test func aRowToggleOnANonFocusRuleStillSaves() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = model(directory)
+    defer { model.shutdown() }
+    var rule = disabled("Plain")
+    try model.saveTrigger(rule)
+    rule.enabled = true
+    try model.saveTrigger(rule)
+    #expect(model.triggerRules.first?.enabled == true)
+  }
+
   @Test func stopMasterSwitchAndPerRulePauseStillWin() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }

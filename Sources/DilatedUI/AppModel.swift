@@ -1739,6 +1739,17 @@ public struct AppSettings: Codable, Equatable, Sendable {
     try writeTriggers(rules)
     refreshTriggers()
   }
+  /// Saves a rule from the editor sheet. The editor works on a copy taken when it opened and has no
+  /// control for `enabled`, so Focus (or a row toggle) may have changed `enabled` and
+  /// `focusControlled` since. Those two come from the stored rule; everything else is the editor's.
+  public func saveEditedTrigger(_ rule: TriggerRule) throws {
+    var merged = rule
+    if let stored = triggerRules.first(where: { $0.id == rule.id }) {
+      merged.enabled = stored.enabled
+      merged.focusControlled = stored.focusControlled
+    }
+    try saveTrigger(merged)
+  }
   public func resumeTrigger(id: UUID) {
     guard var rule = triggerRules.first(where: { $0.id == id }) else { return }
     rule.enabled = true

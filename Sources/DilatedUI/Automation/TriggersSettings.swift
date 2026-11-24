@@ -94,7 +94,7 @@ import UniformTypeIdentifiers
     }
     .sheet(item: $editing) { rule in
       TriggerRuleEditor(rule: rule) { edited in
-        try model.saveTrigger(edited)
+        try model.saveEditedTrigger(edited)
       } remove: {
         model.removeTrigger(id: rule.id)
       }
