@@ -23,7 +23,7 @@ jobs:
       - name: Gate pull requests on build inputs
         id: gate
         if: github.event_name == 'pull_request'
-        uses: CodesWhat/.github/actions/changes-gate@f763dd4e8fea25a36892f4689f9f667adbbe197b
+        uses: CodesWhat/.github/actions/changes-gate@159c667886c09a0d3109fa33f9b88e10903ea0bd
         with:
           patterns: |
             Sources/**
