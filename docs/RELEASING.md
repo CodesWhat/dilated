@@ -88,9 +88,9 @@ The first run only validates. Before deploying, `--production` fetches the live 
 
 ## 7. Homebrew and GitHub
 
-Copy the staged `dilated.rb` from `releases/<version>/` into `Casks/dilated.rb` in `CodesWhat/homebrew-tap` and push it. Attach the DMG, ZIP, their `.sha256` files and `release-manifest.json` to the GitHub release for `v<display version>`, marked as a prerelease for alpha, beta and rc.
+Copy the staged `dilated.rb` from `releases/<version>/` into `Casks/dilated.rb` in `CodesWhat/homebrew-tap` and push it. Attach the DMG, ZIP, their `.sha256` files, `release-manifest.json` and the staged appcast (`updates/appcast.xml` in `$PUBLIC_DIR`) to the GitHub release for `v<display version>`, marked as a prerelease for alpha, beta and rc.
 
-Publishing the release triggers `.github/workflows/release-sign.yml`. It downloads the DMG, ZIP and appcast, signs each with keyless cosign, attaches the `*.sigstore.json` bundles and an SPDX SBOM to the release, and records build provenance and SBOM attestations. It never changes or re-uploads the original assets. To sign an existing release or re-run it, dispatch the workflow with the tag, for example `v1.0.1`. Tags that aren't `v<semver>`, such as `mas/*`, are refused.
+Publishing the release triggers `.github/workflows/release-sign.yml`. It downloads the DMG, ZIP and appcast, signs each with keyless cosign, attaches the `*.sigstore.json` bundles and an SPDX SBOM to the release, and records build provenance and SBOM attestations. It never changes or re-uploads the original assets. To sign an existing release or re-run it, dispatch the workflow from the tag itself, for example `gh workflow run release-sign.yml --ref v1.0.1 -f tag=v1.0.1`. The run fails before attesting provenance if its commit isn't the tag's commit, so a dispatch from `main` is refused. Tags that aren't `v<semver>`, such as `mas/*`, are refused.
 
 Verify a downloaded asset with its bundle:
 

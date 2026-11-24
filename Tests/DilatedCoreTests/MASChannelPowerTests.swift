@@ -394,6 +394,45 @@ struct MASChannelRepairScriptTests {
     #expect(box.sudoCalls.isEmpty)
   }
 
+  @Test func probeWithDifferentEffectiveAndStoredValuesFailsWithoutRunningSudo() throws {
+    for (effective, stored) in [("0", "1"), ("1", "0"), ("0", "")] {
+      let box = try Sandbox()
+      let result = try box.run(
+        ["probe"],
+        environment: [
+          "DILATED_POWER_TEST_SLEEPDISABLED": effective,
+          "DILATED_POWER_TEST_STORED_SLEEPDISABLED": stored,
+        ])
+      #expect(result.out == "failed")
+      #expect(result.status == 1)
+      #expect(box.sudoCalls.isEmpty)
+    }
+  }
+
+  @Test func probeWithAMatchingStoredValueRunsTheNoOp() throws {
+    let box = try Sandbox()
+    let result = try box.run(
+      ["probe"],
+      environment: [
+        "DILATED_POWER_TEST_SLEEPDISABLED": "1", "DILATED_POWER_TEST_STORED_SLEEPDISABLED": "1",
+      ])
+    #expect(result.out == "ok")
+    #expect(box.sudoCalls == ["-k /usr/bin/pmset -a disablesleep 1"])
+  }
+
+  @Test func probeWhileTheLockIsBusyWritesNothing() throws {
+    let box = try Sandbox()
+    let lock = box.sessionDirectory.appendingPathComponent("lock.d")
+    try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: true)
+    let result = try box.run(
+      ["probe"], environment: ["DILATED_POWER_TEST_SLEEPDISABLED": "0"])
+    #expect(result.out == "busy")
+    #expect(result.status == 1)
+    #expect(box.sudoCalls.isEmpty)
+    // The busy holder's lock is left alone.
+    #expect(FileManager.default.fileExists(atPath: lock.path))
+  }
+
   private static func marker(_ box: Sandbox) -> URL {
     box.sessionDirectory.appendingPathComponent("removal")
   }

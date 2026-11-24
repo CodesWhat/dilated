@@ -30,6 +30,16 @@ class ReleaseSignWorkflowTests(unittest.TestCase):
         for ref in re.findall(r"uses: (\S+)", WORKFLOW.read_text()):
             self.assertRegex(ref, r"@[0-9a-f]{40}$", ref)
 
+    def test_run_commit_is_checked_before_provenance(self):
+        text = WORKFLOW.read_text()
+        check = text.index("Require the run commit to be the tag's commit")
+        provenance = text.index("actions/attest-build-provenance@")
+        self.assertLess(check, provenance)
+        block = text[check:provenance]
+        self.assertIn('refs/tags/${RELEASE_TAG}^{commit}', block)
+        self.assertIn("RUN_SHA: ${{ github.sha }}", block)
+        self.assertNotIn("${{", block.split("run: |", 1)[1])
+
 
 if __name__ == "__main__":
     unittest.main()
