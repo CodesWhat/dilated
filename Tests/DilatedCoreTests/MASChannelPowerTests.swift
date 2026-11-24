@@ -360,19 +360,23 @@ struct MASChannelRepairScriptTests {
     #expect(!box.launchctlCalls.isEmpty)
   }
 
-  @Test func probeReSetsTheCurrentValueInsteadOfListing() throws {
+  @Test func probeListsBothDirectionsThenReSetsTheCurrentValue() throws {
     for current in ["0", "1"] {
       let box = try Sandbox()
       let result = try box.run(
         ["probe"], environment: ["DILATED_POWER_TEST_SLEEPDISABLED": current])
       #expect(result.out == "ok")
-      #expect(box.sudoCalls == ["-k /usr/bin/pmset -a disablesleep \(current)"])
+      #expect(
+        box.sudoCalls == [
+          "-l /usr/bin/pmset -a disablesleep 0", "-l /usr/bin/pmset -a disablesleep 1",
+          "-k /usr/bin/pmset -a disablesleep \(current)",
+        ])
     }
   }
 
   @Test func probeReadsAPasswordRequiredRuleAsNoRule() throws {
     let box = try Sandbox()
-    // `sudo -l` would have succeeded here. Only actually running the command fails.
+    // Listing succeeds here. Only actually running the command fails.
     try """
     #!/bin/bash
     echo "$@" >> "\(box.sudoLog.path)"
@@ -383,18 +387,39 @@ struct MASChannelRepairScriptTests {
     let result = try box.run(["probe"], environment: ["DILATED_POWER_TEST_SLEEPDISABLED": "0"])
     #expect(result.out == "norule")
     #expect(result.status == 3)
-    #expect(box.sudoCalls == ["-k /usr/bin/pmset -a disablesleep 0"])
+    #expect(
+      box.sudoCalls == [
+        "-l /usr/bin/pmset -a disablesleep 0", "-l /usr/bin/pmset -a disablesleep 1",
+        "-k /usr/bin/pmset -a disablesleep 0",
+      ])
   }
 
-  @Test func probeWithAnUnreadableSleepStateFailsWithoutRunningSudo() throws {
+  @Test func probeWithARuleForOnlyOneDirectionWritesNothing() throws {
+    for denied in ["0", "1"] {
+      let box = try Sandbox()
+      try """
+      #!/bin/bash
+      echo "$@" >> "\(box.sudoLog.path)"
+      case "$*" in "-l /usr/bin/pmset -a disablesleep \(denied)") exit 1 ;; esac
+      exit 0
+      """.write(to: box.fakeSudo, atomically: true, encoding: .utf8)
+      let result = try box.run(
+        ["probe"], environment: ["DILATED_POWER_TEST_SLEEPDISABLED": "0"])
+      #expect(result.out == "norule")
+      #expect(result.status == 3)
+      #expect(box.sudoCalls.allSatisfy { $0.hasPrefix("-l ") })
+    }
+  }
+
+  @Test func probeWithAnUnreadableSleepStateFailsWithoutRunningTheNoOp() throws {
     let box = try Sandbox()
     let result = try box.run(["probe"], environment: ["DILATED_POWER_TEST_SLEEPDISABLED": ""])
     #expect(result.out == "failed")
     #expect(result.status == 1)
-    #expect(box.sudoCalls.isEmpty)
+    #expect(box.sudoCalls.allSatisfy { $0.hasPrefix("-l ") })
   }
 
-  @Test func probeWithDifferentEffectiveAndStoredValuesFailsWithoutRunningSudo() throws {
+  @Test func probeWithDifferentEffectiveAndStoredValuesFailsWithoutRunningTheNoOp() throws {
     for (effective, stored) in [("0", "1"), ("1", "0"), ("0", "")] {
       let box = try Sandbox()
       let result = try box.run(
@@ -405,7 +430,7 @@ struct MASChannelRepairScriptTests {
         ])
       #expect(result.out == "failed")
       #expect(result.status == 1)
-      #expect(box.sudoCalls.isEmpty)
+      #expect(box.sudoCalls.allSatisfy { $0.hasPrefix("-l ") })
     }
   }
 
@@ -417,7 +442,11 @@ struct MASChannelRepairScriptTests {
         "DILATED_POWER_TEST_SLEEPDISABLED": "1", "DILATED_POWER_TEST_STORED_SLEEPDISABLED": "1",
       ])
     #expect(result.out == "ok")
-    #expect(box.sudoCalls == ["-k /usr/bin/pmset -a disablesleep 1"])
+    #expect(
+      box.sudoCalls == [
+        "-l /usr/bin/pmset -a disablesleep 0", "-l /usr/bin/pmset -a disablesleep 1",
+        "-k /usr/bin/pmset -a disablesleep 1",
+      ])
   }
 
   @Test func probeWhileTheLockIsBusyWritesNothing() throws {

@@ -67,9 +67,15 @@ public struct ClosedLidPermission: Sendable {
     "%admin ALL=(root) NOPASSWD: DILATED_PMSET",
   ]
   public static let ruleContent = Data((ruleLines.joined(separator: "\n") + "\n").utf8)
-  /// The probe runs the command that sets `SleepDisabled` to the value it already has, which
-  /// changes nothing. `sudo -l` isn't enough: it succeeds for a rule that still wants a password.
+  /// The probe needs two things. Listing each direction (`sudo -n -l`) proves a rule covers both
+  /// `disablesleep 0` and `disablesleep 1`, so turning sleep back on can't be denied later. Listing
+  /// isn't enough alone, since it succeeds for a rule that still wants a password. So the probe also
+  /// runs the command that sets `SleepDisabled` to the value it already has, which changes nothing.
   /// `-k` ignores cached credentials and `-n` never prompts, so only a NOPASSWD rule passes.
+  static func listingArguments(disabled: Bool) -> [String] {
+    ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", disabled ? "1" : "0"]
+  }
+
   static func probeArguments(current: Bool) -> [String] {
     ["-n", "-k", "/usr/bin/pmset", "-a", "disablesleep", current ? "1" : "0"]
   }
@@ -209,14 +215,20 @@ public struct ClosedLidPermission: Sendable {
       })
   }
 
-  /// True only when `sudo` runs `pmset` with no password. `pmset -a disablesleep` writes the stored
-  /// value, so the probe only runs when the effective and stored values are both known and agree.
-  /// Otherwise re-setting one of them wouldn't be a no-op. An unreadable value, a timeout or any
-  /// failure to run all read as not allowed.
+  /// True only when `sudo` lists both `pmset` directions and runs `pmset` with no password. Both
+  /// listings come first and nothing is written if either fails. `pmset -a disablesleep` writes the
+  /// stored value, so the no-op only runs when the effective and stored values are both known and
+  /// agree. Otherwise re-setting one of them wouldn't be a no-op. An unreadable value, a timeout or
+  /// any failure to run all read as not allowed.
   static func probe(
     readCurrent: @Sendable () -> ClosedLidReadback,
     run: @Sendable ([String]) async -> ProcessOutcome?
   ) async -> Bool {
+    for disabled in [false, true] {
+      guard let listing = await run(listingArguments(disabled: disabled)),
+        !listing.timedOut, listing.status == 0
+      else { return false }
+    }
     let readback = readCurrent()
     guard let current = readback.effectiveDisabled, readback.storedDisabled == current,
       let result = await run(probeArguments(current: current)),

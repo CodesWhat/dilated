@@ -426,8 +426,10 @@ case "$verb" in
     ;;
   probe)
     { [ ! -f "$removal_file" ] && agent_loaded; } || refuse_unready
-    # `sudo -l` succeeds for a rule that still wants a password, so the probe runs the command
-    # instead: it re-sets the current value (a no-op, nothing of another app's is changed). `-k`
+    # Two checks, both required. Listing (`sudo -l`) proves each direction, `disablesleep 0` and
+    # `disablesleep 1`, is covered by a rule, so `off` and `repair` can't be denied later.
+    # Listing succeeds for a rule that still wants a password, so the probe then runs the command:
+    # it re-sets the current value (a no-op, nothing of another app's is changed). `-k`
     # ignores cached credentials and `-n` never prompts, so only a NOPASSWD rule gets through.
     # `pmset -a disablesleep` writes the stored value, so it only runs when the effective and
     # stored values are both known and agree, and under the lock `repair` and `off` hold so
@@ -436,6 +438,14 @@ case "$verb" in
       echo busy
       exit 1
     }
+    for direction in 0 1; do
+      detail=$(run_sudo -l /usr/bin/pmset -a disablesleep "$direction") || {
+        status=$?
+        # `sudo -l` exits 1 with no message when no rule covers the command.
+        [ "$status" -ne 1 ] || detail="a password is required"
+        report "$status" "$detail"
+      }
+    done
     current=$(current_sleep_disabled)
     stored=$(stored_sleep_disabled)
     case "$current" in
