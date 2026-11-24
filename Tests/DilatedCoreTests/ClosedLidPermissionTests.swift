@@ -158,26 +158,30 @@ struct ClosedLidPermissionTests {
         == ["-n", "-k", "/usr/bin/pmset", "-a", "disablesleep", "0"])
   }
 
-  /// A stand-in for sudo: `-l` listing would succeed for any rule, but running the command only
-  /// succeeds when the rule is NOPASSWD.
+  /// A stand-in for sudo. Listing succeeds for the directions in `listed`, but running the command
+  /// only succeeds when the rule is NOPASSWD.
   private final class FakeSudo: @unchecked Sendable {
     private let lock = NSLock()
     private var recorded: [[String]] = []
     let runStatus: Int32
     let timedOut: Bool
+    let listed: Set<String>
 
-    init(runStatus: Int32, timedOut: Bool = false) {
+    init(runStatus: Int32, timedOut: Bool = false, listed: Set<String> = ["0", "1"]) {
       self.runStatus = runStatus
       self.timedOut = timedOut
+      self.listed = listed
     }
+
+    var executes: [[String]] { calls.filter { !$0.contains("-l") } }
 
     var calls: [[String]] { lock.withLock { recorded } }
 
     func run(_ arguments: [String]) async -> ProcessOutcome? {
       lock.withLock { recorded.append(arguments) }
       let listing = arguments.contains("-l")
-      return ProcessOutcome(
-        status: listing ? 0 : runStatus, timedOut: timedOut, processID: 1)
+      let status = listing ? (listed.contains(arguments.last ?? "") ? 0 : 1) : runStatus
+      return ProcessOutcome(status: status, timedOut: timedOut, processID: 1)
     }
   }
 
@@ -190,7 +194,26 @@ struct ClosedLidPermissionTests {
     let allowed = await ClosedLidPermission.probe(
       readCurrent: { Self.readback(false) }, run: sudo.run)
     #expect(!allowed)
-    #expect(sudo.calls.count == 1)
+    #expect(sudo.executes.count == 1)
+  }
+
+  @Test func theListingChecksCoverBothDirectionsWithoutPrompting() {
+    #expect(
+      ClosedLidPermission.listingArguments(disabled: false)
+        == ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", "0"])
+    #expect(
+      ClosedLidPermission.listingArguments(disabled: true)
+        == ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", "1"])
+  }
+
+  @Test func aRuleListingOnlyOneDirectionReadsAsNotAllowedAndNeverExecutes() async {
+    for listed in [Set(["1"]), Set(["0"]), Set<String>()] {
+      let sudo = FakeSudo(runStatus: 0, listed: listed)
+      let allowed = await ClosedLidPermission.probe(
+        readCurrent: { Self.readback(false) }, run: sudo.run)
+      #expect(!allowed, "\(listed)")
+      #expect(sudo.executes.isEmpty, "\(listed)")
+    }
   }
 
   @Test func aPasswordlessRuleReadsAsAllowedAndUsesTheCurrentValue() async {
@@ -201,9 +224,11 @@ struct ClosedLidPermissionTests {
       #expect(allowed)
       #expect(
         sudo.calls == [
-          ["-n", "-k", "/usr/bin/pmset", "-a", "disablesleep", current ? "1" : "0"]
+          ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", "0"],
+          ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", "1"],
+          ["-n", "-k", "/usr/bin/pmset", "-a", "disablesleep", current ? "1" : "0"],
         ])
-      #expect(sudo.calls.allSatisfy { $0.contains("-n") && $0.contains("-k") })
+      #expect(sudo.executes.allSatisfy { $0.contains("-n") && $0.contains("-k") })
     }
   }
 
@@ -219,7 +244,7 @@ struct ClosedLidPermissionTests {
       let sudo = FakeSudo(runStatus: 0)
       let allowed = await ClosedLidPermission.probe(readCurrent: { readback }, run: sudo.run)
       #expect(!allowed, "\(readback)")
-      #expect(sudo.calls.isEmpty, "\(readback)")
+      #expect(sudo.executes.isEmpty, "\(readback)")
     }
   }
 
