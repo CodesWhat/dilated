@@ -15,7 +15,7 @@ macOS 27.2, and beta.10 through beta.12 don't change the direct closed-lid path:
 come from earlier betas. These hardware checks haven't run for this build and are
 listed in the cask caveats and `latest.json`: `sudoRuleRevoked`, `guardTransitions`,
 `rebootRecovery`, `adminPromptCancelled`, `helperMigration`, `uninstallNormalSleep`
-and `nativeUI`. Version 1.0.0 shipped with these checks waived by the owner, not passed (see `ownerWaiver` in `docs/RELEASING.md`). A signed or notarized build alone does not close them.
+and `nativeUI`. Versions 1.0.0 and 1.0.1 shipped with these checks waived by the owner, not passed (see `ownerWaiver` in `docs/RELEASING.md`). A signed or notarized build alone does not close them.
 
 ## Local builds and first launch
 
