@@ -324,6 +324,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     self.closedLidPermission =
       closedLidPermission
       ?? ClosedLidPermissionModel(
+        permission: ClosedLidPermission(
+          seams: .live(
+            lockFile: ClosedLidMarkerStore(directory: endpoint.stateDirectory).lockFile)),
         recovery: { await lid.localTransport?.recovery() ?? .notChecked },
         acknowledgeRestore: { await lid.localTransport?.acknowledgeRestore() ?? false })
     self.updater = updater ?? AppUpdater()
