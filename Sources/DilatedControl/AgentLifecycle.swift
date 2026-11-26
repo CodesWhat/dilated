@@ -220,10 +220,60 @@ public struct AgentLifecycle {
     try? save(record, for: command)
   }
 
+  /// Records and lock files untouched this long belong to runs that are long gone.
+  public static let staleSeconds: TimeInterval = 86_400
+
+  /// Removes agent state for dead runs. A record goes when it is older than `staleSeconds` and
+  /// its renewer isn't alive; a lock file goes when it has no record, is that old, and nobody
+  /// holds it. `keeping` is the current run's files. Best effort: failures leave files behind.
+  public func pruneStale(now: Date = Date(), keeping: AgentCommand? = nil) {
+    let fm = FileManager.default
+    guard
+      let urls = try? fm.contentsOfDirectory(
+        at: directory, includingPropertiesForKeys: [.contentModificationDateKey])
+    else { return }
+    let keep = Set(
+      keeping.map { [file($0).lastPathComponent, file($0, suffix: "lock").lastPathComponent] }
+        ?? [])
+    func age(_ url: URL) -> TimeInterval {
+      let date =
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+        .contentModificationDate ?? now
+      return now.timeIntervalSince(date)
+    }
+    for url in urls where !keep.contains(url.lastPathComponent) {
+      switch url.pathExtension {
+      case "json":
+        guard age(url) > Self.staleSeconds,
+          let data = try? Data(contentsOf: url), data.count <= 4096,
+          let record = try? WireJSON.decode(AgentRunRecord.self, from: data),
+          now.timeIntervalSince(record.lastRenew) > Self.staleSeconds
+        else { continue }
+        if let pid = record.renewerPID, let started = record.renewerStartMicros,
+          pids.startMicros(pid) == started
+        {
+          continue
+        }
+        try? fm.removeItem(at: url)
+      case "lock":
+        let record = url.deletingPathExtension().appendingPathExtension("json")
+        guard age(url) > Self.staleSeconds, !fm.fileExists(atPath: record.path) else { continue }
+        let descriptor = open(url.path, O_RDWR)
+        guard descriptor >= 0 else { continue }
+        defer { close(descriptor) }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { continue }
+        try? fm.removeItem(at: url)
+        flock(descriptor, LOCK_UN)
+      default: continue
+      }
+    }
+  }
+
   public nonisolated(nonsending) func run(_ command: AgentCommand, now: Date = Date()) async throws
     -> ControlResponse
   {
     try await locked(command) {
+      if command.verb == .begin { pruneStale(now: now, keeping: command) }
       switch command.verb {
       case .begin:
         if let record = load(command) {
