@@ -20,6 +20,19 @@ struct ReleasedPersistenceTests {
     #expect(!restored.wasReleased(id: UUID(), now: now))
   }
 
+  @Test func releasedIDsRoundTripThroughTheStateStore() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "released-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let now = Date()
+    var engine = WakeEngine(now: now)
+    let id = try release(&engine, at: now)
+    let store = StateStore(directory: dir)
+    try store.save(engine.snapshot)
+    let restored = WakeEngine(snapshot: try store.load(), now: now)
+    #expect(restored.wasReleased(id: id, now: now))
+  }
+
   @Test func theListKeepsOnlyTheNewest64() throws {
     let now = Date()
     var engine = WakeEngine(now: now)
