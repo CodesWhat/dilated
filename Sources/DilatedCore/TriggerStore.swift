@@ -103,18 +103,13 @@ public struct TriggerStore: Sendable {
     let data = try Data(contentsOf: file)
     let existing = backupFiles()
     if let newest = existing.first, (try? Data(contentsOf: newest)) == data { return }
-    try FileManager.default.createDirectory(
-      at: backupDirectory, withIntermediateDirectories: true,
-      attributes: [.posixPermissions: 0o700])
     var stamp = Int(Date().timeIntervalSince1970 * 1000)
     if let newest = existing.first, let last = Self.stamp(of: newest), stamp <= last {
       stamp = last + 1
     }
     let destination = backupDirectory.appendingPathComponent(
       "triggers-v2-" + String(format: "%016d", stamp) + ".json")
-    try data.write(to: destination, options: .atomic)
-    try FileManager.default.setAttributes(
-      [.posixPermissions: 0o600], ofItemAtPath: destination.path)
+    try PrivateFile.write(data, to: destination)
     for stale in backupFiles().dropFirst(Self.backupLimit) {
       try? FileManager.default.removeItem(at: stale)
     }

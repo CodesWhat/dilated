@@ -53,7 +53,11 @@ import Testing
     #expect(try mode(directory) == 0o700)
     let files = try FileManager.default.contentsOfDirectory(atPath: directory.path)
     #expect(!files.isEmpty)
-    for name in files { #expect(try mode(directory.appendingPathComponent(name)) == 0o600) }
+    for name in files {
+      let url = directory.appendingPathComponent(name)
+      let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+      #expect(try mode(url) == (isDirectory ? 0o700 : 0o600))
+    }
     #expect(try leftovers(directory).isEmpty)
   }
 
