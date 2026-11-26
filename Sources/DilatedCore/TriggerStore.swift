@@ -16,7 +16,7 @@ public struct TriggerStore: Sendable {
       return legacy
     }
     let record = try JSONDecoder().decode(Record.self, from: Data(contentsOf: file))
-    guard record.schemaVersion == 1 else {
+    guard Self.supportedSchemas.contains(record.schemaVersion) else {
       throw StoreError(
         "These triggers need a newer version of Dilated. Saved files were kept.")
     }
@@ -77,9 +77,21 @@ public struct TriggerStore: Sendable {
       attributes: [.posixPermissions: 0o700])
     // Preserve the complete rules before replacing the older reader's projection.
     // The pending record recognizes either side of an interrupted projection write.
-    try write(Record(rules: rules, legacy: previous, pendingLegacy: projection), to: file)
+    try write(
+      Record(
+        schemaVersion: schema(for: rules), rules: rules, legacy: previous,
+        pendingLegacy: projection), to: file)
     try write(projection, to: legacyFile)
-    try write(Record(rules: rules, legacy: projection), to: file)
+    try write(Record(schemaVersion: schema(for: rules), rules: rules, legacy: projection), to: file)
+  }
+
+  /// Version 1.0.0 ignores `focusControlled` and rejects any schemaVersion other than 1, so a
+  /// file holding Focus-controlled rules is stamped 2. After a downgrade 1.0.0 then refuses the
+  /// file and keeps it, instead of running those rules unconditionally.
+  private static let supportedSchemas = [1, 2]
+
+  private func schema(for rules: [TriggerRule]) -> Int {
+    rules.contains(where: \.focusControlled) ? 2 : 1
   }
 
   private func readLegacy() throws -> [TriggerRule] {
@@ -111,9 +123,19 @@ public struct TriggerStore: Sendable {
   }
 
   private struct Record: Codable {
-    var schemaVersion = 1
+    var schemaVersion: Int
     var rules: [TriggerRule]
     var legacy: [TriggerRule]
     var pendingLegacy: [TriggerRule]?
+
+    init(
+      schemaVersion: Int = 1, rules: [TriggerRule], legacy: [TriggerRule],
+      pendingLegacy: [TriggerRule]? = nil
+    ) {
+      self.schemaVersion = schemaVersion
+      self.rules = rules
+      self.legacy = legacy
+      self.pendingLegacy = pendingLegacy
+    }
   }
 }
