@@ -195,4 +195,21 @@ struct TriggerNetworkTests {
     #expect(!TriggerCriterion.network(address: "192.168.8.1/33").isValid)
     #expect(!TriggerCriterion.network(address: "192.168.8.1/").isValid)
   }
+
+  @Test func dwellDeadlinePassingAfterReconcileStillSchedulesImmediately() {
+    let start = Date(timeIntervalSince1970: 1_800_000_000)
+    var rule = TriggerRule(name: "Build", criteria: [.process(name: "make")])
+    rule.dwellSeconds = 30
+    var input = TriggerInputs()
+    input.processNames = ["make"]
+    var evaluator = TriggerEvaluator()
+    var engine = WakeEngine(now: start)
+    evaluator.reconcile(rules: [rule], inputs: input, engine: &engine, now: start, uptime: 100)
+    // The deadline (130) passes between the reconcile at 129.9 and scheduling at 130.1.
+    evaluator.reconcile(
+      rules: [rule], inputs: input, engine: &engine, now: start, uptime: 129.9)
+    #expect(engine.holds.isEmpty)
+    let next = evaluator.nextEvaluation(now: start, uptime: 130.1)
+    #expect(next == start)
+  }
 }

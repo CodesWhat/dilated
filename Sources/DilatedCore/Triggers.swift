@@ -285,6 +285,9 @@ public struct TriggerEvaluator: Sendable {
     var suppressed = false
   }
   private var runtime: [UUID: Runtime] = [:]
+  /// Uptime of the last reconcile. A deadline is pending only if it was still ahead of this, so a
+  /// deadline that passes between reconcile and scheduling fires immediately instead of vanishing.
+  private var reconciledUptime: TimeInterval?
   public private(set) var statuses: [UUID: String] = [:]
   public var activeHoldIDs: [UUID: UUID] {
     Dictionary(
@@ -305,8 +308,8 @@ public struct TriggerEvaluator: Sendable {
       } else {
         deadline = nil
       }
-      guard let deadline, deadline > uptime else { return nil }
-      return now.addingTimeInterval(deadline - uptime)
+      guard let deadline, deadline > (reconciledUptime ?? uptime) else { return nil }
+      return now.addingTimeInterval(max(0, deadline - uptime))
     }.min()
   }
   public mutating func resume(id: UUID, engine: inout WakeEngine) {
@@ -318,6 +321,7 @@ public struct TriggerEvaluator: Sendable {
     rules: [TriggerRule], inputs: TriggerInputs, engine: inout WakeEngine, now: Date = Date(),
     uptime: TimeInterval = ProcessInfo.processInfo.systemUptime
   ) {
+    reconciledUptime = uptime
     let ids = Set(rules.map(\.id))
     for id in runtime.keys.filter({ !ids.contains($0) }) {
       if let holdID = runtime.removeValue(forKey: id)?.holdID {

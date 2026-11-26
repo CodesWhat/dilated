@@ -48,7 +48,7 @@ public enum TimeInput {
     -> Date
   {
     let pieces = text.split(separator: ":", omittingEmptySubsequences: false)
-    guard pieces.count == 2, pieces[0].count <= 2, pieces[1].count == 2,
+    guard pieces.count == 2, pieces[0].count == 2, pieces[1].count == 2,
       let hour = Int(pieces[0]), let minute = Int(pieces[1]),
       (0...23).contains(hour), (0...59).contains(minute),
       let next = calendar.nextDate(
