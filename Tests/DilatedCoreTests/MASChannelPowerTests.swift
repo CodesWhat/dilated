@@ -901,6 +901,118 @@ struct MASChannelRepairScriptTests {
     #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
   }
 
+  /// The `on` of the script build 18 shipped (Tests/Fixtures/dilated-power-build-18), copied to a
+  /// checkout-shaped tree so its sudo hook works. It never reads the removal marker.
+  private static let legacyFixture = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent().deletingLastPathComponent()
+    .appendingPathComponent("Fixtures/dilated-power-build-18")
+
+  private static func installLegacyScript(_ box: Sandbox) throws -> URL {
+    let manager = FileManager.default
+    let root = box.home.appendingPathComponent("legacy")
+    let directory = root.appendingPathComponent("packaging/mas")
+    try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+    try Data().write(to: root.appendingPathComponent("Package.swift"))
+    let script = directory.appendingPathComponent("dilated-power")
+    try manager.copyItem(at: legacyFixture, to: script)
+    return script
+  }
+
+  @Test func removalDrainsALegacyOnQueuedOnTheLockSoItCannotEnableAfterTheRestore() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    let legacy = try Self.installLegacyScript(box)
+    let gate = box.home.appendingPathComponent("gate")
+    try FileManager.default.createDirectory(at: gate, withIntermediateDirectories: true)
+    // begin-removal takes the lock first and, once the legacy `on` is queued behind it, drains.
+    let removal = Process()
+    removal.executableURL = URL(fileURLWithPath: "/bin/bash")
+    removal.arguments = [MASChannelRepairScriptTests.script.path, "begin-removal"]
+    removal.environment = [
+      "HOME": box.home.path, "PATH": "/usr/bin:/bin",
+      "DILATED_POWER_TEST_SUDO": box.fakeSudo.path,
+      "DILATED_POWER_TEST_LAUNCHCTL": box.fakeLaunchctl.path,
+      "DILATED_POWER_TEST_ON_MATCH": legacy.path + " on ",
+      "DILATED_POWER_TEST_GATE": gate.path,
+    ]
+    let removalOut = Pipe()
+    removal.standardOutput = removalOut
+    try removal.run()
+    let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+    while !FileManager.default.fileExists(atPath: gate.appendingPathComponent("locked").path),
+      ContinuousClock.now < deadline
+    {
+      Thread.sleep(forTimeInterval: 0.01)
+    }
+    try #require(
+      FileManager.default.fileExists(atPath: gate.appendingPathComponent("locked").path),
+      "begin-removal never took the lock.")
+    let on = Process()
+    on.executableURL = URL(fileURLWithPath: "/bin/bash")
+    on.arguments = [legacy.path, "on", String(child.processIdentifier)]
+    on.environment = [
+      "HOME": box.home.path, "PATH": "/usr/bin:/bin", "DILATED_POWER_TEST_SUDO": box.fakeSudo.path,
+    ]
+    let onOut = Pipe()
+    on.standardOutput = onOut
+    try on.run()
+    FileManager.default.createFile(atPath: gate.appendingPathComponent("go").path, contents: Data())
+    let removalOutput = String(
+      decoding: removalOut.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    #expect(waitForExit(removal), "begin-removal did not exit.")
+    #expect(waitForExit(on), "The legacy on did not exit.")
+    let onOutput = String(decoding: onOut.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    // The legacy shell ran out of lock retries while removal held it, and never reached pmset.
+    #expect(removalOutput.trimmingCharacters(in: .whitespacesAndNewlines) == "none")
+    #expect(onOutput.trimmingCharacters(in: .whitespacesAndNewlines) == "failed")
+    #expect(box.sudoCalls.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
+  }
+
+  @Test func withoutTheDrainALegacyOnTakesTheLockAfterBeginRemoval() throws {
+    // Documents the bug the drain closes: the old text ignores the marker, so once begin-removal
+    // exits, an `on` that queued behind it enables sleep.
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    let legacy = try Self.installLegacyScript(box)
+    let lock = box.sessionDirectory.appendingPathComponent("lock.d")
+    try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: true)
+    let on = Process()
+    on.executableURL = URL(fileURLWithPath: "/bin/bash")
+    on.arguments = [legacy.path, "on", String(child.processIdentifier)]
+    on.environment = [
+      "HOME": box.home.path, "PATH": "/usr/bin:/bin", "DILATED_POWER_TEST_SUDO": box.fakeSudo.path,
+    ]
+    let onOut = Pipe()
+    on.standardOutput = onOut
+    try on.run()
+    Thread.sleep(forTimeInterval: 0.3)
+    try FileManager.default.removeItem(at: lock)
+    let output = String(decoding: onOut.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    #expect(waitForExit(on), "The legacy on did not exit.")
+    #expect(output.trimmingCharacters(in: .whitespacesAndNewlines) == "ok")
+    #expect(box.sudoCalls == ["/usr/bin/pmset -a disablesleep 1"])
+  }
+
+  @Test func theDrainFailsClosedWhenALegacyOnOutlastsIt() throws {
+    let box = try Sandbox()
+    // A process that matches the drain pattern and never exits.
+    let holder = box.home.appendingPathComponent("fake-on")
+    try "#!/bin/bash\nwhile :; do /bin/sleep 1; done\n"
+      .write(to: holder, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: holder.path)
+    let stuck = Process()
+    stuck.executableURL = URL(fileURLWithPath: "/bin/bash")
+    stuck.arguments = [holder.path, "on", "1234"]
+    try stuck.run()
+    box.children.append(stuck)
+    let result = try box.run(
+      ["begin-removal"], environment: ["DILATED_POWER_TEST_ON_MATCH": holder.path + " on "])
+    #expect(result.out == "failed")
+    #expect(result.status == 1)
+    #expect(box.sudoCalls.isEmpty)
+  }
+
   @Test func offAndRepairStillWorkWithoutTheAgent() throws {
     let box = try Sandbox()
     let child = try box.spawnSleeper()
