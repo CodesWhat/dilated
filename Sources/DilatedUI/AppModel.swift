@@ -1001,6 +1001,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         engine.stop(id: id)
         response.id = nil
         commit()
+        response.snapshot = engine.snapshot
       }
       response.ok = false
       response.message = message
