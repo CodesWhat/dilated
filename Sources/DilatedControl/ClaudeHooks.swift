@@ -10,6 +10,8 @@ public struct AgentHookInstallation {
   public let tool: AgentHookTool
   /// Hook edits keep this many private backups; older ones are pruned.
   public static let backupsToKeep = 5
+  /// Test seam: runs between the snapshot read and the concurrent-edit check.
+  var beforeWriteCheck: (() throws -> Void)?
   private var marker: String { " agent " + tool.commandName + " --pid " }
 
   public init(settingsURL: URL, executable: URL, tool: AgentHookTool = .claude) {
@@ -121,6 +123,7 @@ public struct AgentHookInstallation {
       at: parent, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     let data = try JSONSerialization.data(
       withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+    try beforeWriteCheck?()
     // Narrow the overwrite window: refuse if the file changed since we read it.
     let current =
       FileManager.default.fileExists(atPath: settingsURL.path)
