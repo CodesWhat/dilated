@@ -272,20 +272,21 @@ extension ClosedLidController {
   /// The app's closed-lid controller: the in-process service behind the sudo rule, with the
   /// session marker and watchdog.
   public static func configured(
-    stateDirectory: URL = SocketEndpoint.current.stateDirectory
+    stateDirectory: URL = SocketEndpoint.current.stateDirectory,
+    power: (any ClosedLidPowerControlling)? = nil
   ) -> ClosedLidController {
     #if MAS_CHANNEL
       // No watchdog process in the sandboxed build. The script's LaunchAgent reverts after a
       // crash or hang; the in-app lease and the relaunch revert still run.
       let beat = ClosedLidScriptBeat()
       let session = ClosedLidSessionGuard(
-        power: SerialPowerDriver(runner: LocalClosedLidTransport.powerRunner),
+        power: power ?? SerialPowerDriver(runner: LocalClosedLidTransport.powerRunner),
         store: ClosedLidMarkerStore(directory: stateDirectory),
         heartbeatInterval: ClosedLidSessionGuard.scriptHeartbeatInterval,
         scriptBeat: { beat.send() })
     #else
       let session = ClosedLidSessionGuard(
-        power: SerialPowerDriver(runner: SudoPowerRunner()),
+        power: power ?? SerialPowerDriver(runner: SudoPowerRunner()),
         store: ClosedLidMarkerStore(directory: stateDirectory),
         launchWatchdog: ClosedLidWatchdogSpawner.launcher())
     #endif
