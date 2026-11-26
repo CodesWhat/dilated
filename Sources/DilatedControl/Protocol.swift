@@ -151,7 +151,7 @@ public enum ControlRouter {
         ok: false, snapshot: engine.snapshot, message: error.localizedDescription,
         code: (error as? WakeError)?.rawValue ?? "invalidRequest",
         released: request.action == .renew && (error as? WakeError) == .holdNotFound
-          && request.id.map(engine.wasReleased) == true ? true : nil)
+          && request.id.map { engine.wasReleased(id: $0, now: now) } == true ? true : nil)
     }
   }
 }
