@@ -87,7 +87,7 @@ import SystemConfiguration
   private var processNames: Set<String> = []
   private var processInstances: Set<ProcessIdentity> = []
   #if !MAS_CHANNEL
-    private let readProcesses: @Sendable () -> [NativeProcess]
+    private var readProcesses: @Sendable () -> [NativeProcess] = { ProcessCatalog.read() }
     private var processSnapshot: [NativeProcess]?
     private var scanInFlight = false
     private var scanPending = false
@@ -103,7 +103,6 @@ import SystemConfiguration
       .read,
     readDiskCounters: @escaping () -> [String: ThroughputCounters]? = DiskThroughputSource.read,
     readUptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-    readProcesses: (@Sendable () -> [NativeProcess])? = nil,
     workspaceNotifications: NotificationCenter? = nil,
     changed: @escaping () -> Void
   ) {
@@ -112,9 +111,6 @@ import SystemConfiguration
     self.readNetworkCounters = readNetworkCounters
     self.readDiskCounters = readDiskCounters
     self.readUptime = readUptime
-    #if !MAS_CHANNEL
-      self.readProcesses = readProcesses ?? { ProcessCatalog.read() }
-    #endif
     audioOutput = AudioOutputObserver(changed: changed)
     usb = USBDeviceObserver(changed: changed)
     wifi = WiFiObserver(access: wifiAccess, readSSIDs: readWiFi, changed: changed)
@@ -444,3 +440,19 @@ import SystemConfiguration
       ))
   }
 }
+
+#if !MAS_CHANNEL
+  extension TriggerMonitor {
+    /// Test seam for the direct build: swaps the process enumeration. The Mac App Store build has no such reader.
+    convenience init(
+      readPower: @escaping () -> PowerState,
+      readProcesses: @escaping @Sendable () -> [NativeProcess],
+      workspaceNotifications: NotificationCenter? = nil,
+      changed: @escaping () -> Void
+    ) {
+      self.init(
+        readPower: readPower, workspaceNotifications: workspaceNotifications, changed: changed)
+      self.readProcesses = readProcesses
+    }
+  }
+#endif
