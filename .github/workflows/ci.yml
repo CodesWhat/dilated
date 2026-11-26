@@ -6,10 +6,10 @@ on:
 permissions:
   contents: read
 concurrency:
-  # Pushes get a group per commit. A shared per-ref group keeps one pending run and cancels the
+  # Pushes get a group per ref and commit. A shared per-ref group keeps one pending run and cancels the
   # older one, and the push filter diffs only github.event.before..sha, so a website-only push
   # replacing a pending run would drop that run's native changes from verification.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || format('{0}-{1}', github.ref, github.sha) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   changes:

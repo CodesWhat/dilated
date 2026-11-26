@@ -257,4 +257,29 @@ struct AgentLifecycleTests {
     lifecycle.pruneStale(now: now)
     #expect(!exists("claude.dead.lock"))
   }
+
+  @Test func pruneStaleSkipsARecordWhoseRunLockIsBusy() throws {
+    let state = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "agent-prune-busy-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: state) }
+    let lifecycle = AgentLifecycle(stateDirectory: state) { _ in ControlResponse(ok: true) }
+    let dir = lifecycle.directory
+    let fm = FileManager.default
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    let now = Date()
+    let old = now.addingTimeInterval(-3 * AgentLifecycle.staleSeconds)
+    let json = dir.appendingPathComponent("claude.busy.json")
+    let lock = dir.appendingPathComponent("claude.busy.lock")
+    try WireJSON.encode(AgentRunRecord(holdID: UUID(), lastRenew: old)).write(to: json)
+    try fm.setAttributes([.modificationDate: old], ofItemAtPath: json.path)
+    // A run mid-command holds its lock, so its record must survive the prune.
+    let descriptor = open(lock.path, O_CREAT | O_RDWR, 0o600)
+    #expect(descriptor >= 0 && flock(descriptor, LOCK_EX) == 0)
+    lifecycle.pruneStale(now: now)
+    #expect(fm.fileExists(atPath: json.path))
+    flock(descriptor, LOCK_UN)
+    close(descriptor)
+    lifecycle.pruneStale(now: now)
+    #expect(!fm.fileExists(atPath: json.path))
+  }
 }

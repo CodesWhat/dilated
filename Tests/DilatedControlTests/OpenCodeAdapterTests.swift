@@ -58,8 +58,11 @@ struct OpenCodeAdapterTests {
     process.standardOutput = pipe
     process.standardError = pipe
     try process.run()
-    let stray = pipe.fileHandleForReading.readDataToEndOfFile()
+    // Drain on another thread so the exit deadline in waitForExit still applies when the child
+    // never closes its output, and a full pipe can't block the child while we wait.
+    let drained = PipeDrain(pipe.fileHandleForReading)
     #expect(waitForExit(process), "The adapter harness did not exit.")
+    let stray = drained.finish()
     #expect(process.terminationStatus == 0)
     #expect(stray.isEmpty)
     if missingCLI {
@@ -123,5 +126,29 @@ struct OpenCodeAdapterTests {
     #expect(throws: (any Error).self) { try installation.install() }
     #expect(throws: (any Error).self) { try installation.remove() }
     #expect(try Data(contentsOf: file) == original)
+  }
+}
+
+private final class PipeDrain: @unchecked Sendable {
+  private let lock = NSLock()
+  private var data = Data()
+  private let done = DispatchSemaphore(value: 0)
+
+  init(_ handle: FileHandle) {
+    DispatchQueue.global().async { [self] in
+      let read = handle.readDataToEndOfFile()
+      lock.lock()
+      data = read
+      lock.unlock()
+      done.signal()
+    }
+  }
+
+  /// Output collected so far once the reader reaches EOF, or after a short grace period.
+  func finish() -> Data {
+    _ = done.wait(timeout: .now() + 5)
+    lock.lock()
+    defer { lock.unlock() }
+    return data
   }
 }
