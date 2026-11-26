@@ -234,7 +234,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored var driveAlive = DriveAliveController()
   @ObservationIgnored private var downloads: [UUID: DownloadMonitor] = [:]
   @ObservationIgnored private var timer: Timer?
-  @ObservationIgnored private var lastAssertionRefresh = Date.distantPast
+  @ObservationIgnored private var lastAssertionRefresh: TimeInterval?
   @ObservationIgnored private var stopped = false
   @ObservationIgnored private var preparingToQuit = false
   @ObservationIgnored private var savedForUpdate = false
@@ -956,7 +956,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     feedback.tick(uptime: ProcessInfo.processInfo.systemUptime)
     if engine.holds != previous {
       commit()
-    } else if now.timeIntervalSince(lastAssertionRefresh) >= 20 {
+    } else if lastAssertionRefresh.map({ leavingClock() - $0 >= 20 }) ?? true {
       synchronizeAssertions()
       recordHistory()
     }
@@ -1012,6 +1012,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
     var response = ControlRouter.handle(effective, engine: &engine, origin: origin)
     if !commit() {
       if request.action == .leaving { cancelLeaving() }
+      if [.start, .lease, .runner, .toggle].contains(request.action), let id = response.id {
+        // The caller is told the start failed, so don't leave the hold running.
+        engine.stop(id: id)
+        response.id = nil
+        commit()
+        response.snapshot = engine.snapshot
+      }
       response.ok = false
       response.message = message
       response.code = "systemFailure"
@@ -1279,7 +1286,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @discardableResult private func synchronizeAssertions() -> Bool {
     do {
       try assertions.synchronize(holds: engine.holds, now: Date())
-      lastAssertionRefresh = Date()
+      lastAssertionRefresh = leavingClock()
       return true
     } catch {
       message = error.localizedDescription

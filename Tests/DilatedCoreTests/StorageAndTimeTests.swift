@@ -41,7 +41,7 @@ struct StorageAndTimeTests {
     #expect(until > now)
     #expect(calendar.component(.hour, from: until) == 7)
     #expect(until.timeIntervalSince(now) <= 86400)
-    for bad in ["24:00", "12:60", "garbage", "1:2:3"] {
+    for bad in ["24:00", "12:60", "5:30", "garbage", "1:2:3"] {
       #expect(throws: (any Error).self) { try TimeInput.until(bad, now: now, calendar: calendar) }
     }
   }
