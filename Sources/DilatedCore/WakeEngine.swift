@@ -24,12 +24,40 @@ public struct PowerState: Codable, Equatable, Sendable {
     self.lowPowerMode = lowPowerMode
   }
 }
+/// A hold the user stopped, kept so a late renew can be told apart from a lost hold.
+public struct ReleasedHold: Codable, Equatable, Sendable {
+  public var id: UUID
+  public var at: Date
+  public init(id: UUID, at: Date) {
+    self.id = id
+    self.at = at
+  }
+}
 public struct EngineSnapshot: Codable, Sendable {
   public var holds: [Hold]
   public var automationPaused: Bool
-  public init(holds: [Hold] = [], automationPaused: Bool = false) {
+  /// Recently released holds (last 64, under a day old). Optional on the wire, so older files and
+  /// readers that don't know the key keep working.
+  public var released: [ReleasedHold]
+  public init(
+    holds: [Hold] = [], automationPaused: Bool = false, released: [ReleasedHold] = []
+  ) {
     self.holds = holds
     self.automationPaused = automationPaused
+    self.released = released
+  }
+  private enum CodingKeys: String, CodingKey { case holds, automationPaused, released }
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    holds = try c.decode([Hold].self, forKey: .holds)
+    automationPaused = try c.decode(Bool.self, forKey: .automationPaused)
+    released = try c.decodeIfPresent([ReleasedHold].self, forKey: .released) ?? []
+  }
+  public func encode(to encoder: Encoder) throws {
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    try c.encode(holds, forKey: .holds)
+    try c.encode(automationPaused, forKey: .automationPaused)
+    if !released.isEmpty { try c.encode(released, forKey: .released) }
   }
 }
 public enum WakeError: String, Error, Codable, Sendable, LocalizedError {
@@ -59,9 +87,11 @@ public struct UserReturnRestoration: Equatable, Sendable {
 public struct WakeEngine: Sendable {
   public private(set) var holds: [Hold] = []
   private var historyEvents: [HoldHistoryEvent] = []
-  /// Recently released hold IDs, newest last. In memory only, so an app restart forgets them and a
-  /// renew for an ID the app no longer knows reads as lost, not released.
-  private var releasedIDs: [UUID] = []
+  /// Recently released holds, newest last. Carried in the snapshot so an app restart still reads a
+  /// released hold as released, not lost. Capped by count and age.
+  private var releasedHolds: [ReleasedHold] = []
+  static let releasedLimit = 64
+  static let releasedMaxAge: TimeInterval = 24 * 3600
   public private(set) var automationPaused = false
   public private(set) var leavingPending = false
   private var leavingIdleSince: TimeInterval?
@@ -76,7 +106,12 @@ public struct WakeEngine: Sendable {
       closedLid: holds.contains { $0.closedLid == true })
   }
   public var snapshot: EngineSnapshot {
-    EngineSnapshot(holds: holds, automationPaused: automationPaused)
+    EngineSnapshot(
+      holds: holds, automationPaused: automationPaused,
+      released: releasedHolds)
+  }
+  private static func prunedReleased(_ list: [ReleasedHold], now: Date) -> [ReleasedHold] {
+    Array(list.filter { now.timeIntervalSince($0.at) < releasedMaxAge }.suffix(releasedLimit))
   }
 
   public init(
@@ -87,6 +122,7 @@ public struct WakeEngine: Sendable {
     self.batteryFloorIgnoresAC = batteryFloorIgnoresAC
     self.power = power
     automationPaused = snapshot.automationPaused
+    releasedHolds = Self.prunedReleased(snapshot.released, now: now)
     holds = snapshot.holds.filter {
       guard let expiry = $0.expiry, expiry > now else { return false }
       return $0.source != .lease && $0.source != .runner && $0.source != .trigger
@@ -139,14 +175,17 @@ public struct WakeEngine: Sendable {
     userReturnRestoration?.holds.removeAll { $0.id == id }
     guard let hold = holds.first(where: { $0.id == id }) else { return }
     if reason == .stopped {
-      releasedIDs.append(id)
-      if releasedIDs.count > 64 { releasedIDs.removeFirst(releasedIDs.count - 64) }
+      releasedHolds.removeAll { $0.id == id }
+      releasedHolds.append(ReleasedHold(id: id, at: now))
+      releasedHolds = Self.prunedReleased(releasedHolds, now: now)
     }
     recordHistory(hold: hold, at: now, reason: reason)
     holds.removeAll { $0.id == id }
   }
   /// True when this engine ended the hold because the user stopped it (not expiry or a restart).
-  public func wasReleased(id: UUID) -> Bool { releasedIDs.contains(id) }
+  public func wasReleased(id: UUID, now: Date = Date()) -> Bool {
+    releasedHolds.contains { $0.id == id && now.timeIntervalSince($0.at) < Self.releasedMaxAge }
+  }
   public func releasableHold(id: UUID) -> Bool {
     holds.contains { $0.id == id } || userReturnRestoration?.holds.contains { $0.id == id } == true
   }

@@ -8,6 +8,7 @@ All notable changes to Dilated are documented here. The format follows
 
 ### Changed
 
+- A hold you stopped is now remembered across app restarts for a day, so `dilated run` reports it as released instead of starting a new one.
 - Direct builds now ask on the second launch whether to check for updates automatically, so new releases can reach you. Nothing is checked until you say yes.
 
 ### Fixed
