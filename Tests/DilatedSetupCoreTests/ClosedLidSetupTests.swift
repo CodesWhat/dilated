@@ -570,6 +570,30 @@ struct ClosedLidSetupRemoveTests {
     #expect(blocked.files.entry(blocked.paths.removalMarker) != nil)
   }
 
+  @Test func aVerifiedReinstallClearsAStaleRestoreLatchAndOtherwiseKeepsIt() async {
+    let clean = Rig(rule: .ready)
+    clean.files.put(clean.paths.restorePendingFile, Data("pending\n".utf8))
+    #expect(await clean.setup.install() == .completed)
+    #expect(clean.files.entry(clean.paths.restorePendingFile) == nil)
+
+    let dirty = Rig(rule: .ready, sleepRestored: false)
+    dirty.files.put(dirty.paths.restorePendingFile, Data("pending\n".utf8))
+    #expect(await dirty.setup.install() == .completed)
+    #expect(dirty.files.entry(dirty.paths.restorePendingFile) != nil)
+
+    let live = Rig(rule: .ready)
+    live.files.put(live.paths.restorePendingFile, Data("pending\n".utf8))
+    live.files.put(live.paths.sessionFile, Data("1 x\n".utf8))
+    #expect(await live.setup.install() == .completed)
+    #expect(live.files.entry(live.paths.restorePendingFile) != nil)
+    #expect(!live.log.events.contains("readback"))
+
+    let unloaded = Rig(rule: .ready, neverLoads: true)
+    unloaded.files.put(unloaded.paths.restorePendingFile, Data("pending\n".utf8))
+    _ = await unloaded.setup.install()
+    #expect(unloaded.files.entry(unloaded.paths.restorePendingFile) != nil)
+  }
+
   @Test func aRetryAfterAFailedReadbackStillOwnsTheSessionAndChecksAgain() async {
     let rig = Rig(rule: .ready, sleepRestored: false)
     installed(rig, recordRule: false)

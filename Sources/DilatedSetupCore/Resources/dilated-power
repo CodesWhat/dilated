@@ -25,11 +25,12 @@
 #                 seen sleep read back normal.
 #                 While the marker exists `on` and `probe` answer noagent; off and repair still work.
 #                 The marker outlives a removal; installing the companion again clears it once the
-#                 agent is loaded.
+#                 agent is loaded. It also clears a leftover restore-pending latch, but only
+#                 when no session file exists and sleep reads back normal.
 # Anything but a valid verb with its exact arguments prints usage to stderr and exits 64.
 #
 # Session record: $HOME/Library/Application Support/dilated-power/session holds
-# `<pid> <ps lstart>`; its mtime is the heartbeat. `repair` (run every 30s by the
+# `<pid> <ps lstart, UTC>`; its mtime is the heartbeat. `repair` (run every 30s by the
 # com.codeswhat.dilated.closed-lid-repair LaunchAgent) reverts when the pid is gone, its start time
 # differs, or the heartbeat is older than 120s while kern.waketime is too (a hung app, not a sleeping Mac).
 set -euo pipefail
@@ -246,10 +247,11 @@ take_lock() {
   fi
 }
 
-# Start time of a live pid, empty when it's gone. The locale is pinned: lstart is localized, and
-# the app's task and the LaunchAgent don't share an environment.
+# Start time of a live pid, empty when it's gone. The locale and time zone are pinned: lstart is
+# localized and printed in local time, and the app's task and the LaunchAgent don't share an
+# environment (or a TZ that stays put across a travel or DST change).
 start_of() {
-  { /usr/bin/env LC_ALL=C /bin/ps -o lstart= -p "$1" 2>/dev/null || true; } | /usr/bin/sed 's/^ *//; s/ *$//'
+  { /usr/bin/env LC_ALL=C TZ=UTC /bin/ps -o lstart= -p "$1" 2>/dev/null || true; } | /usr/bin/sed 's/^ *//; s/ *$//'
 }
 
 # Seconds since the last wake, or empty when it can't be read.

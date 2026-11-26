@@ -769,6 +769,14 @@ struct MASChannelRepairScriptTests {
     #expect(FileManager.default.fileExists(atPath: box.sessionFile.path))
   }
 
+  @Test func theSessionIdentityDoesNotDependOnTheTimeZone() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    let pid = String(child.processIdentifier)
+    #expect(try box.run(["on", pid], environment: ["TZ": "America/New_York"]).out == "ok")
+    #expect(try box.run(["check"], environment: ["TZ": "Asia/Tokyo"]).out == "live")
+  }
+
   private static func latch(_ box: Sandbox) -> URL {
     box.sessionDirectory.appendingPathComponent("restore-pending")
   }
@@ -1115,6 +1123,7 @@ struct MASChannelRepairScriptTests {
     let line = Process()
     line.executableURL = URL(fileURLWithPath: "/bin/ps")
     line.arguments = ["-o", "lstart=", "-p", String(child.processIdentifier)]
+    line.environment = ["LC_ALL": "C", "TZ": "UTC"]
     let pipe = Pipe()
     line.standardOutput = pipe
     try line.run()

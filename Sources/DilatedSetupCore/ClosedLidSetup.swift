@@ -99,6 +99,14 @@ public struct ClosedLidSetup: Sendable {
     guard await launchd.isLoaded(target: paths.agentTarget) else {
       return .failed("The repair agent didn't load. Closed-lid mode stays off until it does.")
     }
+    // A restore-pending latch with no session is a finished removal's leftover. It's cleared only
+    // when macOS reads back normal sleep; otherwise it stays and a later Remove still owes the
+    // readback (fails closed). The marker is still down, so no `on` can race the check.
+    if files.exists(paths.restorePendingFile), !files.exists(paths.sessionFile),
+      await power.confirmsNormalSleep()
+    {
+      try? files.remove(paths.restorePendingFile)
+    }
     // Only now can the script accept closed-lid enables again.
     do { try files.remove(paths.removalMarker) } catch {
       return .failed("Couldn't clear the removal marker: \(error.localizedDescription)")
