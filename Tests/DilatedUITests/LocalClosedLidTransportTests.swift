@@ -231,7 +231,9 @@ import Testing
     #expect(fixture.controller.restorationPending)
     #expect(await model.prepareToQuit() == false)
     #expect(await model.prepareToUpdate() == false)
-    #expect(permission.canRestoreNormalSleep)
+    // The failed state drops to .disabling while a retry is in flight and comes back when it
+    // fails again, so this is "still recoverable", not true at one instant.
+    await waitUntil { await MainActor.run { permission.canRestoreNormalSleep } }
   }
 
   @Test func sleepRestoredByTheServiceRetryClearsTheFailedState() async throws {
@@ -294,8 +296,12 @@ import Testing
     let runner = FakeSudoRunner()
     await runner.setValue(.init(effectiveDisabled: true, storedDisabled: true))
     await runner.deny()
+    // Allowed once the first restore has failed, however long the fixture takes to start.
     Task.detached {
-      try? await Task.sleep(for: .milliseconds(100))
+      let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+      while await runner.disableAttempts == 0, ContinuousClock.now < deadline {
+        try? await Task.sleep(for: .milliseconds(5))
+      }
       await runner.allow()
     }
     // A stale marker after a reboot: the first restore fails and its state is pushed to a main
@@ -336,8 +342,10 @@ import Testing
     await runner.deny()
     await #expect(throws: (any Error).self) { try await fixture.controller.disable() }
     #expect(fixture.controller.restorationPending)
-    await runner.allow()
+    // Armed while still denied (a held restore only triggers once allowed), so the retry that
+    // the allow lets through can't slip past the hold.
     await runner.holdNextRestore()
+    await runner.allow()
     await waitUntil { await runner.holding }
     // The service is mid-retry, so this request records a disabling state with sleep still off.
     try await fixture.controller.refresh()

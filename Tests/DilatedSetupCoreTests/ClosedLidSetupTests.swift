@@ -388,7 +388,9 @@ struct ClosedLidSetupRemoveTests {
 
   @Test func blocksEnablesAndRevertsBeforeAnythingElseWithOrWithoutASession() async {
     for hasSession in [true, false] {
-      let rig = Rig(rule: .ready)
+      // Explicitly owned: the readback in events[1] only happens when begin-removal reports a
+      // session of ours, which the no-session pass gets from this flag, not from a session file.
+      let rig = Rig(rule: .ready, ownsSleep: true)
       installed(rig, recordRule: false)
       if hasSession { rig.files.put(rig.paths.sessionFile, Data("123 Mon".utf8)) }
       #expect(await rig.setup.remove() == .completed)
