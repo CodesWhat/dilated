@@ -6,6 +6,10 @@ All notable changes to Dilated are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Direct builds now ask on the second launch whether to check for updates automatically, so new releases can reach you. Nothing is checked until you say yes.
+
 ## [1.0.1] - 2026-11-24
 
 ### Added

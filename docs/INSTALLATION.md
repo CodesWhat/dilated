@@ -124,8 +124,9 @@ under System Settings → General → Login Items & Extensions.
 Local candidates do not contact a production update feed. Release builds,
 including the beta, carry the Sparkle feed at
 https://dilated.app/updates/appcast.xml with updates enabled. The feed
-and update archives are signed. Updates wait until
-closed-lid mode is off.
+and update archives are signed. On the second launch Sparkle asks
+whether to check for updates automatically. The choice lives in Settings
+under Check automatically. Updates wait until closed-lid mode is off.
 
 A planned in-app update restores only unexpired timed holds, preserving their
 original deadlines and rechecking guards. Indefinite manual holds do not return.
