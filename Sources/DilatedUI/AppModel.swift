@@ -227,7 +227,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored private let store: StateStore
   @ObservationIgnored private let readPower: () -> PowerState
   @ObservationIgnored private let assertions: any AssertionControlling
-  @ObservationIgnored private let leavingClock: () -> Date
+  @ObservationIgnored private let leavingClock: () -> TimeInterval
   @ObservationIgnored private let requestSleep: () throws -> Void
   @ObservationIgnored private var leavingTask: Task<Void, Never>?
   @ObservationIgnored var feedback: FeedbackController
@@ -301,7 +301,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     helperMigration: HelperMigrationInjection? = nil,
     closedLidPermission: ClosedLidPermissionModel? = nil,
     updater: AppUpdater? = nil,
-    leavingClock: @escaping () -> Date = { Date() },
+    leavingClock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
     requestSleep: @escaping () throws -> Void = { try NativePowerRunner.requestSystemSleep() }
   ) {
     self.endpoint = endpoint
@@ -730,7 +730,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
           cancelLeaving()
           return
         }
-        guard engine.takeLeavingSleepRequest(now: leavingClock()) else { return }
+        guard engine.takeLeavingSleepRequest(uptime: leavingClock()) else { return }
         try requestSleep()
       } catch {
         guard !Task.isCancelled, !stopped else { return }
@@ -944,7 +944,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       synchronizeAssertions()
       recordHistory()
     }
-    if engine.leavingSleepReady(now: leavingClock()) { queueLeavingSleep() }
+    if engine.leavingSleepReady(uptime: leavingClock()) { queueLeavingSleep() }
     onChange?()
   }
   public func control(

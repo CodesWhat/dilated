@@ -61,7 +61,7 @@ public struct WakeEngine: Sendable {
   private var historyEvents: [HoldHistoryEvent] = []
   public private(set) var automationPaused = false
   public private(set) var leavingPending = false
-  private var leavingIdleSince: Date?
+  private var leavingIdleSince: TimeInterval?
   public private(set) var userReturnRestoration: UserReturnRestoration?
   public private(set) var attention: String?
   public private(set) var power = PowerState()
@@ -237,20 +237,25 @@ public struct WakeEngine: Sendable {
     leavingPending = false
     leavingIdleSince = nil
   }
-  public mutating func leavingSleepReady(now: Date = Date()) -> Bool {
+  /// The 5s grace is measured on `uptime` (a monotonic clock) so a wall-clock change can't shorten or lengthen it.
+  public mutating func leavingSleepReady(
+    uptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+  ) -> Bool {
     guard leavingPending else { return false }
     guard holds.isEmpty else {
       leavingIdleSince = nil
       return false
     }
     guard let leavingIdleSince else {
-      self.leavingIdleSince = now
+      self.leavingIdleSince = uptime
       return false
     }
-    return now.timeIntervalSince(leavingIdleSince) >= 5
+    return uptime - leavingIdleSince >= 5
   }
-  public mutating func takeLeavingSleepRequest(now: Date = Date()) -> Bool {
-    guard leavingSleepReady(now: now) else { return false }
+  public mutating func takeLeavingSleepRequest(
+    uptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+  ) -> Bool {
+    guard leavingSleepReady(uptime: uptime) else { return false }
     cancelLeaving()
     return true
   }
