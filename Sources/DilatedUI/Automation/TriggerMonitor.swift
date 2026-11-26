@@ -117,7 +117,7 @@ struct TriggerRequirements: Equatable {
     private var processSnapshot: [NativeProcess]?
     private var scanInFlight = false
     private var scanPending = false
-    private var applyingScan = false
+    private(set) var applyingScan = false
     private var scanGeneration = 0
     private(set) var scansStarted = 0
   #endif

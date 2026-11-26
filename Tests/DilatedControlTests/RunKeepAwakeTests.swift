@@ -132,6 +132,32 @@ import Testing
     #expect(rig.reports.count == 1)
   }
 
+  @Test func aPersistedSingleHoldReleaseEndsKeepAwakeWhenTheAppIsUnreachable() throws {
+    let rig = try Rig()
+    rig.replies = [.failure(AppConnectionUnavailable(text: "down"))]
+    rig.snapshot = .success(
+      EngineSnapshot(released: [ReleasedHold(id: rig.managedID, at: rig.clock)]))
+    rig.clock.addTimeInterval(60)
+    rig.keepAwake.refresh()
+    #expect(!rig.keepAwake.keepingAwake)
+    #expect(rig.assertions.releases == 1)
+    #expect(rig.reports.count == 1)
+  }
+
+  @Test func anOldOrUnrelatedPersistedReleaseKeepsTheLocalHold() throws {
+    let rig = try Rig()
+    rig.replies = [.failure(AppConnectionUnavailable(text: "down"))]
+    rig.snapshot = .success(
+      EngineSnapshot(released: [
+        ReleasedHold(id: UUID(), at: rig.clock),
+        ReleasedHold(
+          id: rig.managedID, at: rig.clock.addingTimeInterval(-WakeEngine.releasedMaxAge - 1)),
+      ]))
+    rig.keepAwake.refresh()
+    #expect(rig.keepAwake.keepingAwake)
+    #expect(rig.assertions.releases == 0)
+  }
+
   @Test func anUnreachableAppWithoutAStopKeepsTheLocalHold() throws {
     let rig = try Rig()
     rig.replies = [.failure(AppConnectionUnavailable(text: "down"))]

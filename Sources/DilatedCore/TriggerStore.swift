@@ -108,7 +108,7 @@ public struct TriggerStore: Sendable {
       stamp = last + 1
     }
     let destination = backupDirectory.appendingPathComponent(
-      "triggers-v2-" + String(format: "%016d", stamp) + ".json")
+      "triggers-v2-" + String(format: "%016lld", Int64(stamp)) + ".json")
     try PrivateFile.write(data, to: destination)
     for stale in backupFiles().dropFirst(Self.backupLimit) {
       try? FileManager.default.removeItem(at: stale)

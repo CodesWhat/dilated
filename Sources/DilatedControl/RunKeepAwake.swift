@@ -92,7 +92,18 @@ import Foundation
       managedID = response.id ?? managedID
     } catch {
       do {
-        if try environment.loadSnapshot().automationPaused { return "automation is paused" }
+        let snapshot = try environment.loadSnapshot()
+        if snapshot.automationPaused { return "automation is paused" }
+        // A single-hold release doesn't pause automation, so check for it by id. With no matching
+        // recent release, stay awake offline.
+        if let managedID,
+          snapshot.released.contains(where: {
+            $0.id == managedID
+              && environment.now().timeIntervalSince($0.at) < WakeEngine.releasedMaxAge
+          })
+        {
+          return "the hold was released"
+        }
       } catch {
         return "couldn't read Dilated's state: \(error.localizedDescription)"
       }

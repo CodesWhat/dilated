@@ -272,6 +272,17 @@ struct EngineTests {
   #expect(engine.resumeAfterUserReturn() == nil)
 }
 
+@Test func stoppingASuspendedHoldRemembersTheRelease() throws {
+  var engine = WakeEngine()
+  let runner = try engine.start(source: .runner, label: "job", duration: 60)
+  engine.suspendForUserSwitch(capture: true)
+  engine.stop(id: runner.id)
+  #expect(engine.wasReleased(id: runner.id))
+  #expect(engine.resumeAfterUserReturn()?.holds.isEmpty == true)
+  engine.stop(id: UUID())
+  #expect(engine.snapshot.released.map(\.id) == [runner.id])
+}
+
 @Test func releasableHoldsCoverActivePendingAndExcludeManual() throws {
   var engine = WakeEngine()
   let manual = try engine.start(source: .manual, label: "job", duration: 60)

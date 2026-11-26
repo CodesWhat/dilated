@@ -193,7 +193,9 @@ import Testing
     AppModel(
       endpoint: .init(stateDirectory: directory), power: { .init() },
       closedLid: inertClosedLid(), helperMigration: inertMigration(directory),
-      closedLidPermission: permission)
+      closedLidPermission: permission,
+      // Never reach the developer's real ~/.claude and ~/.codex settings from a test.
+      agentHooksRemover: {})
   }
 }
 

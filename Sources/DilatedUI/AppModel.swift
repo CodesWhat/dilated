@@ -231,6 +231,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored private let assertions: any AssertionControlling
   @ObservationIgnored private let leavingClock: () -> TimeInterval
   @ObservationIgnored private let requestSleep: () throws -> Void
+  /// Replaces the real agent-settings cleanup when a package is prepared through `control`.
+  @ObservationIgnored private let agentHooksRemover: (() -> Void)?
   @ObservationIgnored private var leavingTask: Task<Void, Never>?
   @ObservationIgnored var feedback: FeedbackController
   @ObservationIgnored var driveAlive = DriveAliveController()
@@ -304,7 +306,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     closedLidPermission: ClosedLidPermissionModel? = nil,
     updater: AppUpdater? = nil,
     leavingClock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-    requestSleep: @escaping () throws -> Void = { try NativePowerRunner.requestSystemSleep() }
+    requestSleep: @escaping () throws -> Void = { try NativePowerRunner.requestSystemSleep() },
+    agentHooksRemover: (() -> Void)? = nil
   ) {
     self.endpoint = endpoint
     self.store = StateStore(directory: endpoint.stateDirectory)
@@ -313,6 +316,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     self.assertions = assertions
     self.leavingClock = leavingClock
     self.requestSleep = requestSleep
+    self.agentHooksRemover = agentHooksRemover
     self.feedback = FeedbackController(
       service: NativeFeedbackService(),
       sounds: NativeFeedbackSounds(directory: endpoint.stateDirectory))
@@ -888,7 +892,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         }
         #if !MAS_CHANNEL
           // Hooks would otherwise keep pointing at a binary that's about to disappear.
-          if let removeAgentHooks {
+          if let removeAgentHooks = removeAgentHooks ?? agentHooksRemover {
             removeAgentHooks()
           } else {
             let executable = app.appendingPathComponent("Contents/MacOS/dilated")

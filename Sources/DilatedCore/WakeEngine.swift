@@ -91,7 +91,7 @@ public struct WakeEngine: Sendable {
   /// released hold as released, not lost. Capped by count and age.
   private var releasedHolds: [ReleasedHold] = []
   static let releasedLimit = 64
-  static let releasedMaxAge: TimeInterval = 24 * 3600
+  public static let releasedMaxAge: TimeInterval = 24 * 3600
   public private(set) var automationPaused = false
   public private(set) var leavingPending = false
   private var leavingIdleSince: TimeInterval?
@@ -172,13 +172,18 @@ public struct WakeEngine: Sendable {
     if historyEvents.count > 1024 { historyEvents.removeFirst(historyEvents.count - 1024) }
   }
   public mutating func stop(id: UUID, reason: HoldEndReason = .stopped, now: Date = Date()) {
+    // A hold suspended for a user switch is still the user's to release: remember the release so
+    // a runner that refreshes after the user returns doesn't register a new hold.
+    let suspended = userReturnRestoration?.holds.contains { $0.id == id } == true
     userReturnRestoration?.holds.removeAll { $0.id == id }
-    guard let hold = holds.first(where: { $0.id == id }) else { return }
+    let hold = holds.first(where: { $0.id == id })
+    guard hold != nil || suspended else { return }
     if reason == .stopped {
       releasedHolds.removeAll { $0.id == id }
       releasedHolds.append(ReleasedHold(id: id, at: now))
       releasedHolds = Self.prunedReleased(releasedHolds, now: now)
     }
+    guard let hold else { return }
     recordHistory(hold: hold, at: now, reason: reason)
     holds.removeAll { $0.id == id }
   }

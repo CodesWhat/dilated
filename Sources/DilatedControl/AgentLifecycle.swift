@@ -258,29 +258,50 @@ public struct AgentLifecycle {
         .contentModificationDate ?? now
       return now.timeIntervalSince(date)
     }
+    /// True when the record at `url` is old, unrenewed and has no live renewer.
+    func staleRecord(_ url: URL) -> Bool {
+      guard age(url) > Self.staleSeconds,
+        let data = try? Data(contentsOf: url), data.count <= 4096,
+        let record = try? WireJSON.decode(AgentRunRecord.self, from: data),
+        now.timeIntervalSince(record.lastRenew) > Self.staleSeconds
+      else { return false }
+      if let pid = record.renewerPID, let started = record.renewerStartMicros,
+        pids.startMicros(pid) == started
+      {
+        return false
+      }
+      return true
+    }
+    /// Runs `body` while holding the lock at `url` without blocking, only if the path still names
+    /// the inode that was locked. A busy or replaced lock skips the body.
+    func tryLocked(_ url: URL, create: Bool, _ body: () -> Void) {
+      let descriptor = open(url.path, create ? O_CREAT | O_RDWR : O_RDWR, 0o600)
+      guard descriptor >= 0 else { return }
+      defer { close(descriptor) }
+      guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { return }
+      defer { flock(descriptor, LOCK_UN) }
+      var held = stat()
+      var named = stat()
+      guard fstat(descriptor, &held) == 0, stat(url.path, &named) == 0,
+        held.st_ino == named.st_ino, held.st_dev == named.st_dev
+      else { return }
+      body()
+    }
     for url in urls where !keep.contains(url.lastPathComponent) {
       switch url.pathExtension {
       case "json":
-        guard age(url) > Self.staleSeconds,
-          let data = try? Data(contentsOf: url), data.count <= 4096,
-          let record = try? WireJSON.decode(AgentRunRecord.self, from: data),
-          now.timeIntervalSince(record.lastRenew) > Self.staleSeconds
-        else { continue }
-        if let pid = record.renewerPID, let started = record.renewerStartMicros,
-          pids.startMicros(pid) == started
-        {
-          continue
+        guard staleRecord(url) else { continue }
+        // A begin for that run may save a fresh record between the read and the removal, so take
+        // its lock (never blocking: two begins pruning each other's records must not deadlock)
+        // and check again before removing.
+        let lock = url.deletingPathExtension().appendingPathExtension("lock")
+        tryLocked(lock, create: true) {
+          if staleRecord(url) { try? fm.removeItem(at: url) }
         }
-        try? fm.removeItem(at: url)
       case "lock":
         let record = url.deletingPathExtension().appendingPathExtension("json")
         guard age(url) > Self.staleSeconds, !fm.fileExists(atPath: record.path) else { continue }
-        let descriptor = open(url.path, O_RDWR)
-        guard descriptor >= 0 else { continue }
-        defer { close(descriptor) }
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { continue }
-        try? fm.removeItem(at: url)
-        flock(descriptor, LOCK_UN)
+        tryLocked(url, create: false) { try? fm.removeItem(at: url) }
       default: continue
       }
     }

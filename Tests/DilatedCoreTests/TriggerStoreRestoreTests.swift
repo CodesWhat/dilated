@@ -19,6 +19,22 @@ struct TriggerStoreRestoreTests {
   }
 
   @Test
+  func backupNamesCarryTheFullMillisecondStamp() throws {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = TriggerStore(directory: directory)
+    try store.save([rule("A")])
+    try store.save([rule("A"), rule("B")])
+    let names = try backups(directory)
+    #expect(names.count == 2)
+    for name in names {
+      let digits = name.dropFirst("triggers-v2-".count).dropLast(".json".count)
+      // A 32-bit format would wrap to a negative or truncated number and break name ordering.
+      #expect(digits.count == 16 && (Int(digits) ?? 0) > 1_000_000_000_000)
+    }
+  }
+
+  @Test
   func savesKeepOnlyTheNewestThreeBackups() throws {
     let directory = makeDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }

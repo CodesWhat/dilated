@@ -110,6 +110,9 @@
         workspaceNotifications: NotificationCenter(),
         changed: {
           changes += 1
+          // Only callbacks fired while a scan result is applied are under test. The poll timer
+          // calls `changed` too, and a read from that callback legitimately starts a scan.
+          guard monitor?.applyingScan == true else { return }
           let before = monitor?.scansStarted ?? 0
           _ = monitor?.read()
           scansStartedByRead += (monitor?.scansStarted ?? 0) - before
