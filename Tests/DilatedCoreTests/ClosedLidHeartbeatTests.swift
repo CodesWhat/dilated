@@ -384,3 +384,22 @@ struct ClosedLidFailedEnableServiceTests {
     #expect(await guardian.recovery != .foreignSleepDisabled)
   }
 }
+
+@Suite struct PrivateFileModeTests {
+  private func mode(_ url: URL) throws -> Int {
+    (try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int) ?? 0
+  }
+
+  @Test func markerAndHeartbeatAreOwnerOnly() throws {
+    let store = makeStore()
+    defer { try? FileManager.default.removeItem(at: store.file.deletingLastPathComponent()) }
+    let generation = UUID()
+    try store.write(marker(generation, pid: 1, start: 1))
+    store.writeHeartbeat(generation: generation, count: 1, at: Date())
+    #expect(try mode(store.file) == 0o600)
+    #expect(try mode(store.heartbeatFile) == 0o600)
+    #expect(try mode(store.file.deletingLastPathComponent()) == 0o700)
+    #expect(store.read()?.generation == generation)
+    #expect(store.readHeartbeat()?.hasPrefix(generation.uuidString) == true)
+  }
+}

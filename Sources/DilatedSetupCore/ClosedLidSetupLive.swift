@@ -14,9 +14,23 @@ enum SetupProcess {
     var timedOut: Bool
   }
 
+  /// Cancelling the calling task terminates the child, so a cancelled setup doesn't wait out the
+  /// timeout. A child that was cancelled before it started never launches.
   static func run(
     _ executable: String, _ arguments: [String], home: String = NSHomeDirectory(),
     timeout: TimeInterval = 10
+  ) async -> Result? {
+    let handle = ProcessHandle()
+    return await withTaskCancellationHandler {
+      await launch(executable, arguments, home: home, timeout: timeout, handle: handle)
+    } onCancel: {
+      handle.cancel()
+    }
+  }
+
+  private static func launch(
+    _ executable: String, _ arguments: [String], home: String, timeout: TimeInterval,
+    handle: ProcessHandle
   ) async -> Result? {
     await withCheckedContinuation { (continuation: CheckedContinuation<Result?, Never>) in
       DispatchQueue.global(qos: .userInitiated).async {
@@ -28,10 +42,15 @@ enum SetupProcess {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = pipe
         process.standardError = pipe
+        guard handle.attach(process) else {
+          continuation.resume(returning: nil)
+          return
+        }
         do { try process.run() } catch {
           continuation.resume(returning: nil)
           return
         }
+        handle.didStart()
         let flag = TimeoutFlag()
         let watchdog = DispatchWorkItem {
           flag.set()
@@ -47,6 +66,38 @@ enum SetupProcess {
             status: process.terminationStatus, output: String(decoding: data, as: UTF8.self),
             timedOut: flag.value))
       }
+    }
+  }
+
+  private final class ProcessHandle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+    private var started = false
+    private var cancelled = false
+
+    /// False when the task was already cancelled, so the caller must not launch.
+    func attach(_ process: Process) -> Bool {
+      lock.withLock {
+        if cancelled { return false }
+        self.process = process
+        return true
+      }
+    }
+
+    func didStart() {
+      let terminate = lock.withLock { () -> Bool in
+        started = true
+        return cancelled
+      }
+      if terminate { process?.terminate() }
+    }
+
+    func cancel() {
+      let target = lock.withLock { () -> Process? in
+        cancelled = true
+        return started ? process : nil
+      }
+      if target?.isRunning == true { target?.terminate() }
     }
   }
 

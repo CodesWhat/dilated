@@ -200,10 +200,7 @@
       let encoder = JSONEncoder()
       encoder.dateEncodingStrategy = .iso8601
       do {
-        try FileManager.default.createDirectory(
-          at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
-          attributes: [.posixPermissions: 0o700])
-        try encoder.encode(value).write(to: file, options: .atomic)
+        try PrivateFile.write(try encoder.encode(value), to: file)
       } catch {
         Logger(subsystem: HelperIdentity.appID, category: "HelperMigration").error(
           "Couldn't save the migration result: \(error.localizedDescription, privacy: .public)")
