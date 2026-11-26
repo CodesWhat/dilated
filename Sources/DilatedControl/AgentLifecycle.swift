@@ -159,8 +159,7 @@ public struct AgentLifecycle {
 
   private func save(_ record: AgentRunRecord, for command: AgentCommand) throws {
     let url = file(command)
-    try WireJSON.encode(record).write(to: url, options: .atomic)
-    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    try PrivateFile.write(try WireJSON.encode(record), to: url)
   }
 
   private func clear(_ command: AgentCommand) {

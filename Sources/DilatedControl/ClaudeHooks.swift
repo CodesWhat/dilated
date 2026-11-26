@@ -1,3 +1,4 @@
+import DilatedCore
 import Foundation
 
 public typealias ClaudeHookInstallation = AgentHookInstallation
@@ -130,13 +131,10 @@ public struct AgentHookInstallation {
     }
     if let original {
       let backup = parent.appendingPathComponent("dilated-settings-\(UUID().uuidString).backup")
-      try original.write(to: backup, options: .withoutOverwriting)
-      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
+      try PrivateFile.write(original, to: backup)
       pruneBackups(in: parent)
     }
-    try data.write(to: settingsURL, options: .atomic)
-    try FileManager.default.setAttributes(
-      [.posixPermissions: 0o600], ofItemAtPath: settingsURL.path)
+    try PrivateFile.write(data, to: settingsURL)
   }
 }
 
