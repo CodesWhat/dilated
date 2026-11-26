@@ -113,7 +113,7 @@ jobs:
     outputs:
       reuse: ${{ steps.receipt.outputs.reuse }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 2
           persist-credentials: false
@@ -198,7 +198,7 @@ jobs:
               *) echo "a needed job ended as $result"; exit 1 ;;
             esac
           done
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         if: ${{ needs.verify.result == 'success' && needs.website.result == 'success' }}
         with:
           persist-credentials: false
