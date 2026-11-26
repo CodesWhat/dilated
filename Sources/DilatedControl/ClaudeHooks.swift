@@ -118,12 +118,6 @@ public struct AgentHookInstallation {
     let parent = settingsURL.deletingLastPathComponent()
     try FileManager.default.createDirectory(
       at: parent, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-    if let original {
-      let backup = parent.appendingPathComponent("dilated-settings-\(UUID().uuidString).backup")
-      try original.write(to: backup, options: .withoutOverwriting)
-      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
-      pruneBackups(in: parent)
-    }
     let data = try JSONSerialization.data(
       withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
     // Narrow the overwrite window: refuse if the file changed since we read it.
@@ -133,6 +127,12 @@ public struct AgentHookInstallation {
     guard current == original else {
       throw InputError(
         "\(tool.title) settings changed while editing. Nothing was written. Try again.")
+    }
+    if let original {
+      let backup = parent.appendingPathComponent("dilated-settings-\(UUID().uuidString).backup")
+      try original.write(to: backup, options: .withoutOverwriting)
+      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
+      pruneBackups(in: parent)
     }
     try data.write(to: settingsURL, options: .atomic)
     try FileManager.default.setAttributes(

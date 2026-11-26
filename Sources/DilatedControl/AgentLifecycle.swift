@@ -173,12 +173,30 @@ public struct AgentLifecycle {
   ) async throws -> T {
     try FileManager.default.createDirectory(
       at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-    let descriptor = open(file(command, suffix: "lock").path, O_CREAT | O_RDWR, 0o600)
-    guard descriptor >= 0 else { throw InputError("Couldn't open the agent run lock.") }
-    defer { close(descriptor) }
-    guard flock(descriptor, LOCK_EX) == 0 else {
-      throw InputError("Couldn't lock the agent run state.")
+    let path = file(command, suffix: "lock").path
+    var descriptor: Int32 = -1
+    // pruneStale may unlink a lock file between our open and flock. Re-check the path still
+    // names the inode we locked, or two runs could hold "the same" lock on different files.
+    for _ in 0..<5 {
+      let candidate = open(path, O_CREAT | O_RDWR, 0o600)
+      guard candidate >= 0 else { throw InputError("Couldn't open the agent run lock.") }
+      guard flock(candidate, LOCK_EX) == 0 else {
+        close(candidate)
+        throw InputError("Couldn't lock the agent run state.")
+      }
+      var held = stat()
+      var named = stat()
+      if fstat(candidate, &held) == 0, stat(path, &named) == 0, held.st_ino == named.st_ino,
+        held.st_dev == named.st_dev
+      {
+        descriptor = candidate
+        break
+      }
+      flock(candidate, LOCK_UN)
+      close(candidate)
     }
+    guard descriptor >= 0 else { throw InputError("Couldn't lock the agent run state.") }
+    defer { close(descriptor) }
     defer { flock(descriptor, LOCK_UN) }
     return try await body()
   }
