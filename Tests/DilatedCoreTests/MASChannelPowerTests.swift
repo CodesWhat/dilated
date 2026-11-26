@@ -157,11 +157,13 @@ struct MASChannelScriptContractTests {
     process.standardOutput = out
     process.standardError = err
     try process.run()
-    process.waitUntilExit()
+    let outData = out.fileHandleForReading.readDataToEndOfFile()
+    let errData = err.fileHandleForReading.readDataToEndOfFile()
+    #expect(waitForExit(process), "The script did not exit.")
     return (
       process.terminationStatus,
-      String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
-      String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+      String(decoding: outData, as: UTF8.self),
+      String(decoding: errData, as: UTF8.self)
     )
   }
 
@@ -245,7 +247,7 @@ struct MASChannelRepairScriptTests {
     deinit {
       for child in children where child.isRunning {
         child.terminate()
-        child.waitUntilExit()
+        waitForExit(child)
       }
       try? FileManager.default.removeItem(at: home)
     }
@@ -270,7 +272,38 @@ struct MASChannelRepairScriptTests {
 
     func kill(_ process: Process) {
       process.terminate()
-      process.waitUntilExit()
+      #expect(waitForExit(process), "The child did not exit after terminate.")
+    }
+
+    var clockLog: URL { home.appendingPathComponent("clock-probe.log") }
+
+    /// A clock for the lock wait that appends a line per reading and always answers 100, so the
+    /// wall-clock cap never trips however slow the machine is and the reading adds no process
+    /// beyond the script itself. The lock loop reads it once on entry and once per failed mkdir,
+    /// so a second line means the verb is parked behind a held lock.
+    func probeClock() throws -> String {
+      let clock = home.appendingPathComponent("probe-clock")
+      try """
+      #!/bin/bash
+      echo tick >> "\(clockLog.path)"
+      echo 100
+      """.write(to: clock, atomically: true, encoding: .utf8)
+      try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: clock.path)
+      return clock.path
+    }
+
+    /// Blocks until the verb started with `probeClock` is waiting on the lock, or fails the test.
+    func waitUntilQueued(_ process: Process, timeout: TimeInterval = 15) throws {
+      let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
+      while ContinuousClock.now < deadline {
+        let ticks =
+          ((try? String(contentsOf: clockLog, encoding: .utf8)) ?? "")
+          .split(separator: "\n").count
+        if ticks >= 2 { return }
+        try #require(process.isRunning, "The verb exited before it queued on the lock.")
+        Thread.sleep(forTimeInterval: 0.005)
+      }
+      Issue.record("The verb never queued on the lock.")
     }
 
     func run(
@@ -293,7 +326,7 @@ struct MASChannelRepairScriptTests {
       try process.run()
       let outData = out.fileHandleForReading.readDataToEndOfFile()
       let errData = err.fileHandleForReading.readDataToEndOfFile()
-      process.waitUntilExit()
+      #expect(waitForExit(process), "The script did not exit.")
       return (
         process.terminationStatus,
         String(decoding: outData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines),
@@ -558,18 +591,19 @@ struct MASChannelRepairScriptTests {
       "HOME": box.home.path, "PATH": "/usr/bin:/bin",
       "DILATED_POWER_TEST_SUDO": box.fakeSudo.path,
       "DILATED_POWER_TEST_LAUNCHCTL": box.fakeLaunchctl.path,
+      "DILATED_POWER_TEST_CLOCK": try box.probeClock(),
     ]
     let out = Pipe()
     on.standardOutput = out
     try on.run()
-    Thread.sleep(forTimeInterval: 0.4)
+    try box.waitUntilQueued(on)
     #expect(on.isRunning)
     // Remove finishes: agent booted out, lock released. The marker is still on disk.
     try "removing\n".write(to: Self.marker(box), atomically: true, encoding: .utf8)
     box.setAgentLoaded(false)
     try FileManager.default.removeItem(at: lock)
     let output = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-    on.waitUntilExit()
+    #expect(waitForExit(on), "The script did not exit.")
     #expect(output.trimmingCharacters(in: .whitespacesAndNewlines) == "noagent")
     #expect(on.terminationStatus == 3)
     #expect(box.sudoCalls.isEmpty)
@@ -588,16 +622,17 @@ struct MASChannelRepairScriptTests {
       "HOME": box.home.path, "PATH": "/usr/bin:/bin",
       "DILATED_POWER_TEST_SUDO": box.fakeSudo.path,
       "DILATED_POWER_TEST_LAUNCHCTL": box.fakeLaunchctl.path,
+      "DILATED_POWER_TEST_CLOCK": try box.probeClock(),
     ]
     let out = Pipe()
     on.standardOutput = out
     try on.run()
-    Thread.sleep(forTimeInterval: 0.4)
+    try box.waitUntilQueued(on)
     // The agent went away with no marker (a hand-deleted one): the agent check still refuses.
     box.setAgentLoaded(false)
     try FileManager.default.removeItem(at: lock)
     let output = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-    on.waitUntilExit()
+    #expect(waitForExit(on), "The script did not exit.")
     #expect(output.trimmingCharacters(in: .whitespacesAndNewlines) == "noagent")
     #expect(box.sudoCalls.isEmpty)
   }
@@ -627,8 +662,16 @@ struct MASChannelRepairScriptTests {
     exec /bin/sleep 30
     """.write(to: box.fakeLaunchctl, atomically: true, encoding: .utf8)
     let started = Date()
-    let result = try box.run(["on", String(child.processIdentifier)])
-    #expect(Date().timeIntervalSince(started) < 2.5)
+    // The lock is free, so the scripted clock only keeps a loaded runner from tripping the lock's
+    // wall-clock cap (covered by its own tests) before the launchctl check this test is about.
+    let result = try box.run(
+      ["on", String(child.processIdentifier)],
+      environment: ["DILATED_POWER_TEST_CLOCK": try box.probeClock()])
+    // The launchctl hangs for 30 seconds. The script cuts it off after about a second of its own
+    // ticks, which is under the app's 3 second timeout on an idle machine. Every tick is a
+    // spawned process, so a loaded runner stretches that; 10 seconds still separates "cut off"
+    // from "waited out the hang" by a wide margin without a flaky wall-clock edge.
+    #expect(Date().timeIntervalSince(started) < 10)
     #expect(result.out == "noagent")
     #expect(result.status == 3)
     #expect(box.sudoCalls.isEmpty)
@@ -794,12 +837,17 @@ struct MASChannelRepairScriptTests {
       "HOME": box.home.path, "PATH": "/usr/bin:/bin",
       "DILATED_POWER_TEST_SUDO": box.fakeSudo.path,
       "DILATED_POWER_TEST_LAUNCHCTL": box.fakeLaunchctl.path,
+      "DILATED_POWER_TEST_CLOCK": try box.probeClock(),
     ]
     on.standardOutput = Pipe()
     try on.run()
-    for _ in 0..<100 where box.sudoCalls.isEmpty { Thread.sleep(forTimeInterval: 0.05) }
+    let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+    while box.sudoCalls.isEmpty && ContinuousClock.now < deadline {
+      Thread.sleep(forTimeInterval: 0.01)
+    }
+    try #require(!box.sudoCalls.isEmpty, "on never reached pmset.")
     let removal = try box.run(["begin-removal"])
-    on.waitUntilExit()
+    #expect(waitForExit(on), "The script did not exit.")
     #expect(removal.out == "ok")
     // on ran to the end first, then removal reverted it; the session goes with finish-removal.
     #expect(
@@ -823,18 +871,19 @@ struct MASChannelRepairScriptTests {
       "HOME": box.home.path, "PATH": "/usr/bin:/bin",
       "DILATED_POWER_TEST_SUDO": box.fakeSudo.path,
       "DILATED_POWER_TEST_LAUNCHCTL": box.fakeLaunchctl.path,
+      "DILATED_POWER_TEST_CLOCK": try box.probeClock(),
     ]
     let out = Pipe()
     on.standardOutput = out
     try on.run()
-    Thread.sleep(forTimeInterval: 0.4)
+    try box.waitUntilQueued(on)
     #expect(on.isRunning)
     // The marker lands while `on` is queued, past its first check, so only the re-check sees it.
     try "removing\n".write(to: Self.marker(box), atomically: true, encoding: .utf8)
     try FileManager.default.removeItem(at: lock)
     let output = String(
       decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-    on.waitUntilExit()
+    #expect(waitForExit(on), "The script did not exit.")
     #expect(output.trimmingCharacters(in: .whitespacesAndNewlines) == "noagent")
     #expect(on.terminationStatus == 3)
     #expect(box.sudoCalls.isEmpty)
@@ -890,18 +939,26 @@ struct MASChannelRepairScriptTests {
   @Test func beatNeverRecreatesASessionAndWaitsForTheLock() throws {
     let box = try Sandbox()
     let child = try box.spawnSleeper()
-    _ = try box.run(["on", String(child.processIdentifier)])
+    // The beat below only waits when there is a session to touch, so `on` has to have made one.
+    #expect(
+      try box.run(
+        ["on", String(child.processIdentifier)],
+        environment: ["DILATED_POWER_TEST_CLOCK": try box.probeClock()]
+      ).out == "ok")
     // Hold the lock the way repair does, then start a beat against the live session.
     let lock = box.sessionDirectory.appendingPathComponent("lock.d")
     try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: false)
     let beat = Process()
     beat.executableURL = URL(fileURLWithPath: "/bin/bash")
     beat.arguments = [Self.script.path, "beat"]
-    beat.environment = ["HOME": box.home.path, "PATH": "/usr/bin:/bin"]
+    beat.environment = [
+      "HOME": box.home.path, "PATH": "/usr/bin:/bin",
+      "DILATED_POWER_TEST_CLOCK": try box.probeClock(),
+    ]
     let out = Pipe()
     beat.standardOutput = out
     try beat.run()
-    Thread.sleep(forTimeInterval: 0.5)
+    try box.waitUntilQueued(beat)
     #expect(beat.isRunning, "beat must wait while repair holds the lock")
     // repair removes the session before it lets go of the lock.
     try FileManager.default.removeItem(at: box.sessionFile)
@@ -909,7 +966,7 @@ struct MASChannelRepairScriptTests {
     let output = String(
       decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self
     ).trimmingCharacters(in: .whitespacesAndNewlines)
-    beat.waitUntilExit()
+    #expect(waitForExit(beat), "The script did not exit.")
     #expect(output == "none")
     #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
   }
@@ -1063,7 +1120,7 @@ struct MASChannelRepairScriptTests {
     try line.run()
     let lstart = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
       .trimmingCharacters(in: .whitespacesAndNewlines)
-    line.waitUntilExit()
+    #expect(waitForExit(line), "The script did not exit.")
     try "\(child.processIdentifier) \(lstart)\n".write(
       to: box.sessionFile, atomically: true, encoding: .utf8)
     try box.age(300)

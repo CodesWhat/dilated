@@ -295,11 +295,15 @@ import Testing
     #expect(fixture.authorizationRequests == 1 && fixture.notices.isEmpty)
   }
 
+  /// Generous: in the full suite, tests that block cooperative threads on child processes can
+  /// starve the sleeps this polls with for tens of seconds. A timeout is recorded here instead of
+  /// surfacing as a confusing downstream expectation.
   private func wait(_ predicate: @MainActor () -> Bool) async {
-    let deadline = ContinuousClock.now + .seconds(30)
+    let deadline = ContinuousClock.now + .seconds(120)
     while !predicate() && ContinuousClock.now < deadline {
       try? await Task.sleep(for: .milliseconds(1))
     }
+    if !predicate() { Issue.record("condition not met in time") }
   }
 
   @Test func customSoundImportIsTransactionalAndSharedChoicesArePreserved() async throws {

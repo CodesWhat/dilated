@@ -15,7 +15,7 @@
       defer {
         if process.isRunning {
           process.terminate()
-          process.waitUntilExit()
+          waitForExit(process)
         }
       }
       #expect(
@@ -33,7 +33,7 @@
         try await Task.sleep(for: .milliseconds(20))
       }
       #expect(changes > 0)
-      process.waitUntilExit()
+      #expect(waitForExit(process), "The child did not exit.")
       #expect(!ProcessCatalog.read().contains { $0.id == process.processIdentifier })
     }
 
@@ -57,7 +57,7 @@
       defer {
         if process.isRunning {
           process.terminate()
-          process.waitUntilExit()
+          waitForExit(process)
         }
       }
       let pid = process.processIdentifier

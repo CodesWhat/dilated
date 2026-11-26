@@ -58,9 +58,10 @@ struct OpenCodeAdapterTests {
     process.standardOutput = pipe
     process.standardError = pipe
     try process.run()
-    process.waitUntilExit()
+    let stray = pipe.fileHandleForReading.readDataToEndOfFile()
+    #expect(waitForExit(process), "The adapter harness did not exit.")
     #expect(process.terminationStatus == 0)
-    #expect(pipe.fileHandleForReading.readDataToEndOfFile().isEmpty)
+    #expect(stray.isEmpty)
     if missingCLI {
       #expect(!FileManager.default.fileExists(atPath: output.path))
       return
