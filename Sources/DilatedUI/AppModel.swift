@@ -1352,12 +1352,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     guard settingsRecoveryIssue == nil || recovering else {
       throw InputError("Recover unreadable settings in Settings before making changes.")
     }
-    try FileManager.default.createDirectory(
-      at: endpoint.stateDirectory, withIntermediateDirectories: true,
-      attributes: [.posixPermissions: 0o700])
-    try JSONEncoder().encode(value).write(to: settingsFile, options: .atomic)
-    try FileManager.default.setAttributes(
-      [.posixPermissions: 0o600], ofItemAtPath: settingsFile.path)
+    try PrivateFile.write(try JSONEncoder().encode(value), to: settingsFile)
   }
   @discardableResult func resetUnreadableSettings() throws -> URL {
     guard settingsRecoveryIssue != nil else { throw InputError("Settings don't need recovery.") }
@@ -1370,8 +1365,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
     let backup = directory.appendingPathComponent("settings-\(UUID().uuidString).json")
-    try original.write(to: backup, options: .atomic)
-    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
+    try PrivateFile.write(original, to: backup)
     try store.save(engine.snapshot)
     let defaults = AppSettings()
     try writeSettings(defaults, recovering: true)

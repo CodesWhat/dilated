@@ -11,12 +11,7 @@ public struct StateStore: Sendable {
   }
 
   public func save(_ snapshot: EngineSnapshot) throws {
-    try FileManager.default.createDirectory(
-      at: directory, withIntermediateDirectories: true,
-      attributes: [.posixPermissions: 0o700])
-    let data = try JSONEncoder().encode(snapshot)
-    try data.write(to: file, options: [.atomic])
-    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    try PrivateFile.write(try JSONEncoder().encode(snapshot), to: file)
   }
 }
 

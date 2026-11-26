@@ -1,3 +1,4 @@
+import DilatedCore
 import Foundation
 
 public struct OpenCodePluginInstallation {
@@ -74,8 +75,7 @@ public struct OpenCodePluginInstallation {
   private func backup(_ data: Data) throws {
     let backup = file.deletingLastPathComponent().appendingPathComponent(
       "dilated-plugin-\(UUID().uuidString).backup")
-    try data.write(to: backup, options: .withoutOverwriting)
-    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
+    try PrivateFile.write(data, to: backup)
   }
 
   public func install() throws {
@@ -90,9 +90,7 @@ public struct OpenCodePluginInstallation {
       attributes: [.posixPermissions: 0o700])
     if let original { try backup(original) }
     let destination = file.resolvingSymlinksInPath()
-    try data.write(to: destination, options: .atomic)
-    try FileManager.default.setAttributes(
-      [.posixPermissions: 0o600], ofItemAtPath: destination.path)
+    try PrivateFile.write(data, to: destination)
   }
 
   public func remove() throws {

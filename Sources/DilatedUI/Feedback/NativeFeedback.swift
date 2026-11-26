@@ -1,5 +1,6 @@
 import AppKit
 import DilatedControl
+import DilatedCore
 import Foundation
 import UserNotifications
 
@@ -101,8 +102,7 @@ private final class ForegroundFeedback: NSObject, UNUserNotificationCenterDelega
     let id = UUID()
     let file = folder.appendingPathComponent(id.uuidString + ".sound")
     do {
-      try data.write(to: file, options: [.atomic])
-      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+      try PrivateFile.write(data, to: file)
     } catch {
       try? FileManager.default.removeItem(at: file)
       throw error

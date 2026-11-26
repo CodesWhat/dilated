@@ -1,5 +1,6 @@
 import AppKit
 import DilatedControl
+import DilatedCore
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -67,8 +68,7 @@ public struct CustomGlyph: Codable, Equatable, Sendable {
     try FileManager.default.createDirectory(
       at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     do {
-      try (output as Data).write(to: file, options: [.atomic])
-      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+      try PrivateFile.write(output as Data, to: file)
     } catch {
       try? FileManager.default.removeItem(at: file)
       throw error

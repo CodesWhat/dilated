@@ -111,9 +111,7 @@ public struct TriggerStore: Sendable {
   }
 
   private func write(_ value: some Encodable, to destination: URL) throws {
-    try JSONEncoder().encode(value).write(to: destination, options: .atomic)
-    try FileManager.default.setAttributes(
-      [.posixPermissions: 0o600], ofItemAtPath: destination.path)
+    try PrivateFile.write(try JSONEncoder().encode(value), to: destination)
   }
 
   private struct StoreError: LocalizedError {

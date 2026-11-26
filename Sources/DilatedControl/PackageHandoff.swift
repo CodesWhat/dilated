@@ -1,3 +1,4 @@
+import DilatedCore
 import Foundation
 
 public enum PackageIntent: String, Codable, Sendable { case update, uninstall }
@@ -20,10 +21,7 @@ public struct PackageHandoffStore {
   private var file: URL { directory.appendingPathComponent("package-handoff.json") }
   public init(directory: URL) { self.directory = directory }
   public func save(_ handoff: PackageHandoff) throws {
-    try FileManager.default.createDirectory(
-      at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-    try JSONEncoder().encode(handoff).write(to: file, options: .atomic)
-    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    try PrivateFile.write(try JSONEncoder().encode(handoff), to: file)
   }
   /// The saved handoff without the app-path and age checks, for the launch after an upgrade.
   public func peek() -> PackageHandoff? {
