@@ -45,7 +45,7 @@
     <p>Wi-Fi names, paired devices and chosen paths are read on your Mac to evaluate your triggers. They aren't sent anywhere.</p>
 
     <h2>Network use</h2>
-    <p>The direct build checks for updates with Sparkle. It requests <code>https://dilated.app/updates/appcast.xml</code> and verifies the signed feed before installing anything. Sparkle's system profile option is off, so the request carries the usual HTTP details (your IP address, the app name and version, your macOS version) and no hardware or usage profile. Like any web host, ours can see that request in its server logs.</p>
+    <p>The direct build checks for updates with Sparkle. On the second launch it asks whether to check automatically, and until you say yes it checks only when you choose Check for Updates. It requests <code>https://dilated.app/updates/appcast.xml</code> and verifies the signed feed before installing anything. Sparkle's system profile option is off, so the request carries the usual HTTP details (your IP address, the app name and version, your macOS version) and no hardware or usage profile. Like any web host, ours can see that request in its server logs.</p>
     <p>The Mac App Store build has no update code and makes no network requests. The App Store delivers its updates.</p>
     <p>Your browser fetches the page and, on the home page, a small file with the current release details, from <code>dilated.app</code>.</p>
 
