@@ -231,6 +231,20 @@ struct MASChannelRepairScriptTests {
       try manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeLaunchctl.path)
     }
 
+    /// Replaces the fake sudo with one that logs every call, then fails the calls whose arguments
+    /// contain `pattern` with `message` and `status`. Other calls succeed.
+    func failSudo(
+      matching pattern: String, message: String = "sudo: a password is required",
+      status: Int32 = 1
+    ) throws {
+      try """
+      #!/bin/bash
+      echo "$@" >> "\(sudoLog.path)"
+      case "$*" in *"\(pattern)"*) echo "\(message)"; exit \(status) ;; esac
+      exit 0
+      """.write(to: fakeSudo, atomically: true, encoding: .utf8)
+    }
+
     func setAgentLoaded(_ loaded: Bool) {
       if loaded {
         try? FileManager.default.removeItem(at: agentDown)
@@ -425,6 +439,48 @@ struct MASChannelRepairScriptTests {
         "-l /usr/bin/pmset -a disablesleep 0", "-l /usr/bin/pmset -a disablesleep 1",
         "-k /usr/bin/pmset -a disablesleep 0",
       ])
+  }
+
+  @Test func probeRefusesWhenListingEitherDirectionFailsAndNeverRunsTheNoOp() throws {
+    for direction in ["0", "1"] {
+      let box = try Sandbox()
+      try box.failSudo(matching: "-l /usr/bin/pmset -a disablesleep \(direction)", status: 1)
+      let result = try box.run(["probe"], environment: ["DILATED_POWER_TEST_SLEEPDISABLED": "0"])
+      #expect(result.out == "norule")
+      #expect(result.status == 3)
+      #expect(!box.sudoCalls.contains { $0.hasPrefix("-k ") })
+      #expect(box.sudoCalls.first == "-l /usr/bin/pmset -a disablesleep 0")
+    }
+  }
+
+  @Test func probeReportsAnUnexpectedSudoFailureAsFailed() throws {
+    let box = try Sandbox()
+    try box.failSudo(matching: "-k ", message: "sudo: boom", status: 2)
+    let result = try box.run(["probe"], environment: ["DILATED_POWER_TEST_SLEEPDISABLED": "1"])
+    #expect(result.out == "failed")
+    #expect(result.status == 2)
+  }
+
+  @Test func aRefusedOnRemovesTheSessionAndLeavesNoTombstone() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    try box.failSudo(matching: "disablesleep 1")
+    let result = try box.run(["on", String(child.processIdentifier)])
+    #expect(result.out == "norule")
+    #expect(result.status == 3)
+    #expect(box.sudoCalls == ["/usr/bin/pmset -a disablesleep 1"])
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
+    #expect(try box.run(["check"]).out == "none")
+  }
+
+  @Test func anOnThatFailsForAnotherReasonAlsoCleansUpAndSaysFailed() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    try box.failSudo(matching: "disablesleep 1", message: "pmset: error", status: 5)
+    let result = try box.run(["on", String(child.processIdentifier)])
+    #expect(result.out == "failed")
+    #expect(result.status == 5)
+    #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
   }
 
   @Test func probeWithARuleForOnlyOneDirectionWritesNothing() throws {
