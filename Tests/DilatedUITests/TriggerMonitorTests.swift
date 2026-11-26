@@ -96,6 +96,27 @@
       probe.release()
     }
 
+    @Test func readInsideChangeNotificationDoesNotStartAScan() async throws {
+      let probe = ScanProbe([Self.fake(900_004, "make")])
+      var monitor: TriggerMonitor?
+      var changes = 0
+      monitor = TriggerMonitor(
+        readPower: { .init() }, readProcesses: { probe.scan() },
+        workspaceNotifications: NotificationCenter(),
+        changed: {
+          changes += 1
+          _ = monitor?.read()
+        })
+      defer { monitor?.stop() }
+      monitor?.configure(rules: [TriggerRule(name: "Make", criteria: [.process(name: "make")])])
+      _ = monitor?.read()
+      probe.release()
+      try await settle { changes == 1 }
+      try await Task.sleep(for: .milliseconds(50))
+      #expect(probe.scans == 1)
+      probe.release()
+    }
+
     @Test func unchangedProcessListDoesNotNotify() async throws {
       let probe = ScanProbe([Self.fake(900_003, "make")])
       var changes = 0

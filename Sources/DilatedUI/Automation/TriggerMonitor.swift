@@ -91,6 +91,7 @@ import SystemConfiguration
     private var processSnapshot: [NativeProcess]?
     private var scanInFlight = false
     private var scanPending = false
+    private var applyingScan = false
     private var scanGeneration = 0
   #endif
 
@@ -278,6 +279,10 @@ import SystemConfiguration
       let previous = processSnapshot
       processSnapshot = processes
       if previous.map({ Set($0.map(\.identity)) }) != Set(processes.map(\.identity)) {
+        // The owner re-reads synchronously from `changed`. That read must not start another
+        // scan, or a list that churns on every scan would rescan back to back.
+        applyingScan = true
+        defer { applyingScan = false }
         changed()
       }
     }
@@ -342,7 +347,7 @@ import SystemConfiguration
     }
     #if !MAS_CHANNEL
       if needsProcesses {
-        requestProcessScan()
+        if !applyingScan { requestProcessScan() }
         let processes = processSnapshot ?? []
         input.processInstances = Set(processes.map(\.identity))
         input.processNames = Set(processes.flatMap { [$0.name, $0.path] }.filter { !$0.isEmpty })
