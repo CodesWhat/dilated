@@ -167,10 +167,12 @@ extension ClosedLidSetup {
   /// The real thing. `allowAdminPrompt: false` makes the rule step fail instead of asking, for
   /// headless runs.
   public static func live(allowAdminPrompt: Bool = true) -> ClosedLidSetup {
-    ClosedLidSetup(
-      paths: .current(), assets: .bundled(), files: LiveSetupFileSystem(),
+    let paths = ClosedLidSetupPaths.current()
+    return ClosedLidSetup(
+      paths: paths, assets: .bundled(), files: LiveSetupFileSystem(),
       launchd: LiveLaunchAgentControl(), power: LivePowerScript(),
       rule: ClosedLidPermission(
+        seams: .live(lockFile: URL(fileURLWithPath: paths.sessionLockFile)),
         runner: allowAdminPrompt ? OsascriptAdminRunner() : RefusingAdminRunner()))
   }
 }

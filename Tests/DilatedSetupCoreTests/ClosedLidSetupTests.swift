@@ -737,6 +737,9 @@ struct ClosedLidSetupAssetTests {
 
   @Test func theSharedRuleIsTheDirectBuildsRule() {
     #expect(ClosedLidPermission.rulePath == "/private/etc/sudoers.d/dilated")
+    #expect(
+      ClosedLidSetupPaths(home: "/Users/test", uid: 501).sessionLockFile
+        == "/Users/test/Library/Application Support/Dilated/closed-lid-session.lock")
   }
 }
 
