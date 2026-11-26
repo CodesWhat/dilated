@@ -59,9 +59,11 @@
       }
     }
 
+    /// `pid` only seeds the identity. The process id is this test process, which stays alive, so the
+    /// monitor's exit watcher never fires for a pid that doesn't exist.
     private static func fake(_ pid: Int32, _ name: String) -> NativeProcess {
       NativeProcess(
-        id: pid, name: name, path: "/bin/\(name)",
+        id: getpid(), name: name, path: "/bin/\(name)",
         identity: ProcessIdentity(pid: pid, startedAtMicroseconds: UInt64(pid)))
     }
 
