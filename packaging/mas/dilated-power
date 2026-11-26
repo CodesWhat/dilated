@@ -167,10 +167,19 @@ write_atomic() {
 }
 
 have_lock=0
+# Unique to this run, written into the lock directory it takes. A holder that outlived the steal
+# window finds someone else's id (or none) there and leaves the new holder's lock alone.
+lock_owner="$$.$RANDOM.$RANDOM"
 # shellcheck disable=SC2329  # runs from the EXIT trap
 release_lock() {
+  local current_owner
   if [ "$have_lock" -eq 1 ]; then
-    /bin/rmdir "$lock_dir" 2>/dev/null || true
+    current_owner=""
+    { read -r current_owner <"$lock_dir/owner"; } 2>/dev/null || true
+    if [ "$current_owner" = "$lock_owner" ]; then
+      /bin/rm -f "$lock_dir/owner"
+      /bin/rmdir "$lock_dir" 2>/dev/null || true
+    fi
     have_lock=0
   fi
 }
@@ -189,6 +198,26 @@ clock() {
   /bin/date +%s
 }
 
+# Takes a stale lock out of the way. The rename is atomic, so of several stealers only one gets the
+# directory, and a holder that wakes up later can't remove what it no longer owns. If the directory
+# moved turns out to be fresh (the lock was replaced between the staleness check and the rename),
+# it goes back and the caller retries.
+steal_lock() {
+  local grave="$session_dir/lock.stale.$lock_owner" modified
+  /bin/mv "$lock_dir" "$grave" 2>/dev/null || return 0
+  modified=$(/usr/bin/stat -f %m "$grave" 2>/dev/null || echo 0)
+  if [ $(($(clock) - modified)) -gt 60 ]; then
+    /bin/rm -rf "$grave"
+  else
+    # Never rename onto an existing lock.d: mv would nest the grave inside the new holder's lock.
+    if [ -e "$lock_dir" ]; then
+      /bin/rm -rf "$grave"
+    else
+      /bin/mv "$grave" "$lock_dir" 2>/dev/null || /bin/rm -rf "$grave"
+    fi
+  fi
+}
+
 take_lock() {
   local tries=0 modified now max=${1:-50} limit=${2:-} started
   ensure_dir || return 1
@@ -200,7 +229,7 @@ take_lock() {
       return 1
     fi
     if [ $((now - modified)) -gt 60 ]; then
-      /bin/rmdir "$lock_dir" 2>/dev/null || true
+      steal_lock
       continue
     fi
     tries=$((tries + 1))
@@ -208,6 +237,7 @@ take_lock() {
     /bin/sleep 0.1
   done
   have_lock=1
+  printf '%s\n' "$lock_owner" >"$lock_dir/owner" 2>/dev/null || true
   # A late acquisition doesn't get past the cap either: the caller has stopped waiting, and the
   # work that follows could outlive the app's timeout.
   if [ -n "$limit" ] && [ $(($(clock) - started)) -ge "$limit" ]; then

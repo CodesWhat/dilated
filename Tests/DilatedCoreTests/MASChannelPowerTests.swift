@@ -681,6 +681,40 @@ struct MASChannelRepairScriptTests {
     #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
   }
 
+  @Test func aHolderThatLostItsLockDoesNotReleaseTheNewHoldersLock() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    let lock = box.sessionDirectory.appendingPathComponent("lock.d")
+    // While `on` holds the lock inside sudo, the lock is stolen and retaken by someone else.
+    try """
+    #!/bin/bash
+    echo "$@" >> "\(box.sudoLog.path)"
+    rm -rf "\(lock.path)"
+    mkdir "\(lock.path)"
+    echo other-holder > "\(lock.path)/owner"
+    exit 0
+    """.write(to: box.fakeSudo, atomically: true, encoding: .utf8)
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
+    #expect(FileManager.default.fileExists(atPath: lock.path))
+    let owner = try String(contentsOf: lock.appendingPathComponent("owner"), encoding: .utf8)
+    #expect(owner.trimmingCharacters(in: .whitespacesAndNewlines) == "other-holder")
+  }
+
+  @Test func aStaleLockWithAnOwnerIsStolenAndTheNewHolderReleasesItsOwn() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    let lock = box.sessionDirectory.appendingPathComponent("lock.d")
+    try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: true)
+    try "crashed-holder\n".write(
+      to: lock.appendingPathComponent("owner"), atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes(
+      [.modificationDate: Date(timeIntervalSinceNow: -300)], ofItemAtPath: lock.path)
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "ok")
+    #expect(!FileManager.default.fileExists(atPath: lock.path))
+    let leftovers = try FileManager.default.contentsOfDirectory(atPath: box.sessionDirectory.path)
+    #expect(!leftovers.contains { $0.hasPrefix("lock.stale") })
+  }
+
   @Test func aLockAcquiredInsideTheWallClockCapStillEnables() throws {
     let box = try Sandbox()
     let child = try box.spawnSleeper()
