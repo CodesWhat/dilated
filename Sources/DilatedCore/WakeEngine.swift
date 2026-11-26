@@ -178,14 +178,17 @@ public struct WakeEngine: Sendable {
     userReturnRestoration?.holds.removeAll { $0.id == id }
     let hold = holds.first(where: { $0.id == id })
     guard hold != nil || suspended else { return }
-    if reason == .stopped {
-      releasedHolds.removeAll { $0.id == id }
-      releasedHolds.append(ReleasedHold(id: id, at: now))
-      releasedHolds = Self.prunedReleased(releasedHolds, now: now)
-    }
+    if reason == .stopped { recordReleased(ids: [id], at: now) }
     guard let hold else { return }
     recordHistory(hold: hold, at: now, reason: reason)
     holds.removeAll { $0.id == id }
+  }
+  private mutating func recordReleased(ids: [UUID], at now: Date) {
+    for id in ids {
+      releasedHolds.removeAll { $0.id == id }
+      releasedHolds.append(ReleasedHold(id: id, at: now))
+    }
+    releasedHolds = Self.prunedReleased(releasedHolds, now: now)
   }
   /// True when this engine ended the hold because the user stopped it (not expiry or a restart).
   public func wasReleased(id: UUID, now: Date = Date()) -> Bool {
@@ -202,6 +205,10 @@ public struct WakeEngine: Sendable {
   }
   public mutating func stopAll(reason: HoldEndReason = .stopped, now: Date = Date()) {
     cancelLeaving()
+    // Only a user stop is a release. Automatic reasons such as a user switch stay unrecorded.
+    if reason == .stopped {
+      recordReleased(ids: holds.map(\.id) + (userReturnRestoration?.holds.map(\.id) ?? []), at: now)
+    }
     for hold in holds { recordHistory(hold: hold, at: now, reason: reason) }
     holds.removeAll()
     automationPaused = true

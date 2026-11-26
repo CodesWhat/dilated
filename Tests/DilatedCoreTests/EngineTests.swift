@@ -283,6 +283,26 @@ struct EngineTests {
   #expect(engine.snapshot.released.map(\.id) == [runner.id])
 }
 
+@Test func stopAllStoppedRecordsActiveAndSuspendedIDsAsReleased() throws {
+  var engine = WakeEngine()
+  let suspended = try engine.start(source: .runner, label: "job", duration: 60)
+  engine.suspendForUserSwitch(capture: true)
+  let active = try engine.start(source: .manual, label: "now")
+  engine.stopAll(reason: .stopped)
+  #expect(engine.wasReleased(id: active.id))
+  #expect(engine.wasReleased(id: suspended.id))
+  #expect(Set(engine.snapshot.released.map(\.id)) == [active.id, suspended.id])
+}
+
+@Test func stopAllForAnAutomaticReasonRecordsNoReleases() throws {
+  var engine = WakeEngine()
+  let runner = try engine.start(source: .runner, label: "job", duration: 60)
+  engine.stopAll(reason: .userSwitch)
+  #expect(!engine.wasReleased(id: runner.id))
+  engine.suspendForUserSwitch(capture: true)
+  #expect(engine.snapshot.released.isEmpty)
+}
+
 @Test func releasableHoldsCoverActivePendingAndExcludeManual() throws {
   var engine = WakeEngine()
   let manual = try engine.start(source: .manual, label: "job", duration: 60)
