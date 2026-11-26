@@ -17,6 +17,7 @@ class BuildRunTests(unittest.TestCase):
         self.root = pathlib.Path(self.temp.name).resolve()
         (self.root / 'scripts').mkdir()
         shutil.copy(ROOT / 'scripts/build-app.sh', self.root / 'scripts/build-app.sh')
+        shutil.copy(ROOT / 'scripts/build-lib.sh', self.root / 'scripts/build-lib.sh')
         self.bin = self.root / 'bin'
         self.bin.mkdir()
         self.calls = self.root / 'calls'
