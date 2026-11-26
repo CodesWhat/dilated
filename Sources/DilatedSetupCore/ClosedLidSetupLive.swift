@@ -42,15 +42,10 @@ enum SetupProcess {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = pipe
         process.standardError = pipe
-        guard handle.attach(process) else {
+        guard handle.launch(process) else {
           continuation.resume(returning: nil)
           return
         }
-        do { try process.run() } catch {
-          continuation.resume(returning: nil)
-          return
-        }
-        handle.didStart()
         let flag = TimeoutFlag()
         let watchdog = DispatchWorkItem {
           flag.set()
@@ -72,30 +67,23 @@ enum SetupProcess {
   private final class ProcessHandle: @unchecked Sendable {
     private let lock = NSLock()
     private var process: Process?
-    private var started = false
     private var cancelled = false
 
-    /// False when the task was already cancelled, so the caller must not launch.
-    func attach(_ process: Process) -> Bool {
+    /// Checks for cancellation and starts the child under one lock, so `cancel()` either stops the
+    /// launch or finds a started process to terminate. False when nothing was launched.
+    func launch(_ process: Process) -> Bool {
       lock.withLock {
         if cancelled { return false }
+        do { try process.run() } catch { return false }
         self.process = process
         return true
       }
     }
 
-    func didStart() {
-      let terminate = lock.withLock { () -> Bool in
-        started = true
-        return cancelled
-      }
-      if terminate { process?.terminate() }
-    }
-
     func cancel() {
       let target = lock.withLock { () -> Process? in
         cancelled = true
-        return started ? process : nil
+        return process
       }
       if target?.isRunning == true { target?.terminate() }
     }
@@ -177,7 +165,8 @@ public struct LiveLaunchAgentControl: LaunchAgentControlling {
   }
 
   public func bootout(target: String) async {
-    _ = await SetupProcess.run(Self.launchctl, ["bootout", target])
+    // Committed cleanup: removal deletes the plist next, so a cancelled task must not skip this.
+    _ = await Task.detached { await SetupProcess.run(Self.launchctl, ["bootout", target]) }.value
   }
 
   public func isLoaded(target: String) async -> Bool {

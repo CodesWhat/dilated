@@ -157,9 +157,9 @@ struct MASChannelScriptContractTests {
     process.standardOutput = out
     process.standardError = err
     try process.run()
+    #expect(waitForExit(process), "The script did not exit.")
     let outData = out.fileHandleForReading.readDataToEndOfFile()
     let errData = err.fileHandleForReading.readDataToEndOfFile()
-    #expect(waitForExit(process), "The script did not exit.")
     return (
       process.terminationStatus,
       String(decoding: outData, as: UTF8.self),
@@ -312,13 +312,17 @@ struct MASChannelRepairScriptTests {
     }
 
     /// Blocks until the verb started with `probeClock` is waiting on the lock, or fails the test.
-    func waitUntilQueued(_ process: Process, timeout: TimeInterval = 15) throws {
+    func tickCount() -> Int {
+      ((try? String(contentsOf: clockLog, encoding: .utf8)) ?? "").split(separator: "\n").count
+    }
+
+    /// `since` is the tick count taken before the verb started, so setup readings don't count.
+    func waitUntilQueued(_ process: Process, since baseline: Int = 0, timeout: TimeInterval = 15)
+      throws
+    {
       let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
       while ContinuousClock.now < deadline {
-        let ticks =
-          ((try? String(contentsOf: clockLog, encoding: .utf8)) ?? "")
-          .split(separator: "\n").count
-        if ticks >= 2 { return }
+        if tickCount() - baseline >= 2 { return }
         try #require(process.isRunning, "The verb exited before it queued on the lock.")
         Thread.sleep(forTimeInterval: 0.005)
       }
@@ -327,7 +331,8 @@ struct MASChannelRepairScriptTests {
 
     func run(
       script: URL = MASChannelRepairScriptTests.script, _ arguments: [String],
-      wake: Int? = nil, useFakeSudo: Bool = true, environment extra: [String: String] = [:]
+      wake: Int? = nil, useFakeSudo: Bool = true, environment extra: [String: String] = [:],
+      timeout: TimeInterval = 15
     ) throws -> (status: Int32, out: String, err: String) {
       var environment = ["HOME": home.path, "PATH": "/usr/bin:/bin"]
       if useFakeSudo { environment["DILATED_POWER_TEST_SUDO"] = fakeSudo.path }
@@ -343,9 +348,9 @@ struct MASChannelRepairScriptTests {
       process.standardOutput = out
       process.standardError = err
       try process.run()
+      #expect(waitForExit(process, timeout: timeout), "The script did not exit.")
       let outData = out.fileHandleForReading.readDataToEndOfFile()
       let errData = err.fileHandleForReading.readDataToEndOfFile()
-      #expect(waitForExit(process), "The script did not exit.")
       return (
         process.terminationStatus,
         String(decoding: outData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines),
@@ -663,8 +668,8 @@ struct MASChannelRepairScriptTests {
     try "removing\n".write(to: Self.marker(box), atomically: true, encoding: .utf8)
     box.setAgentLoaded(false)
     try FileManager.default.removeItem(at: lock)
-    let output = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     #expect(waitForExit(on), "The script did not exit.")
+    let output = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     #expect(output.trimmingCharacters(in: .whitespacesAndNewlines) == "noagent")
     #expect(on.terminationStatus == 3)
     #expect(box.sudoCalls.isEmpty)
@@ -692,8 +697,8 @@ struct MASChannelRepairScriptTests {
     // The agent went away with no marker (a hand-deleted one): the agent check still refuses.
     box.setAgentLoaded(false)
     try FileManager.default.removeItem(at: lock)
-    let output = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     #expect(waitForExit(on), "The script did not exit.")
+    let output = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     #expect(output.trimmingCharacters(in: .whitespacesAndNewlines) == "noagent")
     #expect(box.sudoCalls.isEmpty)
   }
@@ -962,9 +967,9 @@ struct MASChannelRepairScriptTests {
     // The marker lands while `on` is queued, past its first check, so only the re-check sees it.
     try "removing\n".write(to: Self.marker(box), atomically: true, encoding: .utf8)
     try FileManager.default.removeItem(at: lock)
+    #expect(waitForExit(on), "The script did not exit.")
     let output = String(
       decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-    #expect(waitForExit(on), "The script did not exit.")
     #expect(output.trimmingCharacters(in: .whitespacesAndNewlines) == "noagent")
     #expect(on.terminationStatus == 3)
     #expect(box.sudoCalls.isEmpty)
@@ -1038,10 +1043,10 @@ struct MASChannelRepairScriptTests {
     on.standardOutput = onOut
     try on.run()
     FileManager.default.createFile(atPath: gate.appendingPathComponent("go").path, contents: Data())
-    let removalOutput = String(
-      decoding: removalOut.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     #expect(waitForExit(removal), "begin-removal did not exit.")
     #expect(waitForExit(on), "The legacy on did not exit.")
+    let removalOutput = String(
+      decoding: removalOut.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     let onOutput = String(decoding: onOut.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     // The legacy shell ran out of lock retries while removal held it, and never reached pmset.
     #expect(removalOutput.trimmingCharacters(in: .whitespacesAndNewlines) == "none")
@@ -1069,8 +1074,8 @@ struct MASChannelRepairScriptTests {
     try on.run()
     Thread.sleep(forTimeInterval: 0.3)
     try FileManager.default.removeItem(at: lock)
-    let output = String(decoding: onOut.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     #expect(waitForExit(on), "The legacy on did not exit.")
+    let output = String(decoding: onOut.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     #expect(output.trimmingCharacters(in: .whitespacesAndNewlines) == "ok")
     #expect(box.sudoCalls == ["/usr/bin/pmset -a disablesleep 1"])
   }
@@ -1088,7 +1093,8 @@ struct MASChannelRepairScriptTests {
     try stuck.run()
     box.children.append(stuck)
     let result = try box.run(
-      ["begin-removal"], environment: ["DILATED_POWER_TEST_ON_MATCH": holder.path + " on "])
+      ["begin-removal"], environment: ["DILATED_POWER_TEST_ON_MATCH": holder.path + " on "],
+      timeout: 40)
     #expect(result.out == "failed")
     #expect(result.status == 1)
     #expect(box.sudoCalls.isEmpty)
@@ -1150,16 +1156,17 @@ struct MASChannelRepairScriptTests {
     ]
     let out = Pipe()
     beat.standardOutput = out
+    let baseline = box.tickCount()
     try beat.run()
-    try box.waitUntilQueued(beat)
+    try box.waitUntilQueued(beat, since: baseline)
     #expect(beat.isRunning, "beat must wait while repair holds the lock")
     // repair removes the session before it lets go of the lock.
     try FileManager.default.removeItem(at: box.sessionFile)
     try FileManager.default.removeItem(at: lock)
+    #expect(waitForExit(beat), "The script did not exit.")
     let output = String(
       decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self
     ).trimmingCharacters(in: .whitespacesAndNewlines)
-    #expect(waitForExit(beat), "The script did not exit.")
     #expect(output == "none")
     #expect(!FileManager.default.fileExists(atPath: box.sessionFile.path))
   }

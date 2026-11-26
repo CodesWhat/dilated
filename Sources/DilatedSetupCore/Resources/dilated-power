@@ -257,7 +257,14 @@ take_lock() {
     /bin/sleep 0.1
   done
   have_lock=1
-  printf '%s\n' "$lock_owner" >"$lock_dir/owner" 2>/dev/null || true
+  # The owner record is part of acquisition: without it release can't match, and the lock would
+  # block everyone until it goes stale.
+  if ! printf '%s\n' "$lock_owner" >"$lock_dir/owner" 2>/dev/null; then
+    /bin/rm -f "$lock_dir/owner"
+    /bin/rmdir "$lock_dir" 2>/dev/null || true
+    have_lock=0
+    return 1
+  fi
   # A late acquisition doesn't get past the cap either: the caller has stopped waiting, and the
   # work that follows could outlive the app's timeout.
   if [ -n "$limit" ] && [ $(($(clock) - started)) -ge "$limit" ]; then
