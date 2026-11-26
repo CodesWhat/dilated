@@ -6,6 +6,8 @@ All notable changes to Dilated are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-26
+
 ### Changed
 
 - When your automation rules can't be loaded, including a file saved by a newer version of Dilated, the Triggers page now offers to restore the last good backup after you confirm. The unreadable file is kept beside it. Dilated keeps the three most recent backups.
@@ -73,6 +75,7 @@ First stable release. It includes everything from the 1.0.0 betas plus the fixes
 - Trigger rules are kept when an older settings projection is missing, and downgrades
   preserve your data.
 
-[Unreleased]: https://github.com/CodesWhat/dilated/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/CodesWhat/dilated/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/CodesWhat/dilated/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/CodesWhat/dilated/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/CodesWhat/dilated/releases/tag/v1.0.0
