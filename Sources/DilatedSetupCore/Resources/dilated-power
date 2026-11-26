@@ -273,6 +273,13 @@ start_of() {
   { /usr/bin/env LC_ALL=C TZ=UTC /bin/ps -o lstart= -p "$1" 2>/dev/null || true; } | /usr/bin/sed 's/^ *//; s/ *$//'
 }
 
+# The same start time in the machine's local zone, which is how builds before the UTC pin recorded
+# it. `classify` accepts either form, so a session written by the old script before an upgrade isn't
+# read as a dead pid and reverted under a running app.
+local_start_of() {
+  { /usr/bin/env LC_ALL=C /bin/ps -o lstart= -p "$1" 2>/dev/null || true; } | /usr/bin/sed 's/^ *//; s/ *$//'
+}
+
 # Seconds since the last wake, or empty when it can't be read.
 wake_age() {
   local raw wake
@@ -303,7 +310,9 @@ classify() {
       return
       ;;
   esac
-  if [ -z "$recorded_start" ] || [ "$(start_of "$recorded_pid")" != "$recorded_start" ]; then
+  if [ -z "$recorded_start" ] ||
+    { [ "$(start_of "$recorded_pid")" != "$recorded_start" ] &&
+      [ "$(local_start_of "$recorded_pid")" != "$recorded_start" ]; }; then
     echo dead
     return
   fi
