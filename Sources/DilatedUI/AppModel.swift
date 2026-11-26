@@ -829,7 +829,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     _ intent: PackageIntent, app: URL = Bundle.main.bundleURL,
     removeLidPermission: Bool = false,
     removeLoginItem: (() throws -> Void)? = nil,
-    removeCommandLine: (() throws -> Void)? = nil
+    removeCommandLine: (() throws -> Void)? = nil,
+    removeAgentHooks: (() -> Void)? = nil
   ) async -> Bool {
     guard !stopped, !preparingToQuit, !updater.blocksNewWork, updateActivity == .idle else {
       message = "Turn off closed-lid and finish permission changes before preparing the package."
@@ -881,6 +882,21 @@ public struct AppSettings: Codable, Equatable, Sendable {
           }
         }
         #if !MAS_CHANNEL
+          // Hooks would otherwise keep pointing at a binary that's about to disappear.
+          if let removeAgentHooks {
+            removeAgentHooks()
+          } else {
+            let executable = app.appendingPathComponent("Contents/MacOS/dilated")
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            for (tool, path) in [
+              (AgentHookTool.claude, ".claude/settings.json"), (.codex, ".codex/hooks.json"),
+            ] {
+              // Best effort: a malformed or concurrently edited file must not block uninstall.
+              try? AgentHookInstallation(
+                settingsURL: home.appendingPathComponent(path), executable: executable, tool: tool
+              ).remove()
+            }
+          }
           if let removeCommandLine {
             try removeCommandLine()
           } else {

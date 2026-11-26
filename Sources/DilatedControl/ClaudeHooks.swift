@@ -7,6 +7,8 @@ public struct AgentHookInstallation {
   public let settingsURL: URL
   public let executable: URL
   public let tool: AgentHookTool
+  /// Hook edits keep this many private backups; older ones are pruned.
+  public static let backupsToKeep = 5
   private var marker: String { " agent " + tool.commandName + " --pid " }
 
   public init(settingsURL: URL, executable: URL, tool: AgentHookTool = .claude) {
@@ -120,12 +122,42 @@ public struct AgentHookInstallation {
       let backup = parent.appendingPathComponent("dilated-settings-\(UUID().uuidString).backup")
       try original.write(to: backup, options: .withoutOverwriting)
       try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
+      pruneBackups(in: parent)
     }
     let data = try JSONSerialization.data(
       withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+    // Narrow the overwrite window: refuse if the file changed since we read it.
+    let current =
+      FileManager.default.fileExists(atPath: settingsURL.path)
+      ? try Data(contentsOf: settingsURL) : nil
+    guard current == original else {
+      throw InputError(
+        "\(tool.title) settings changed while editing. Nothing was written. Try again.")
+    }
     try data.write(to: settingsURL, options: .atomic)
     try FileManager.default.setAttributes(
       [.posixPermissions: 0o600], ofItemAtPath: settingsURL.path)
+  }
+}
+
+extension AgentHookInstallation {
+  /// Deletes all but the newest `backupsToKeep` Dilated backups next to the settings file.
+  /// Only files matching `dilated-settings-*.backup` are touched.
+  func pruneBackups(in parent: URL) {
+    let fm = FileManager.default
+    guard
+      let urls = try? fm.contentsOfDirectory(
+        at: parent, includingPropertiesForKeys: [.contentModificationDateKey])
+    else { return }
+    let backups = urls.filter {
+      $0.lastPathComponent.hasPrefix("dilated-settings-") && $0.pathExtension == "backup"
+    }.map { url -> (URL, Date) in
+      let date =
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+        .contentModificationDate ?? .distantPast
+      return (url, date)
+    }.sorted { $0.1 > $1.1 }
+    for (url, _) in backups.dropFirst(Self.backupsToKeep) { try? fm.removeItem(at: url) }
   }
 }
 
