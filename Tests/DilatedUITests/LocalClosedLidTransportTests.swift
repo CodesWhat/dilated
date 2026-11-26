@@ -348,6 +348,40 @@ import Testing
     #expect(fixture.controller.state?.phase == .off)
   }
 
+  @Test func aReplyTheControllerNeverAppliedDoesNotSuppressTheCleanPush() async throws {
+    let runner = FakeSudoRunner()
+    await runner.setValue(.init(effectiveDisabled: true, storedDisabled: true))
+    let gate = TickGate()
+    let pushed = PushedStates()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "lid-guarded-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let session = ClosedLidSessionGuard(
+      power: SerialPowerDriver(runner: runner, readback: { await runner.readback() }),
+      store: ClosedLidMarkerStore(directory: directory))
+    let transport = LocalClosedLidTransport(
+      sessionGuard: session, power: session,
+      environment: { .init(powerSource: .ac, thermal: .nominal, lidClosed: false) },
+      tickInterval: .milliseconds(5), sleep: { _ in try await gate.wait() })
+    defer { transport.invalidate() }
+    transport.onSnapshot = { state in
+      pushed.record(state)
+      return true
+    }
+    // The foreign disable is pushed and applied, so the controller holds it. The tick is parked.
+    await waitUntil { pushed.states.contains { $0.foreignSleepDisabled } }
+    await runner.setValue(.init(effectiveDisabled: false, storedDisabled: false))
+    // An in-flight request's reply carries the cleared state, but nobody applies it: the
+    // controller was invalidated meanwhile.
+    let reply = try await transport.send(.init(action: .status))
+    #expect(reply.state?.foreignSleepDisabled == false)
+    let before = pushed.states.count
+    await gate.open()
+    // The clean state still has to reach the controller.
+    await waitUntil { pushed.states.count > before }
+    #expect(pushed.states.last?.foreignSleepDisabled == false)
+  }
+
   @Test func aQueuedCleanSnapshotCannotOverwriteANewerFailedReply() async throws {
     let runner = FakeSudoRunner()
     let fixture = GuardedFixture(runner: runner, tickInterval: .milliseconds(5))
@@ -528,6 +562,28 @@ private actor FakeSudoRunner: PowerCommandRunning {
     waiter = nil
   }
   func setValue(_ readback: ClosedLidReadback) { value = readback }
+}
+
+/// Parks the tick's sleep until `open()`, so a test decides when the loop runs again.
+private actor TickGate {
+  private var opened = false
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+  func wait() async throws {
+    if opened { return }
+    await withCheckedContinuation { waiters.append($0) }
+  }
+  func open() {
+    opened = true
+    for waiter in waiters { waiter.resume() }
+    waiters = []
+  }
+}
+
+private final class PushedStates: @unchecked Sendable {
+  private let lock = NSLock()
+  private var all: [HelperState] = []
+  var states: [HelperState] { lock.withLock { all } }
+  func record(_ state: HelperState) { lock.withLock { all.append(state) } }
 }
 
 private final class LocalClock: @unchecked Sendable {
