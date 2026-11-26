@@ -19,7 +19,6 @@
 <key>SUPublicEDKey</key><string>ehOxBirzN5y9MqUzYKsrYwgn4MAle82Z3rQIvYpZlhY=</string>
 <key>SURequireSignedFeed</key><true/>
 <key>SUVerifyUpdateBeforeExtraction</key><true/>
-<key>SUEnableAutomaticChecks</key><false/>
 <key>SUAutomaticallyUpdate</key><false/>
 <key>SUAllowsAutomaticUpdates</key><false/>
 <key>DilatedUpdatesEnabled</key><false/>

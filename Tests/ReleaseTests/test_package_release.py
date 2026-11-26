@@ -119,6 +119,8 @@ class ReleaseGuardsTests(unittest.TestCase):
         self.assertTrue(info['SURequireSignedFeed'])
         self.assertTrue(info['SUVerifyUpdateBeforeExtraction'])
         self.assertTrue(info['DilatedUpdatesEnabled'])
+        self.assertNotIn('SUEnableAutomaticChecks', info)
+        self.assertIs(info['SUAllowsAutomaticUpdates'], False)
         release.validate_automation_bundle(app)
         import json
         actions = json.loads((app / 'Contents/Resources/Metadata.appintents/extract.actionsdata').read_bytes())['actions']
