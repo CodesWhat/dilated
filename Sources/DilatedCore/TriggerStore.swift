@@ -181,17 +181,28 @@ public struct TriggerStore: Sendable {
       throw StoreError("No readable trigger backup was found. Saved files were kept.")
     }
     let stamp = String(Int(Date().timeIntervalSince1970 * 1000))
-    for url in [file, legacyFile] where FileManager.default.fileExists(atPath: url.path) {
-      let name = url.deletingPathExtension().lastPathComponent
-      var aside = directory.appendingPathComponent("\(name).unreadable-\(stamp).json")
-      var counter = 1
-      while FileManager.default.fileExists(atPath: aside.path) {
-        aside = directory.appendingPathComponent("\(name).unreadable-\(stamp)-\(counter).json")
-        counter += 1
+    var moved: [(from: URL, to: URL)] = []
+    do {
+      for url in [file, legacyFile] where FileManager.default.fileExists(atPath: url.path) {
+        let name = url.deletingPathExtension().lastPathComponent
+        var aside = directory.appendingPathComponent("\(name).unreadable-\(stamp).json")
+        var counter = 1
+        while FileManager.default.fileExists(atPath: aside.path) {
+          aside = directory.appendingPathComponent("\(name).unreadable-\(stamp)-\(counter).json")
+          counter += 1
+        }
+        try FileManager.default.moveItem(at: url, to: aside)
+        moved.append((url, aside))
       }
-      try FileManager.default.moveItem(at: url, to: aside)
+      try persist(backup.record.rules, previous: [])
+    } catch {
+      // Put the unreadable files back so a failed restore leaves the store as it was.
+      for pair in moved.reversed() {
+        try? FileManager.default.removeItem(at: pair.from)
+        try? FileManager.default.moveItem(at: pair.to, to: pair.from)
+      }
+      throw error
     }
-    try persist(backup.record.rules, previous: [])
     return try load()
   }
 
