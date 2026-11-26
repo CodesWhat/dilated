@@ -193,6 +193,11 @@ struct MASChannelScriptContractTests {
 /// Drives the real script against a temp HOME. The script honors `DILATED_POWER_TEST_SUDO` and
 /// `DILATED_POWER_TEST_WAKE` only when it runs from inside a repo checkout, so these tests point
 /// sudo at a recording fake and real sudo is never reached.
+///
+/// Serialized because every test here blocks its thread on a child process. Run in parallel, the
+/// 55 of them held every cooperative thread for seconds at a time and starved the sleeps in the
+/// async suites of the other test targets.
+@Suite(.serialized)
 struct MASChannelRepairScriptTests {
   private static let repo = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -733,6 +738,11 @@ struct MASChannelRepairScriptTests {
     #expect(box.sudoCalls.isEmpty)
   }
 
+  /// The app-timeout contract is about the script's own decision: it gives up on a held lock after
+  /// a fixed number of 0.1s tries (about 1s of sleeping, plus the 1s launchctl allowance), under the
+  /// app's 3 second timeout. A wall-clock bound around the whole spawn measures the machine's load
+  /// instead, so this counts the script's lock-clock readings (one on entry, one per failed mkdir)
+  /// and keeps only a generous wall bound as a hang guard.
   @Test func aHeldLockMakesOnAnswerBusyInsideTheAppTimeout() throws {
     let box = try Sandbox()
     let child = try box.spawnSleeper()
@@ -740,8 +750,15 @@ struct MASChannelRepairScriptTests {
       at: box.sessionDirectory.appendingPathComponent("lock.d"),
       withIntermediateDirectories: true)
     let started = Date()
-    let result = try box.run(["on", String(child.processIdentifier)])
-    #expect(Date().timeIntervalSince(started) < 3)
+    let result = try box.run(
+      ["on", String(child.processIdentifier)],
+      environment: ["DILATED_POWER_TEST_CLOCK": try box.probeClock()])
+    #expect(Date().timeIntervalSince(started) < 30)
+    let readings =
+      ((try? String(contentsOf: box.clockLog, encoding: .utf8)) ?? "")
+      .split(separator: "\n").count
+    // 10 tries of 0.1s, then the failed mkdir that gives up: 1 entry reading + 11 loop readings.
+    #expect(readings == 12)
     #expect(result.out == "busy")
     #expect(result.status == 1)
     #expect(box.sudoCalls.isEmpty)
