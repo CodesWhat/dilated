@@ -348,7 +348,7 @@ stored_sleep_disabled() {
 on_shells_running() {
   local listing line
   [ -n "$on_match" ] || return 1
-  listing=$(/bin/ps -axo command= 2>/dev/null) || return 2
+  listing=$(/bin/ps -axww -o command= 2>/dev/null) || return 2
   while IFS= read -r line; do
     case "$line" in
       *"$on_match"[0-9]*) return 0 ;;
