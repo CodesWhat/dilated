@@ -86,6 +86,13 @@ import SystemConfiguration
   var pollingInterval: TimeInterval? { pollTimer?.timeInterval }
   private var processNames: Set<String> = []
   private var processInstances: Set<ProcessIdentity> = []
+  #if !MAS_CHANNEL
+    private let readProcesses: @Sendable () -> [NativeProcess]
+    private var processSnapshot: [NativeProcess]?
+    private var scanInFlight = false
+    private var scanPending = false
+    private var scanGeneration = 0
+  #endif
 
   init(
     readPower: @escaping () -> PowerState, wifiAccess: WiFiAccess? = nil,
@@ -95,6 +102,7 @@ import SystemConfiguration
       .read,
     readDiskCounters: @escaping () -> [String: ThroughputCounters]? = DiskThroughputSource.read,
     readUptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+    readProcesses: (@Sendable () -> [NativeProcess])? = nil,
     workspaceNotifications: NotificationCenter? = nil,
     changed: @escaping () -> Void
   ) {
@@ -103,6 +111,9 @@ import SystemConfiguration
     self.readNetworkCounters = readNetworkCounters
     self.readDiskCounters = readDiskCounters
     self.readUptime = readUptime
+    #if !MAS_CHANNEL
+      self.readProcesses = readProcesses ?? { ProcessCatalog.read() }
+    #endif
     audioOutput = AudioOutputObserver(changed: changed)
     usb = USBDeviceObserver(changed: changed)
     wifi = WiFiObserver(access: wifiAccess, readSSIDs: readWiFi, changed: changed)
@@ -225,8 +236,52 @@ import SystemConfiguration
     if !needsProcesses {
       for source in exits.values { source.cancel() }
       exits = [:]
+      resetProcessScanning()
     }
   }
+
+  private func resetProcessScanning() {
+    #if !MAS_CHANNEL
+      scanGeneration += 1
+      scanPending = false
+      processSnapshot = nil
+    #endif
+  }
+
+  #if !MAS_CHANNEL
+    /// Enumerates processes off the main actor. Requests made while a scan runs coalesce into one
+    /// follow-up scan, and a changed result is applied here, in order, before `changed` fires.
+    private static let scanQueue = DispatchQueue(
+      label: "com.codeswhat.dilated.process-scan", qos: .utility, attributes: .concurrent)
+
+    private func requestProcessScan() {
+      guard !scanInFlight else {
+        scanPending = true
+        return
+      }
+      scanInFlight = true
+      scanPending = false
+      let generation = scanGeneration
+      let reader = readProcesses
+      Task { [weak self] in
+        let processes = await withCheckedContinuation { continuation in
+          Self.scanQueue.async { continuation.resume(returning: reader()) }
+        }
+        self?.finishProcessScan(processes, generation: generation)
+      }
+    }
+
+    private func finishProcessScan(_ processes: [NativeProcess], generation: Int) {
+      scanInFlight = false
+      if scanPending && needsProcesses { requestProcessScan() }
+      guard generation == scanGeneration, needsProcesses else { return }
+      let previous = processSnapshot
+      processSnapshot = processes
+      if previous.map({ Set($0.map(\.identity)) }) != Set(processes.map(\.identity)) {
+        changed()
+      }
+    }
+  #endif
 
   func read() -> TriggerInputs {
     var input = TriggerInputs()
@@ -287,7 +342,8 @@ import SystemConfiguration
     }
     #if !MAS_CHANNEL
       if needsProcesses {
-        let processes = ProcessCatalog.read()
+        requestProcessScan()
+        let processes = processSnapshot ?? []
         input.processInstances = Set(processes.map(\.identity))
         input.processNames = Set(processes.flatMap { [$0.name, $0.path] }.filter { !$0.isEmpty })
         let pids = Set(
@@ -360,6 +416,7 @@ import SystemConfiguration
     needsWiFi = false
     needsBluetooth = false
     needsProcesses = false
+    resetProcessScanning()
   }
 
   private func observe(_ name: Notification.Name, center: NotificationCenter) {
