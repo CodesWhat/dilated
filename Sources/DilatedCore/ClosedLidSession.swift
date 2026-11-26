@@ -54,7 +54,7 @@ public struct ClosedLidMarkerStore: Sendable {
   /// differ even if the wall clock stalls or jumps back.
   public func writeHeartbeat(generation: UUID, count: UInt64, at date: Date) {
     let line = "\(generation.uuidString) \(count) \(Int64(date.timeIntervalSince1970))\n"
-    try? Data(line.utf8).write(to: heartbeatFile, options: .atomic)
+    try? PrivateFile.write(Data(line.utf8), to: heartbeatFile)
   }
 
   public func readHeartbeat() -> String? {
@@ -66,10 +66,7 @@ public struct ClosedLidMarkerStore: Sendable {
 
   /// Atomic: readers see the old marker or the new one, never a partial file.
   public func write(_ marker: ClosedLidSessionMarker) throws {
-    try FileManager.default.createDirectory(
-      at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
-      attributes: [.posixPermissions: 0o700])
-    try Self.encoder.encode(marker).write(to: file, options: .atomic)
+    try PrivateFile.write(try Self.encoder.encode(marker), to: file)
   }
 
   /// Removes the marker only when it still belongs to `generation`.
