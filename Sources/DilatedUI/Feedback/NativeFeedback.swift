@@ -71,23 +71,8 @@ private final class ForegroundFeedback: NSObject, UNUserNotificationCenterDelega
     return try Self.readInput(file)
   }
   nonisolated static func readInput(_ file: URL) throws -> Data {
-    guard file.isFileURL,
-      try FileManager.default.attributesOfItem(atPath: file.path)[.type] as? FileAttributeType
-        == .typeRegular
-    else { throw InputError("Choose a regular audio file.") }
-    let handle = try FileHandle(forReadingFrom: file)
-    defer { try? handle.close() }
-    var data = Data()
-    while data.count <= 2_000_000 {
-      try Task.checkCancellation()
-      guard let next = try handle.read(upToCount: min(65536, 2_000_001 - data.count)), !next.isEmpty
-      else { break }
-      data.append(next)
-    }
-    guard !data.isEmpty, data.count <= 2_000_000 else {
-      throw InputError("Choose a sound up to 2 MB.")
-    }
-    return data
+    try CustomAssetFile.read(
+      file, notRegular: "Choose a regular audio file.", tooLarge: "Choose a sound up to 2 MB.")
   }
   func save(_ data: Data, name: String) throws -> FeedbackSound {
     guard !data.isEmpty, data.count <= 2_000_000 else {
@@ -96,25 +81,13 @@ private final class ForegroundFeedback: NSObject, UNUserNotificationCenterDelega
     guard let sound = NSSound(data: data), sound.duration.isFinite,
       (0...10).contains(sound.duration), sound.duration > 0
     else { throw InputError("Choose a supported audio file up to 10 seconds long.") }
-    try FileManager.default.createDirectory(
-      at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     let id = UUID()
-    let file = folder.appendingPathComponent(id.uuidString + ".sound")
-    do {
-      try data.write(to: file, options: [.atomic])
-      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
-    } catch {
-      try? FileManager.default.removeItem(at: file)
-      throw error
-    }
+    try CustomAssetFile.write(data, to: folder.appendingPathComponent(id.uuidString + ".sound"))
     let label = String(name.prefix(200))
     return .custom(id: id, name: label.isEmpty ? "Custom sound" : label)
   }
   func remove(_ id: UUID) throws {
-    do {
-      try FileManager.default.removeItem(
-        at: folder.appendingPathComponent(id.uuidString + ".sound"))
-    } catch let error as CocoaError where error.code == .fileNoSuchFile {}
+    try CustomAssetFile.remove(folder.appendingPathComponent(id.uuidString + ".sound"))
   }
 }
 

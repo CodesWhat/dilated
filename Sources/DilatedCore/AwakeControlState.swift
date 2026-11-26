@@ -58,9 +58,6 @@ public struct AwakeControlStateStore: Sendable {
   }
 
   public func write(_ state: AwakeControlState) throws {
-    try FileManager.default.createDirectory(
-      at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-    try JSONEncoder().encode(state).write(to: file, options: .atomic)
-    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    try PrivateFile.write(try JSONEncoder().encode(state), to: file)
   }
 }

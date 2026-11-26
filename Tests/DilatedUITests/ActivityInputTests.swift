@@ -82,6 +82,40 @@ import Testing
     }
   }
 
+  @Test func cpuReadingsFollowTheInjectedClock() {
+    var uptime: TimeInterval = 0
+    var reads = 0
+    let monitor = TriggerMonitor(
+      readPower: { .init() },
+      readUptime: { uptime },
+      readCPUTicks: {
+        reads += 1
+        return [UInt32(reads * 50), 0, UInt32(reads * 50), 0]
+      }, changed: {})
+    defer { monitor.stop() }
+    monitor.configure(rules: [
+      TriggerRule(name: "CPU", criteria: [.cpu(percent: 10, atLeast: true)])
+    ]
+    )
+    #expect(monitor.read().cpuPercent == nil && reads == 1)
+    uptime = 3.9
+    #expect(monitor.read().cpuPercent == nil && reads == 1)
+    uptime = 4
+    #expect(monitor.read().cpuPercent == 50 && reads == 2)
+    #expect(monitor.read().cpuPercent == 50 && reads == 2)
+  }
+
+  @Test func oneRulePassSetsEveryRequirement() {
+    let all = TriggerRequirements(criteria: [
+      .cpu(percent: 1, atLeast: true), .idle(seconds: 1, atLeast: true), .volume(path: "/"),
+      .networkThroughput(kilobytesPerSecond: 1, atLeast: true),
+      .diskThroughput(kilobytesPerSecond: 1, atLeast: true),
+    ])
+    #expect(all.cpu && all.idle && all.volumes && all.networkThroughput && all.diskThroughput)
+    #expect(!all.usb && !all.wifi && !all.bluetooth && !all.audioOutput && !all.processes)
+    #expect(TriggerRequirements(criteria: []) == TriggerRequirements())
+  }
+
   @Test func configuredCpuRuleGetsARealCoalescedPoll() async throws {
     var changes = 0
     let monitor = TriggerMonitor(readPower: { .init() }, changed: { changes += 1 })

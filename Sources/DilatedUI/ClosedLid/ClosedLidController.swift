@@ -166,7 +166,7 @@ import Observation
     guard let value = reply.state, value.protocolVersion == HelperIdentity.protocolVersion else {
       throw HelperClientError.invalidReply
     }
-    observe(value)
+    if observe(value) { localTransport?.acknowledge(value) }
     guard reply.ok else {
       throw HelperClientError.rejected(
         reply.message ?? value.message ?? "The helper refused the request.")
@@ -189,12 +189,13 @@ import Observation
     return true
   }
 
-  private func observe(_ value: HelperState) {
+  /// Returns whether the state was applied.
+  private func observe(_ value: HelperState) -> Bool {
     // A reply the service built before a state already applied is dropped whole: it neither rolls
     // the state back nor reconciles the lease, so a stale no-lease answer can't end a newer one.
     // Sequence zero is the compatibility case and is always processed.
     if value.sequence != 0 {
-      guard value.sequence >= appliedSequence else { return }
+      guard value.sequence >= appliedSequence else { return false }
       state = value
       appliedSequence = value.sequence
     } else {
@@ -209,6 +210,7 @@ import Observation
         value.stopReason?.localizedDescription ?? "Closed-lid ended. Enable it again to continue.")
     }
     onChange?()
+    return true
   }
 
   private func failed(_ error: any Error) {

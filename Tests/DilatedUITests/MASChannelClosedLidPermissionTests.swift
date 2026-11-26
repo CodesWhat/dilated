@@ -10,6 +10,22 @@
     func run(arguments: [String]) async -> UserScriptRun { result }
   }
 
+  private final class RecordingRunner: PowerCommandRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [PowerCommand] = []
+    let error: (any Error)?
+    init(error: (any Error)? = nil) { self.error = error }
+    var commands: [PowerCommand] { lock.withLock { recorded } }
+    func run(_ command: PowerCommand) async throws {
+      lock.withLock { recorded.append(command) }
+      if let error { throw error }
+    }
+  }
+
+  private struct RestoreFailure: LocalizedError {
+    var errorDescription: String? { "the script said no" }
+  }
+
   @MainActor struct MASChannelClosedLidPermissionTests {
     private func model(_ result: UserScriptRun) -> ClosedLidPermissionModel {
       ClosedLidPermissionModel(
@@ -52,6 +68,39 @@
       #expect(await model.install() == .failed)
       #expect(await model.remove() == .failed)
       #expect(model.lastError != nil)
+    }
+
+    @Test func restoreRunsTheScriptOffVerbAndNeedsTheAcknowledgement() async {
+      let runner = RecordingRunner()
+      let model = ClosedLidPermissionModel(
+        scriptPermission: ClosedLidScriptPermission(
+          launcher: StubLauncher(result: .finished(output: "ok\n", failureStatus: nil))),
+        acknowledgeRestore: { true }, masRestoreRunner: runner)
+      #expect(await model.restoreNormalSleep() == .done)
+      #expect(runner.commands == [.setSleepDisabled(false)])
+      #expect(model.lastError == nil)
+    }
+
+    @Test func restoreWithoutAcknowledgementFailsAndKeepsTheRetryMessage() async {
+      let runner = RecordingRunner()
+      let model = ClosedLidPermissionModel(
+        scriptPermission: ClosedLidScriptPermission(
+          launcher: StubLauncher(result: .finished(output: "ok\n", failureStatus: nil))),
+        acknowledgeRestore: { false }, masRestoreRunner: runner)
+      #expect(await model.restoreNormalSleep() == .failed)
+      #expect(model.lastError == "macOS hasn't confirmed normal sleep yet. Try again.")
+    }
+
+    @Test func aRestoreTheScriptRefusesSurfacesItsReasonAndSkipsTheAcknowledgement() async {
+      var acknowledged = false
+      let model = ClosedLidPermissionModel(
+        acknowledgeRestore: {
+          acknowledged = true
+          return true
+        }, masRestoreRunner: RecordingRunner(error: RestoreFailure()))
+      #expect(await model.restoreNormalSleep() == .failed)
+      #expect(model.lastError == "the script said no")
+      #expect(!acknowledged)
     }
   }
 #endif

@@ -3,14 +3,14 @@ import Darwin
 import DilatedCore
 import SystemConfiguration
 
-#if !MAS_CHANNEL
-  struct NativeProcess: Identifiable, Sendable {
-    let id: Int32
-    let name: String
-    let path: String
-    let identity: ProcessIdentity
-  }
+struct NativeProcess: Identifiable, Sendable {
+  let id: Int32
+  let name: String
+  let path: String
+  let identity: ProcessIdentity
+}
 
+#if !MAS_CHANNEL
   enum ProcessCatalog {
     static func pickerList(_ processes: [NativeProcess] = read()) -> [NativeProcess] {
       processes.sorted {
@@ -52,6 +52,40 @@ import SystemConfiguration
   }
 #endif
 
+/// Which inputs the enabled rules need, computed in one pass over their criteria.
+struct TriggerRequirements: Equatable {
+  var processes = false
+  var cpu = false
+  var networkThroughput = false
+  var diskThroughput = false
+  var idle = false
+  var volumes = false
+  var audioOutput = false
+  var usb = false
+  var wifi = false
+  var bluetooth = false
+
+  init() {}
+
+  /// `processes` stays false here: it depends on the process names the monitor extracts.
+  init(criteria: [TriggerCriterion]) {
+    for criterion in criteria {
+      switch criterion {
+      case .cpu: cpu = true
+      case .networkThroughput: networkThroughput = true
+      case .diskThroughput: diskThroughput = true
+      case .idle: idle = true
+      case .volume: volumes = true
+      case .audioOutput: audioOutput = true
+      case .usb: usb = true
+      case .wifi: wifi = true
+      case .bluetooth: bluetooth = true
+      default: break
+      }
+    }
+  }
+}
+
 @MainActor final class TriggerMonitor {
   private let changed: () -> Void
   private let readPower: () -> PowerState
@@ -64,16 +98,7 @@ import SystemConfiguration
   private var boundaryTimer: Timer?
   private var exits: [Int32: any DispatchSourceProcess] = [:]
   private var network: SCDynamicStore?
-  private var needsProcesses = false
-  private var needsCPU = false
-  private var needsNetworkThroughput = false
-  private var needsDiskThroughput = false
-  private var needsIdle = false
-  private var needsVolumes = false
-  private var needsAudioOutput = false
-  private var needsUSB = false
-  private var needsWiFi = false
-  private var needsBluetooth = false
+  private var requirements = TriggerRequirements()
   private var cpuSampler = CPUUsageSampler()
   private var lastCPUReading: (at: TimeInterval, value: Double?)?
   private var networkSampler = ThroughputSampler()
@@ -83,9 +108,19 @@ import SystemConfiguration
   private var lastDiskReading: (at: TimeInterval, value: Double?)?
   private let readDiskCounters: () -> [String: ThroughputCounters]?
   private let readUptime: () -> TimeInterval
+  private let readCPUTicks: () -> [UInt32]?
   var pollingInterval: TimeInterval? { pollTimer?.timeInterval }
   private var processNames: Set<String> = []
   private var processInstances: Set<ProcessIdentity> = []
+  #if !MAS_CHANNEL
+    private var readProcesses: @Sendable () -> [NativeProcess] = { ProcessCatalog.read() }
+    private var processSnapshot: [NativeProcess]?
+    private var scanInFlight = false
+    private var scanPending = false
+    private(set) var applyingScan = false
+    private var scanGeneration = 0
+    private(set) var scansStarted = 0
+  #endif
 
   init(
     readPower: @escaping () -> PowerState, wifiAccess: WiFiAccess? = nil,
@@ -95,6 +130,7 @@ import SystemConfiguration
       .read,
     readDiskCounters: @escaping () -> [String: ThroughputCounters]? = DiskThroughputSource.read,
     readUptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+    readCPUTicks: @escaping () -> [UInt32]? = { NativeActivityInputs.cpuTicks() },
     workspaceNotifications: NotificationCenter? = nil,
     changed: @escaping () -> Void
   ) {
@@ -103,6 +139,7 @@ import SystemConfiguration
     self.readNetworkCounters = readNetworkCounters
     self.readDiskCounters = readDiskCounters
     self.readUptime = readUptime
+    self.readCPUTicks = readCPUTicks
     audioOutput = AudioOutputObserver(changed: changed)
     usb = USBDeviceObserver(changed: changed)
     wifi = WiFiObserver(access: wifiAccess, readSSIDs: readWiFi, changed: changed)
@@ -154,63 +191,29 @@ import SystemConfiguration
           return nil
         })
     #endif
-    needsProcesses = !processNames.isEmpty || !processInstances.isEmpty
-    let criteria = rules.flatMap(\.criteria)
-    needsCPU = criteria.contains {
-      if case .cpu = $0 { return true }
-      return false
-    }
-    needsNetworkThroughput = criteria.contains {
-      if case .networkThroughput = $0 { return true }
-      return false
-    }
-    needsDiskThroughput = criteria.contains {
-      if case .diskThroughput = $0 { return true }
-      return false
-    }
-    needsIdle = criteria.contains {
-      if case .idle = $0 { return true }
-      return false
-    }
-    needsVolumes = criteria.contains {
-      if case .volume = $0 { return true }
-      return false
-    }
-    needsAudioOutput = criteria.contains {
-      if case .audioOutput = $0 { return true }
-      return false
-    }
-    audioOutput.setEnabled(needsAudioOutput)
-    needsUSB = criteria.contains {
-      if case .usb = $0 { return true }
-      return false
-    }
-    usb.setEnabled(needsUSB)
-    needsWiFi = criteria.contains {
-      if case .wifi = $0 { return true }
-      return false
-    }
-    wifi.setEnabled(needsWiFi)
-    needsBluetooth = criteria.contains {
-      if case .bluetooth = $0 { return true }
-      return false
-    }
-    bluetooth.setEnabled(needsBluetooth)
-    if !needsCPU {
+    var needs = TriggerRequirements(criteria: rules.flatMap(\.criteria))
+    needs.processes = !processNames.isEmpty || !processInstances.isEmpty
+    requirements = needs
+    audioOutput.setEnabled(needs.audioOutput)
+    usb.setEnabled(needs.usb)
+    wifi.setEnabled(needs.wifi)
+    bluetooth.setEnabled(needs.bluetooth)
+    if !requirements.cpu {
       cpuSampler = CPUUsageSampler()
       lastCPUReading = nil
     }
-    if !needsNetworkThroughput {
+    if !requirements.networkThroughput {
       networkSampler = ThroughputSampler()
       lastNetworkReading = nil
     }
-    if !needsDiskThroughput {
+    if !requirements.diskThroughput {
       diskSampler = ThroughputSampler()
       lastDiskReading = nil
     }
     let needsPolling =
-      needsProcesses || needsCPU || needsNetworkThroughput || needsDiskThroughput || needsIdle
-      || (needsWiFi && wifi.isAuthorized)
+      requirements.processes || requirements.cpu || requirements.networkThroughput
+      || requirements.diskThroughput || requirements.idle
+      || (requirements.wifi && wifi.isAuthorized)
     if needsPolling && pollTimer == nil {
       let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
         MainActor.assumeIsolated { self?.changed() }
@@ -222,11 +225,60 @@ import SystemConfiguration
       pollTimer?.invalidate()
       pollTimer = nil
     }
-    if !needsProcesses {
+    if !requirements.processes {
       for source in exits.values { source.cancel() }
       exits = [:]
+      resetProcessScanning()
     }
   }
+
+  private func resetProcessScanning() {
+    #if !MAS_CHANNEL
+      scanGeneration += 1
+      scanPending = false
+      processSnapshot = nil
+    #endif
+  }
+
+  #if !MAS_CHANNEL
+    /// Enumerates processes off the main actor. Requests made while a scan runs coalesce into one
+    /// follow-up scan, and a changed result is applied here, in order, before `changed` fires.
+    private static let scanQueue = DispatchQueue(
+      label: "com.codeswhat.dilated.process-scan", qos: .utility, attributes: .concurrent)
+
+    private func requestProcessScan() {
+      guard !scanInFlight else {
+        scanPending = true
+        return
+      }
+      scanInFlight = true
+      scanPending = false
+      scansStarted += 1
+      let generation = scanGeneration
+      let reader = readProcesses
+      Task { [weak self] in
+        let processes = await withCheckedContinuation { continuation in
+          Self.scanQueue.async { continuation.resume(returning: reader()) }
+        }
+        self?.finishProcessScan(processes, generation: generation)
+      }
+    }
+
+    private func finishProcessScan(_ processes: [NativeProcess], generation: Int) {
+      scanInFlight = false
+      if scanPending && requirements.processes { requestProcessScan() }
+      guard generation == scanGeneration, requirements.processes else { return }
+      let previous = processSnapshot
+      processSnapshot = processes
+      if previous.map({ Set($0.map(\.identity)) }) != Set(processes.map(\.identity)) {
+        // The owner re-reads synchronously from `changed`. That read must not start another
+        // scan, or a list that churns on every scan would rescan back to back.
+        applyingScan = true
+        defer { applyingScan = false }
+        changed()
+      }
+    }
+  #endif
 
   func read() -> TriggerInputs {
     var input = TriggerInputs()
@@ -254,31 +306,31 @@ import SystemConfiguration
         input.dnsServers.formUnion(value["ServerAddresses"] as? [String] ?? [])
       }
     }
-    if needsVolumes { input.mountedVolumes = NativeActivityInputs.mountedVolumes() }
-    if needsWiFi { input.wifiSSIDs = wifi.read() }
-    if needsBluetooth { input.connectedBluetoothDevices = bluetooth.read() }
-    if needsAudioOutput && audioOutput.isMonitoring {
+    if requirements.volumes { input.mountedVolumes = NativeActivityInputs.mountedVolumes() }
+    if requirements.wifi { input.wifiSSIDs = wifi.read() }
+    if requirements.bluetooth { input.connectedBluetoothDevices = bluetooth.read() }
+    if requirements.audioOutput && audioOutput.isMonitoring {
       input.audioOutputUID = AudioOutputCatalog.defaultUID()
     }
-    if needsUSB && usb.isMonitoring {
+    if requirements.usb && usb.isMonitoring {
       input.usbDevices = USBDeviceCatalog.read().map { Set($0.map(\.identity)) }
     }
-    if needsIdle { input.idleSeconds = NativeActivityInputs.idleSeconds() }
-    if needsCPU {
-      let uptime = ProcessInfo.processInfo.systemUptime
+    if requirements.idle { input.idleSeconds = NativeActivityInputs.idleSeconds() }
+    if requirements.cpu {
+      let uptime = readUptime()
       if lastCPUReading == nil || uptime - lastCPUReading!.at >= 4 {
-        lastCPUReading = (uptime, cpuSampler.sample(NativeActivityInputs.cpuTicks()))
+        lastCPUReading = (uptime, cpuSampler.sample(readCPUTicks()))
       }
       input.cpuPercent = lastCPUReading?.value
     }
-    if needsNetworkThroughput {
+    if requirements.networkThroughput {
       let uptime = readUptime()
       if lastNetworkReading == nil || uptime - lastNetworkReading!.at >= 4 {
         lastNetworkReading = (uptime, networkSampler.sample(readNetworkCounters(), at: uptime))
       }
       input.networkBytesPerSecond = lastNetworkReading?.value
     }
-    if needsDiskThroughput {
+    if requirements.diskThroughput {
       let uptime = readUptime()
       if lastDiskReading == nil || uptime - lastDiskReading!.at >= 4 {
         lastDiskReading = (uptime, diskSampler.sample(readDiskCounters(), at: uptime))
@@ -286,8 +338,9 @@ import SystemConfiguration
       input.diskBytesPerSecond = lastDiskReading?.value
     }
     #if !MAS_CHANNEL
-      if needsProcesses {
-        let processes = ProcessCatalog.read()
+      if requirements.processes {
+        if !applyingScan { requestProcessScan() }
+        let processes = processSnapshot ?? []
         input.processInstances = Set(processes.map(\.identity))
         input.processNames = Set(processes.flatMap { [$0.name, $0.path] }.filter { !$0.isEmpty })
         let pids = Set(
@@ -348,18 +401,10 @@ import SystemConfiguration
     lastCPUReading = nil
     networkSampler = ThroughputSampler()
     lastNetworkReading = nil
-    needsNetworkThroughput = false
     diskSampler = ThroughputSampler()
     lastDiskReading = nil
-    needsDiskThroughput = false
-    needsCPU = false
-    needsIdle = false
-    needsVolumes = false
-    needsAudioOutput = false
-    needsUSB = false
-    needsWiFi = false
-    needsBluetooth = false
-    needsProcesses = false
+    requirements = TriggerRequirements()
+    resetProcessScanning()
   }
 
   private func observe(_ name: Notification.Name, center: NotificationCenter) {
@@ -382,3 +427,19 @@ import SystemConfiguration
       ))
   }
 }
+
+#if !MAS_CHANNEL
+  extension TriggerMonitor {
+    /// Test seam for the direct build: swaps the process enumeration. The Mac App Store build has no such reader.
+    convenience init(
+      readPower: @escaping () -> PowerState,
+      readProcesses: @escaping @Sendable () -> [NativeProcess],
+      workspaceNotifications: NotificationCenter? = nil,
+      changed: @escaping () -> Void
+    ) {
+      self.init(
+        readPower: readPower, workspaceNotifications: workspaceNotifications, changed: changed)
+      self.readProcesses = readProcesses
+    }
+  }
+#endif

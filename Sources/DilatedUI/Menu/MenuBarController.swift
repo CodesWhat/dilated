@@ -14,6 +14,14 @@ import AppKit
   private var wasAwake = false
   private var began = ProcessInfo.processInfo.systemUptime
   private var eyeMotionBegan = ProcessInfo.processInfo.systemUptime
+  private struct TitleKey: Equatable {
+    var countdown: String
+    var attention: Bool
+    var pointSize: CGFloat
+  }
+  private var lastTitleKey: TitleKey?
+  private var lastAlpha: CGFloat?
+  private var lastDescription: String?
   private var burst: Timer?
   private var microMotion: Timer?
   private var cache: [String: NSImage] = [:]
@@ -124,29 +132,43 @@ import AppKit
               hourCycle: model.settings.countdownHourCycle)
           } ?? "")
       : ""
-    let title = NSMutableAttributedString(string: "")
-    if model.attention != nil {
-      title.append(
-        NSAttributedString(
-          string: " !",
-          attributes: [
-            .foregroundColor: DesignPalette.NS.orange,
-            .font: NSFont.systemFont(ofSize: 12, weight: .bold),
-          ]))
+    let attention = model.attention != nil
+    let pointSize = model.settings.countdownTextSize.pointSize
+    let titleKey = TitleKey(countdown: countdown, attention: attention, pointSize: pointSize)
+    // The 1s model tick calls this too. An unchanged title isn't rewritten, so an indefinite
+    // hold doesn't relayout the status item every second.
+    if titleKey != lastTitleKey {
+      let title = NSMutableAttributedString(string: "")
+      if attention {
+        title.append(
+          NSAttributedString(
+            string: " !",
+            attributes: [
+              .foregroundColor: DesignPalette.NS.orange,
+              .font: NSFont.systemFont(ofSize: 12, weight: .bold),
+            ]))
+      }
+      title.append(NSAttributedString(string: countdown))
+      statusItem.button?.attributedTitle = title
+      statusItem.button?.font = .monospacedDigitSystemFont(ofSize: pointSize, weight: .regular)
+      lastTitleKey = titleKey
     }
-    title.append(NSAttributedString(string: countdown))
-    statusItem.button?.attributedTitle = title
-    statusItem.button?.font = .monospacedDigitSystemFont(
-      ofSize: model.settings.countdownTextSize.pointSize, weight: .regular)
     let dimIdle =
       model.settings.useCustomGlyph
       ? model.settings.customGlyphDimIdle : model.settings.lowOpacityIdle
-    statusItem.button?.alphaValue = !awake && dimIdle ? 0.5 : 1
+    let alpha: CGFloat = !awake && dimIdle ? 0.5 : 1
+    if alpha != lastAlpha {
+      statusItem.button?.alphaValue = alpha
+      lastAlpha = alpha
+    }
     let description =
       "Dilated: \(model.statusText)" + (model.closedLid.active ? ". Closed-lid armed." : "")
       + (model.attention.map { ". \($0)" } ?? "")
-    statusItem.button?.toolTip = description
-    statusItem.button?.setAccessibilityLabel(description)
+    if description != lastDescription {
+      statusItem.button?.toolTip = description
+      statusItem.button?.setAccessibilityLabel(description)
+      lastDescription = description
+    }
   }
   func menuWillOpen(_ menu: NSMenu) { openMenu = menu }
   func menuDidClose(_ menu: NSMenu) {

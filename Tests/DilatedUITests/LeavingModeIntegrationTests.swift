@@ -34,15 +34,15 @@ import Testing
     defer { fixture.close() }
     try fixture.model.leaveWhenIdle()
     fixture.model.tick()
-    fixture.clock = fixture.clock.addingTimeInterval(4)
+    fixture.clock += 4
     fixture.model.tick()
     #expect(fixture.sleepRequests == 0)
-    fixture.clock = fixture.clock.addingTimeInterval(1)
+    fixture.clock += 1
     fixture.model.tick()
     try await fixture.waitForRequest()
     #expect(!fixture.model.engine.leavingPending)
     #expect((fixture.model.message?.contains("Sleep refused") == true) == failSleep)
-    fixture.clock = fixture.clock.addingTimeInterval(100)
+    fixture.clock += 100
     fixture.model.tick()
     #expect(fixture.sleepRequests == 1)
   }
@@ -52,7 +52,7 @@ import Testing
     defer { fixture.close() }
     try fixture.model.leaveWhenIdle()
     fixture.model.tick()
-    fixture.clock = fixture.clock.addingTimeInterval(5)
+    fixture.clock += 5
     fixture.model.tick()
     fixture.model.shutdown()
     await Task.yield()
@@ -73,7 +73,7 @@ import Testing
     try fixture.model.leaveWhenIdle()
     fixture.model.handleSystemTransition(.sleep)
     #expect(!fixture.model.engine.leavingPending)
-    fixture.clock = fixture.clock.addingTimeInterval(100)
+    fixture.clock += 100
     fixture.model.tick()
     #expect(fixture.sleepRequests == 0)
   }
@@ -99,7 +99,7 @@ import Testing
     try await model.synchronizeClosedLid()
     #expect(await power.sleepRequests == 1)
     #expect(!model.engine.leavingPending)
-    fixture.clock = fixture.clock.addingTimeInterval(100)
+    fixture.clock += 100
     model.tick()
     #expect(fixture.sleepRequests == 0)
   }
@@ -107,7 +107,7 @@ import Testing
 
 @MainActor private final class LeavingFixture {
   let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-  var clock = Date()
+  var clock: TimeInterval = 1000
   var sleepRequests = 0
   var model: AppModel!
   init(failSleep: Bool = false, closedLid: ClosedLidController? = nil) {

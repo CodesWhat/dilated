@@ -40,6 +40,11 @@ public struct ClosedLidSetupPaths: Equatable, Sendable {
   public var stateDirectory: String {
     "\(home)/Library/Application Support/Dilated Closed-Lid Setup"
   }
+  /// The direct build's marker-store lock, which every closed-lid enable, restore and watchdog
+  /// revert holds. Setup runs unsandboxed as the user, so it reaches the same file the app does.
+  public var sessionLockFile: String {
+    "\(home)/Library/Application Support/Dilated/\(ClosedLidMarkerStore.lockFileName)"
+  }
   public var stateFile: String { "\(stateDirectory)/state.json" }
 }
 
@@ -48,7 +53,7 @@ public struct ClosedLidSetupAssets: Sendable {
   /// SHA-256 of `packaging/mas/dilated-power`. A test fails when the script changes without this
   /// being updated, so a stale value can't ship.
   public static let expectedScriptSHA256 =
-    "a8356705b0f1d23584fc273a1105f248c1155df14d49d851b7bccf8c86ba36c1"
+    "4483dcce2ac706a2e7d671f790e27f2a361ca624920f83b58154c500a2dc9953"
 
   public var script: Data
   public var plistTemplate: String

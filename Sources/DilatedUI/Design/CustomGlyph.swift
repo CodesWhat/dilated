@@ -28,23 +28,8 @@ public struct CustomGlyph: Codable, Equatable, Sendable {
   let directory: URL
   private var folder: URL { directory.appendingPathComponent("glyphs", isDirectory: true) }
   nonisolated static func readInput(_ file: URL) throws -> Data {
-    guard file.isFileURL,
-      try FileManager.default.attributesOfItem(atPath: file.path)[.type] as? FileAttributeType
-        == .typeRegular
-    else { throw InputError("Choose a regular PNG file.") }
-    let handle = try FileHandle(forReadingFrom: file)
-    defer { try? handle.close() }
-    var data = Data()
-    while data.count <= 2_000_000 {
-      try Task.checkCancellation()
-      guard let next = try handle.read(upToCount: min(65536, 2_000_001 - data.count)), !next.isEmpty
-      else { break }
-      data.append(next)
-    }
-    guard !data.isEmpty, data.count <= 2_000_000 else {
-      throw InputError("Choose a PNG up to 2 MB.")
-    }
-    return data
+    try CustomAssetFile.read(
+      file, notRegular: "Choose a regular PNG file.", tooLarge: "Choose a PNG up to 2 MB.")
   }
   func save(_ data: Data, name: String) throws -> CustomGlyph {
     let image = try Self.decode(data)
@@ -64,15 +49,7 @@ public struct CustomGlyph: Codable, Equatable, Sendable {
     let label = String(name.prefix(200))
     let glyph = CustomGlyph(name: label.isEmpty ? "Custom PNG" : label)
     let file = folder.appendingPathComponent(glyph.id.uuidString + ".png")
-    try FileManager.default.createDirectory(
-      at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-    do {
-      try (output as Data).write(to: file, options: [.atomic])
-      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
-    } catch {
-      try? FileManager.default.removeItem(at: file)
-      throw error
-    }
+    try CustomAssetFile.write(output as Data, to: file)
     return glyph
   }
   func image(_ glyph: CustomGlyph) throws -> NSImage {
@@ -93,10 +70,7 @@ public struct CustomGlyph: Codable, Equatable, Sendable {
     return image
   }
   func remove(_ glyph: CustomGlyph) throws {
-    do {
-      try FileManager.default.removeItem(
-        at: folder.appendingPathComponent(glyph.id.uuidString + ".png"))
-    } catch let error as CocoaError where error.code == .fileNoSuchFile {}
+    try CustomAssetFile.remove(folder.appendingPathComponent(glyph.id.uuidString + ".png"))
   }
   private static func decode(_ data: Data) throws -> CGImage {
     guard !data.isEmpty, data.count <= 2_000_000,

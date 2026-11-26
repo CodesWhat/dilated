@@ -6,6 +6,21 @@ All notable changes to Dilated are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- When your automation rules can't be loaded, including a file saved by a newer version of Dilated, the Triggers page now offers to restore the last good backup after you confirm. The unreadable file is kept beside it. Dilated keeps the three most recent backups.
+- A hold you stopped is now remembered across app restarts for a day (the newest 64 released holds are kept), so `dilated run` reports it as released instead of starting a new one.
+- Direct builds now ask on the second launch whether to check for updates automatically, so new releases can reach you. No automatic checks happen until you say yes. Check for Updates still works any time.
+
+### Fixed
+
+- A download watch whose folder scan stops responding now ends after 60 seconds with "Download watch ended: scan stalled" instead of keeping your Mac awake indefinitely.
+- `--until` now requires a two-digit hour (`05:30`), so `5:30` is rejected instead of silently meaning 05:30. A start that fails to apply its power assertion no longer leaves the hold running.
+- `dilated run` no longer re-registers a hold you released by ID, and keeps its `--lid` request if it has to register again after the app restarts.
+- The Mac App Store build's Automation settings no longer show command line examples for
+  a tool that build doesn't ship.
+- Preparing Dilated for uninstall now removes the hooks it added to Claude Code and Codex, so they no longer point at an app that's gone.
+
 ## [1.0.1] - 2026-11-24
 
 ### Added

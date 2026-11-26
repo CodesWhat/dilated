@@ -753,18 +753,18 @@ struct PageIdentity: Hashable {
         ClaudeHooksSettings { model.message = $0 }
         AgentHooksSettings(report: { model.message = $0 }, tool: .codex)
         OpenCodeHooksSettings { model.message = $0 }
+        Text(
+          "dilated on --for 2h\ndilated hold --label build --ttl 10m\ndilated hold --id ID --ttl 10m\ndilated release --id ID\ndilated run -- make test\ndilated status --json"
+        )
+        .font(DesignFont.mono(12)).textSelection(.enabled).padding(16).frame(
+          maxWidth: .infinity, alignment: .leading
+        )
+        .background(DesignPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+        Text(
+          "Each hold returns its own ID. Renew that ID while the agent works, then release it."
+        )
+        .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
       #endif
-      Text(
-        "dilated on --for 2h\ndilated hold --label build --ttl 10m\ndilated hold --id ID --ttl 10m\ndilated release --id ID\ndilated run -- make test\ndilated status --json"
-      )
-      .font(DesignFont.mono(12)).textSelection(.enabled).padding(16).frame(
-        maxWidth: .infinity, alignment: .leading
-      )
-      .background(DesignPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-      Text(
-        "Each hold returns its own ID. Renew that ID while the agent works, then release it."
-      )
-      .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
   }
   #if !MAS_CHANNEL

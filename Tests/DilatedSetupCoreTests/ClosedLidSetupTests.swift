@@ -388,7 +388,9 @@ struct ClosedLidSetupRemoveTests {
 
   @Test func blocksEnablesAndRevertsBeforeAnythingElseWithOrWithoutASession() async {
     for hasSession in [true, false] {
-      let rig = Rig(rule: .ready)
+      // Explicitly owned: the readback in events[1] only happens when begin-removal reports a
+      // session of ours, which the no-session pass gets from this flag, not from a session file.
+      let rig = Rig(rule: .ready, ownsSleep: true)
       installed(rig, recordRule: false)
       if hasSession { rig.files.put(rig.paths.sessionFile, Data("123 Mon".utf8)) }
       #expect(await rig.setup.remove() == .completed)
@@ -568,6 +570,30 @@ struct ClosedLidSetupRemoveTests {
     #expect(blocked.files.entry(blocked.paths.removalMarker) != nil)
   }
 
+  @Test func aVerifiedReinstallClearsAStaleRestoreLatchAndOtherwiseKeepsIt() async {
+    let clean = Rig(rule: .ready)
+    clean.files.put(clean.paths.restorePendingFile, Data("pending\n".utf8))
+    #expect(await clean.setup.install() == .completed)
+    #expect(clean.files.entry(clean.paths.restorePendingFile) == nil)
+
+    let dirty = Rig(rule: .ready, sleepRestored: false)
+    dirty.files.put(dirty.paths.restorePendingFile, Data("pending\n".utf8))
+    #expect(await dirty.setup.install() == .completed)
+    #expect(dirty.files.entry(dirty.paths.restorePendingFile) != nil)
+
+    let live = Rig(rule: .ready)
+    live.files.put(live.paths.restorePendingFile, Data("pending\n".utf8))
+    live.files.put(live.paths.sessionFile, Data("1 x\n".utf8))
+    #expect(await live.setup.install() == .completed)
+    #expect(live.files.entry(live.paths.restorePendingFile) != nil)
+    #expect(!live.log.events.contains("readback"))
+
+    let unloaded = Rig(rule: .ready, neverLoads: true)
+    unloaded.files.put(unloaded.paths.restorePendingFile, Data("pending\n".utf8))
+    _ = await unloaded.setup.install()
+    #expect(unloaded.files.entry(unloaded.paths.restorePendingFile) != nil)
+  }
+
   @Test func aRetryAfterAFailedReadbackStillOwnsTheSessionAndChecksAgain() async {
     let rig = Rig(rule: .ready, sleepRestored: false)
     installed(rig, recordRule: false)
@@ -737,6 +763,9 @@ struct ClosedLidSetupAssetTests {
 
   @Test func theSharedRuleIsTheDirectBuildsRule() {
     #expect(ClosedLidPermission.rulePath == "/private/etc/sudoers.d/dilated")
+    #expect(
+      ClosedLidSetupPaths(home: "/Users/test", uid: 501).sessionLockFile
+        == "/Users/test/Library/Application Support/Dilated/closed-lid-session.lock")
   }
 }
 
@@ -771,5 +800,17 @@ struct ClosedLidSetupLiveFileSystemTests {
     let slow = await SetupProcess.run("/bin/sleep", ["30"], timeout: 0.3)
     #expect(slow?.timedOut == true)
     #expect(await SetupProcess.run("/nonexistent/tool", []) == nil)
+  }
+
+  @Test(.timeLimit(.minutes(1)))
+  func setupProcessTerminatesTheChildWhenTheTaskIsCancelled() async {
+    let started = ContinuousClock.now
+    let task = Task { await SetupProcess.run("/bin/sleep", ["30"], timeout: 30) }
+    try? await Task.sleep(for: .milliseconds(300))
+    task.cancel()
+    let result = await task.value
+    #expect(result != nil)
+    #expect(result?.timedOut == false)
+    #expect(started.duration(to: .now) < .seconds(10))
   }
 }

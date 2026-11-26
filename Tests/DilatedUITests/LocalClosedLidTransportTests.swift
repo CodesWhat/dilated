@@ -231,7 +231,9 @@ import Testing
     #expect(fixture.controller.restorationPending)
     #expect(await model.prepareToQuit() == false)
     #expect(await model.prepareToUpdate() == false)
-    #expect(permission.canRestoreNormalSleep)
+    // The failed state drops to .disabling while a retry is in flight and comes back when it
+    // fails again, so this is "still recoverable", not true at one instant.
+    await waitUntil { await MainActor.run { permission.canRestoreNormalSleep } }
   }
 
   @Test func sleepRestoredByTheServiceRetryClearsTheFailedState() async throws {
@@ -294,8 +296,12 @@ import Testing
     let runner = FakeSudoRunner()
     await runner.setValue(.init(effectiveDisabled: true, storedDisabled: true))
     await runner.deny()
+    // Allowed once the first restore has failed, however long the fixture takes to start.
     Task.detached {
-      try? await Task.sleep(for: .milliseconds(100))
+      let deadline = ContinuousClock.now.advanced(by: .seconds(90))
+      while await runner.disableAttempts == 0, ContinuousClock.now < deadline {
+        try? await Task.sleep(for: .milliseconds(5))
+      }
       await runner.allow()
     }
     // A stale marker after a reboot: the first restore fails and its state is pushed to a main
@@ -304,7 +310,17 @@ import Testing
       runner: runner, tickInterval: .milliseconds(5),
       backoff: RetryBackoff(initial: .milliseconds(5), cap: .milliseconds(20)), staleMarker: true)
     defer { fixture.controller.invalidate() }
-    blockMainActor(seconds: 0.6)
+    // Keep the main actor blocked until the retry lands off it, rather than for a fixed time that a
+    // loaded runner can overrun.
+    let restored = MainActorBlockRelease()
+    Task.detached {
+      let deadline = ContinuousClock.now.advanced(by: .seconds(60))
+      while await !runner.readback().confirmedDisabled, ContinuousClock.now < deadline {
+        try? await Task.sleep(for: .milliseconds(5))
+      }
+      restored.release()
+    }
+    #expect(blockMainActor(until: restored, timeout: 60))
     #expect(await runner.readback().confirmedDisabled)
     #expect(await runner.calls.count > 1)
   }
@@ -336,8 +352,10 @@ import Testing
     await runner.deny()
     await #expect(throws: (any Error).self) { try await fixture.controller.disable() }
     #expect(fixture.controller.restorationPending)
-    await runner.allow()
+    // Armed while still denied (a held restore only triggers once allowed), so the retry that
+    // the allow lets through can't slip past the hold.
     await runner.holdNextRestore()
+    await runner.allow()
     await waitUntil { await runner.holding }
     // The service is mid-retry, so this request records a disabling state with sleep still off.
     try await fixture.controller.refresh()
@@ -346,6 +364,40 @@ import Testing
     await runner.release()
     await waitUntil { await MainActor.run { !fixture.controller.restorationPending } }
     #expect(fixture.controller.state?.phase == .off)
+  }
+
+  @Test func aReplyTheControllerNeverAppliedDoesNotSuppressTheCleanPush() async throws {
+    let runner = FakeSudoRunner()
+    await runner.setValue(.init(effectiveDisabled: true, storedDisabled: true))
+    let gate = TickGate()
+    let pushed = PushedStates()
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "lid-guarded-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let session = ClosedLidSessionGuard(
+      power: SerialPowerDriver(runner: runner, readback: { await runner.readback() }),
+      store: ClosedLidMarkerStore(directory: directory))
+    let transport = LocalClosedLidTransport(
+      sessionGuard: session, power: session,
+      environment: { .init(powerSource: .ac, thermal: .nominal, lidClosed: false) },
+      tickInterval: .milliseconds(5), sleep: { _ in try await gate.wait() })
+    defer { transport.invalidate() }
+    transport.onSnapshot = { state in
+      pushed.record(state)
+      return true
+    }
+    // The foreign disable is pushed and applied, so the controller holds it. The tick is parked.
+    await waitUntil { pushed.states.contains { $0.foreignSleepDisabled } }
+    await runner.setValue(.init(effectiveDisabled: false, storedDisabled: false))
+    // An in-flight request's reply carries the cleared state, but nobody applies it: the
+    // controller was invalidated meanwhile.
+    let reply = try await transport.send(.init(action: .status))
+    #expect(reply.state?.foreignSleepDisabled == false)
+    let before = pushed.states.count
+    await gate.open()
+    // The clean state still has to reach the controller.
+    await waitUntil { pushed.states.count > before }
+    #expect(pushed.states.last?.foreignSleepDisabled == false)
   }
 
   @Test func aQueuedCleanSnapshotCannotOverwriteANewerFailedReply() async throws {
@@ -398,13 +450,64 @@ import Testing
     #expect(controller.localTransport != nil)
     #expect(!controller.hasLease)
   }
+
+  @Test func theLaunchWiringRevertsADeadSessionsMarker() async throws {
+    let runner = FakeSudoRunner()
+    await runner.setValue(.init(effectiveDisabled: true, storedDisabled: true))
+    let launch = ConfiguredLaunch(runner: runner, staleMarker: true)
+    defer { launch.cleanUp() }
+    launch.controller.localTransport?.startTicking()
+    await waitUntil { await launch.controller.localTransport?.recovery() == .reverted }
+    #expect(await runner.calls.contains(.setSleepDisabled(false)))
+    #expect(launch.store.read() == nil)
+    #expect(await runner.readback().confirmedDisabled)
+  }
+
+  @Test func theLaunchWiringLeavesAForeignDisableAloneWhenThereIsNoMarker() async throws {
+    let runner = FakeSudoRunner()
+    await runner.setValue(.init(effectiveDisabled: true, storedDisabled: true))
+    let launch = ConfiguredLaunch(runner: runner, staleMarker: false)
+    defer { launch.cleanUp() }
+    launch.controller.localTransport?.startTicking()
+    try await launch.controller.refresh()
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(await runner.calls.isEmpty)
+    #expect(launch.store.read() == nil)
+    #expect(!(await runner.readback().confirmedDisabled))
+  }
+
+  @Test func theLaunchWiringKeepsTheMarkerWhenTheRevertFails() async throws {
+    let runner = FakeSudoRunner()
+    await runner.setValue(.init(effectiveDisabled: true, storedDisabled: true))
+    await runner.deny()
+    let launch = ConfiguredLaunch(runner: runner, staleMarker: true)
+    defer { launch.cleanUp() }
+    launch.controller.localTransport?.startTicking()
+    await waitUntil {
+      guard case .failed = await launch.controller.localTransport?.recovery() else { return false }
+      return true
+    }
+    #expect(launch.store.read() != nil)
+    #expect(!(await runner.readback().confirmedDisabled))
+  }
 }
 
 private func blockMainActor(seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
 
+/// Blocks the calling thread until `release` fires or the timeout passes. Returns whether it fired.
+private func blockMainActor(until release: MainActorBlockRelease, timeout: TimeInterval) -> Bool {
+  release.wait(timeout: timeout)
+}
+
+private final class MainActorBlockRelease: @unchecked Sendable {
+  private let semaphore = DispatchSemaphore(value: 0)
+  func release() { semaphore.signal() }
+  func wait(timeout: TimeInterval) -> Bool { semaphore.wait(timeout: .now() + timeout) == .success }
+}
+
 private func waitUntil(_ condition: @escaping @Sendable () async -> Bool) async {
   // Generous: the full suite keeps the main actor busy for seconds at a time.
-  let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+  let deadline = ContinuousClock.now.advanced(by: .seconds(90))
   while ContinuousClock.now < deadline {
     if await condition() { return }
     try? await Task.sleep(for: .milliseconds(20))
@@ -462,6 +565,30 @@ private final class CountingLauncher: UserScriptLaunching, @unchecked Sendable {
   func run(arguments: [String]) async -> UserScriptRun {
     lock.withLock { runs += 1 }
     return .missing
+  }
+}
+
+/// The app's `ClosedLidController.configured` over a fake runner, with a marker in a temp directory.
+@MainActor private struct ConfiguredLaunch {
+  let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+    "lid-configured-\(UUID().uuidString)")
+  let store: ClosedLidMarkerStore
+  let controller: ClosedLidController
+  init(runner: FakeSudoRunner, staleMarker: Bool) {
+    store = ClosedLidMarkerStore(directory: directory)
+    if staleMarker {
+      try? store.write(
+        ClosedLidSessionMarker(
+          pid: 999_999, processStartMicros: 1_000, generation: UUID(),
+          enabledAt: Date(timeIntervalSince1970: 1)))
+    }
+    controller = ClosedLidController.configured(
+      stateDirectory: directory,
+      power: SerialPowerDriver(runner: runner, readback: { await runner.readback() }))
+  }
+  func cleanUp() {
+    controller.invalidate()
+    try? FileManager.default.removeItem(at: directory)
   }
 }
 
@@ -528,6 +655,28 @@ private actor FakeSudoRunner: PowerCommandRunning {
     waiter = nil
   }
   func setValue(_ readback: ClosedLidReadback) { value = readback }
+}
+
+/// Parks the tick's sleep until `open()`, so a test decides when the loop runs again.
+private actor TickGate {
+  private var opened = false
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+  func wait() async throws {
+    if opened { return }
+    await withCheckedContinuation { waiters.append($0) }
+  }
+  func open() {
+    opened = true
+    for waiter in waiters { waiter.resume() }
+    waiters = []
+  }
+}
+
+private final class PushedStates: @unchecked Sendable {
+  private let lock = NSLock()
+  private var all: [HelperState] = []
+  var states: [HelperState] { lock.withLock { all } }
+  func record(_ state: HelperState) { lock.withLock { all.append(state) } }
 }
 
 private final class LocalClock: @unchecked Sendable {

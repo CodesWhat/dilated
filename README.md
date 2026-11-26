@@ -113,7 +113,7 @@ automation** in Dilated before using On again.
 - **Notifications** are requested only when you enable banners.
 - **Files** are accessed only through your selection, for example a download watch or a Drive Alive volume.
 
-History and statistics stay on your Mac. The only network use in the app code is Sparkle's update check against `dilated.app`. There's no analytics code in it.
+History and statistics stay on your Mac. The only network use in the app code is Sparkle's update check against `dilated.app`. From the release after 1.0.1, Sparkle asks on the second launch whether to check automatically, and until you say yes it only checks when you choose Check for Updates. Version 1.0.1 has automatic checks off and doesn't show that prompt. There's no analytics code in it.
 
 <hr>
 

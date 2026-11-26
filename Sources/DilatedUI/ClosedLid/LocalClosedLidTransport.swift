@@ -91,9 +91,16 @@ import Foundation
     wake.signal()
     await service.start()
     let reply = await service.handle(request, owner: owner)
-    seen.record(reply.state)
     wake.signal()
     return reply
+  }
+
+  /// The controller calls this once it has applied a reply's state. A reply it dropped (an
+  /// invalidated or superseded request) is never recorded, so a later push of that state isn't
+  /// suppressed as already seen.
+  func acknowledge(_ state: HelperState) {
+    seen.record(state)
+    wake.signal()
   }
 
   /// What the launch-time check found. Slice 4's UI reads this to show a failed revert or a
@@ -272,20 +279,21 @@ extension ClosedLidController {
   /// The app's closed-lid controller: the in-process service behind the sudo rule, with the
   /// session marker and watchdog.
   public static func configured(
-    stateDirectory: URL = SocketEndpoint.current.stateDirectory
+    stateDirectory: URL = SocketEndpoint.current.stateDirectory,
+    power: (any ClosedLidPowerControlling)? = nil
   ) -> ClosedLidController {
     #if MAS_CHANNEL
       // No watchdog process in the sandboxed build. The script's LaunchAgent reverts after a
       // crash or hang; the in-app lease and the relaunch revert still run.
       let beat = ClosedLidScriptBeat()
       let session = ClosedLidSessionGuard(
-        power: SerialPowerDriver(runner: LocalClosedLidTransport.powerRunner),
+        power: power ?? SerialPowerDriver(runner: LocalClosedLidTransport.powerRunner),
         store: ClosedLidMarkerStore(directory: stateDirectory),
         heartbeatInterval: ClosedLidSessionGuard.scriptHeartbeatInterval,
         scriptBeat: { beat.send() })
     #else
       let session = ClosedLidSessionGuard(
-        power: SerialPowerDriver(runner: SudoPowerRunner()),
+        power: power ?? SerialPowerDriver(runner: SudoPowerRunner()),
         store: ClosedLidMarkerStore(directory: stateDirectory),
         launchWatchdog: ClosedLidWatchdogSpawner.launcher())
     #endif
