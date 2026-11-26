@@ -310,7 +310,17 @@ import Testing
       runner: runner, tickInterval: .milliseconds(5),
       backoff: RetryBackoff(initial: .milliseconds(5), cap: .milliseconds(20)), staleMarker: true)
     defer { fixture.controller.invalidate() }
-    blockMainActor(seconds: 0.6)
+    // Keep the main actor blocked until the retry lands off it, rather than for a fixed time that a
+    // loaded runner can overrun.
+    let restored = MainActorBlockRelease()
+    Task.detached {
+      let deadline = ContinuousClock.now.advanced(by: .seconds(60))
+      while await !runner.readback().confirmedDisabled, ContinuousClock.now < deadline {
+        try? await Task.sleep(for: .milliseconds(5))
+      }
+      restored.release()
+    }
+    #expect(blockMainActor(until: restored, timeout: 60))
     #expect(await runner.readback().confirmedDisabled)
     #expect(await runner.calls.count > 1)
   }
@@ -483,6 +493,17 @@ import Testing
 }
 
 private func blockMainActor(seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
+
+/// Blocks the calling thread until `release` fires or the timeout passes. Returns whether it fired.
+private func blockMainActor(until release: MainActorBlockRelease, timeout: TimeInterval) -> Bool {
+  release.wait(timeout: timeout)
+}
+
+private final class MainActorBlockRelease: @unchecked Sendable {
+  private let semaphore = DispatchSemaphore(value: 0)
+  func release() { semaphore.signal() }
+  func wait(timeout: TimeInterval) -> Bool { semaphore.wait(timeout: .now() + timeout) == .success }
+}
 
 private func waitUntil(_ condition: @escaping @Sendable () async -> Bool) async {
   // Generous: the full suite keeps the main actor busy for seconds at a time.
