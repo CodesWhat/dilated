@@ -35,17 +35,20 @@ import Foundation
   private let label: String
   private let displayAwake: Bool
   private let lowPowerOverride: Bool
+  private let closedLid: Bool
 
   /// `local` must already hold the indefinite local-only hold from `WakeEngine.start`.
   public init(
     local: WakeEngine, managedID: UUID?, label: String, displayAwake: Bool,
-    lowPowerOverride: Bool, assertions: any AssertionControlling, environment: Environment
+    lowPowerOverride: Bool, closedLid: Bool = false, assertions: any AssertionControlling,
+    environment: Environment
   ) {
     self.local = local
     self.managedID = managedID
     self.label = label
     self.displayAwake = displayAwake
     self.lowPowerOverride = lowPowerOverride
+    self.closedLid = closedLid
     self.assertions = assertions
     self.environment = environment
   }
@@ -75,9 +78,13 @@ import Foundation
       if let id = managedID {
         response = try environment.send(
           ControlRequest(action: .renew, id: id, duration: Self.leaseSeconds))
-        // The app may have expired its lease across a long gap. Re-register; a Stop pauses
-        // automation, so a stopped run is refused here instead of silently resurrected.
-        if !response.ok { response = try register() }
+        // A hold the user released stays released. Otherwise the app may have expired its lease
+        // across a long gap or restarted, so re-register; a Stop pauses automation, so a stopped
+        // run is refused here instead of silently resurrected.
+        if !response.ok {
+          if response.released == true { return "the hold was released" }
+          response = try register()
+        }
       } else {
         response = try register()
       }
@@ -97,7 +104,7 @@ import Foundation
     try environment.send(
       ControlRequest(
         action: .runner, label: label, duration: Self.leaseSeconds, displayAwake: displayAwake,
-        lowPowerOverride: lowPowerOverride))
+        lowPowerOverride: lowPowerOverride, closedLid: closedLid))
   }
 
   private func end(_ reason: String) {

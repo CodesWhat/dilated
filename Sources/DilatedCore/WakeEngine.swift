@@ -59,6 +59,9 @@ public struct UserReturnRestoration: Equatable, Sendable {
 public struct WakeEngine: Sendable {
   public private(set) var holds: [Hold] = []
   private var historyEvents: [HoldHistoryEvent] = []
+  /// Recently released hold IDs, newest last. In memory only, so an app restart forgets them and a
+  /// renew for an ID the app no longer knows reads as lost, not released.
+  private var releasedIDs: [UUID] = []
   public private(set) var automationPaused = false
   public private(set) var leavingPending = false
   private var leavingIdleSince: TimeInterval?
@@ -135,9 +138,15 @@ public struct WakeEngine: Sendable {
   public mutating func stop(id: UUID, reason: HoldEndReason = .stopped, now: Date = Date()) {
     userReturnRestoration?.holds.removeAll { $0.id == id }
     guard let hold = holds.first(where: { $0.id == id }) else { return }
+    if reason == .stopped {
+      releasedIDs.append(id)
+      if releasedIDs.count > 64 { releasedIDs.removeFirst(releasedIDs.count - 64) }
+    }
     recordHistory(hold: hold, at: now, reason: reason)
     holds.removeAll { $0.id == id }
   }
+  /// True when this engine ended the hold because the user stopped it (not expiry or a restart).
+  public func wasReleased(id: UUID) -> Bool { releasedIDs.contains(id) }
   public func releasableHold(id: UUID) -> Bool {
     holds.contains { $0.id == id } || userReturnRestoration?.holds.contains { $0.id == id } == true
   }
