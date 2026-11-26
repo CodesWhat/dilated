@@ -777,4 +777,16 @@ struct ClosedLidSetupLiveFileSystemTests {
     #expect(slow?.timedOut == true)
     #expect(await SetupProcess.run("/nonexistent/tool", []) == nil)
   }
+
+  @Test(.timeLimit(.minutes(1)))
+  func setupProcessTerminatesTheChildWhenTheTaskIsCancelled() async {
+    let started = ContinuousClock.now
+    let task = Task { await SetupProcess.run("/bin/sleep", ["30"], timeout: 30) }
+    try? await Task.sleep(for: .milliseconds(300))
+    task.cancel()
+    let result = await task.value
+    #expect(result != nil)
+    #expect(result?.timedOut == false)
+    #expect(started.duration(to: .now) < .seconds(10))
+  }
 }
