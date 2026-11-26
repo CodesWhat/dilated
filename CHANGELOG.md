@@ -16,6 +16,7 @@ All notable changes to Dilated are documented here. The format follows
 - `dilated run` no longer re-registers a hold you released by ID, and keeps its `--lid` request if it has to register again after the app restarts.
 - The Mac App Store build's Automation settings no longer show command line examples for
   a tool that build doesn't ship.
+- Preparing Dilated for uninstall now removes the hooks it added to Claude Code and Codex, so they no longer point at an app that's gone.
 
 ## [1.0.1] - 2026-11-24
 
