@@ -93,6 +93,7 @@ import SystemConfiguration
     private var scanPending = false
     private var applyingScan = false
     private var scanGeneration = 0
+    private(set) var scansStarted = 0
   #endif
 
   init(
@@ -258,6 +259,7 @@ import SystemConfiguration
       }
       scanInFlight = true
       scanPending = false
+      scansStarted += 1
       let generation = scanGeneration
       let reader = readProcesses
       Task { [weak self] in
