@@ -148,12 +148,14 @@ private final class DownloadEventTarget: Sendable {
     -> (@MainActor () -> Void)?
   private let target: DownloadTarget
   private let quietSeconds: TimeInterval
+  private let stallSeconds: TimeInterval
   private let read: Reader
   private let subscribe: Subscription
   private let clock: @MainActor () -> TimeInterval
   private let finished: @MainActor (String?) -> Void
   private var cancelSubscription: (@MainActor () -> Void)?
   private var readTask: Task<Void, Never>?
+  private var readStartedAt: TimeInterval?
   private var snapshot: DownloadSnapshot?
   private var quietDeadline: TimeInterval?
   private var needsRefresh = false
@@ -162,8 +164,12 @@ private final class DownloadEventTarget: Sendable {
   /// Scoped access to the target, held until the monitor is released.
   var scopeAccess: BookmarkAccess?
 
+  /// A scan that hasn't returned after this long ends the watch, so it can't pin a hold.
+  static let defaultStallSeconds: TimeInterval = 60
+
   init(
     target: DownloadTarget, quietSeconds: TimeInterval,
+    stallSeconds: TimeInterval = DownloadMonitor.defaultStallSeconds,
     read: @escaping Reader = NativeDownloadScanner.readInBackground,
     subscribe: @escaping Subscription = NativeDownloadEvents.subscribe,
     clock: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -171,6 +177,7 @@ private final class DownloadEventTarget: Sendable {
   ) {
     self.target = target
     self.quietSeconds = quietSeconds
+    self.stallSeconds = stallSeconds
     self.read = read
     self.subscribe = subscribe
     self.clock = clock
@@ -195,7 +202,14 @@ private final class DownloadEventTarget: Sendable {
   var pendingReadForTesting: Task<Void, Never>? { readTask }
 
   func tick() {
-    guard active, let quietDeadline, clock() >= quietDeadline, readTask == nil else { return }
+    guard active else { return }
+    if readTask != nil {
+      if let readStartedAt, clock() - readStartedAt >= stallSeconds {
+        end("Download watch ended: scan stalled")
+      }
+      return
+    }
+    guard let quietDeadline, clock() >= quietDeadline else { return }
     requestRefresh()
   }
 
@@ -204,6 +218,7 @@ private final class DownloadEventTarget: Sendable {
     generation += 1
     readTask?.cancel()
     readTask = nil
+    readStartedAt = nil
     needsRefresh = false
     cancelSubscription?()
     cancelSubscription = nil
@@ -218,11 +233,13 @@ private final class DownloadEventTarget: Sendable {
     let current = generation
     let read = read
     let target = target
+    readStartedAt = clock()
     readTask = Task { [weak self] in
       let result: Result<DownloadSnapshot, any Error>
       do { result = .success(try await read(target)) } catch { result = .failure(error) }
       guard let self, self.active, self.generation == current else { return }
       self.readTask = nil
+      self.readStartedAt = nil
       switch result {
       case .failure(let error):
         if self.snapshot != nil && target.mode == .file && NativeDownloadScanner.isMissing(error) {

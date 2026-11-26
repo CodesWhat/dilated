@@ -13,6 +13,7 @@ All notable changes to Dilated are documented here. The format follows
 
 ### Fixed
 
+- A download watch whose folder scan stops responding now ends after 60 seconds with "Download watch ended: scan stalled" instead of keeping your Mac awake indefinitely.
 - `--until` now requires a two-digit hour (`05:30`), so `5:30` is rejected instead of silently meaning 05:30. A start that fails to apply its power assertion no longer leaves the hold running.
 - `dilated run` no longer re-registers a hold you released by ID, and keeps its `--lid` request if it has to register again after the app restarts.
 - The Mac App Store build's Automation settings no longer show command line examples for

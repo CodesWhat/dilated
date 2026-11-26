@@ -107,6 +107,57 @@ import Testing
     #expect(reads == 3)
   }
 
+  @Test func aScanThatNeverReturnsEndsTheWatchAfterTheStallTimeout() async throws {
+    var continuation: CheckedContinuation<DownloadSnapshot, any Error>?
+    var uptime: TimeInterval = 0
+    var issues: [String?] = []
+    let monitor = DownloadMonitor(
+      target: .init(url: URL(fileURLWithPath: "/tmp/test.part"), mode: .file), quietSeconds: 30,
+      read: { _ in try await withCheckedThrowingContinuation { continuation = $0 } },
+      subscribe: { _, _ in {} }, clock: { uptime }, finished: { issues.append($0) })
+    defer { monitor.stop() }
+    try monitor.start()
+    for _ in 0..<100 where continuation == nil { try await Task.sleep(for: .milliseconds(1)) }
+    try #require(continuation != nil)
+    uptime = DownloadMonitor.defaultStallSeconds - 1
+    monitor.tick()
+    #expect(issues.isEmpty)
+    uptime = DownloadMonitor.defaultStallSeconds
+    monitor.tick()
+    #expect(issues == ["Download watch ended: scan stalled"])
+    monitor.tick()
+    #expect(issues.count == 1)
+    continuation?.resume(returning: DownloadFixture.initial)
+  }
+
+  @Test func aSlowScanThatFinishesInTimeKeepsTheWatchAlive() async throws {
+    var continuation: CheckedContinuation<DownloadSnapshot, any Error>?
+    var uptime: TimeInterval = 0
+    var ends = 0
+    var reads = 0
+    let monitor = DownloadMonitor(
+      target: .init(url: URL(fileURLWithPath: "/tmp/test.part"), mode: .file), quietSeconds: 30,
+      read: { _ in
+        reads += 1
+        return try await withCheckedThrowingContinuation { continuation = $0 }
+      },
+      subscribe: { _, _ in {} }, clock: { uptime }, finished: { _ in ends += 1 })
+    defer { monitor.stop() }
+    try monitor.start()
+    for _ in 0..<100 where continuation == nil { try await Task.sleep(for: .milliseconds(1)) }
+    try #require(continuation != nil)
+    uptime = DownloadMonitor.defaultStallSeconds - 1
+    monitor.tick()
+    let scan = try #require(monitor.pendingReadForTesting)
+    continuation?.resume(returning: DownloadFixture.initial)
+    continuation = nil
+    await scan.value
+    // The finished scan clears the stall timer, so a later tick doesn't count the old scan.
+    uptime = DownloadMonitor.defaultStallSeconds + 5
+    monitor.tick()
+    #expect(ends == 0 && reads == 1)
+  }
+
   @Test func scannerTracksOnlyPartialDownloadsAndTheirPackageContents() throws {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: folder) }
