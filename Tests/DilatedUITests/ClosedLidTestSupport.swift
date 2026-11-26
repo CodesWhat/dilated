@@ -16,7 +16,9 @@ private struct FixtureUserScript: UserScriptLaunching {
 }
 
 /// A permission model whose channel-specific permission probe passes.
-@MainActor func readyPermissionModel() -> ClosedLidPermissionModel {
+@MainActor func readyPermissionModel(
+  recovery: @escaping @MainActor () async -> ClosedLidSessionGuard.Recovery = { .notChecked }
+) -> ClosedLidPermissionModel {
   ClosedLidPermissionModel(
     permission: ClosedLidPermission(
       seams: .init(
@@ -24,7 +26,8 @@ private struct FixtureUserScript: UserScriptLaunching {
         readFile: { _ in ClosedLidPermission.ruleContent }, probe: { true }, isAdmin: { true }),
       runner: NeverRunsScripts()),
     scriptPermission: ClosedLidScriptPermission(
-      launcher: FixtureUserScript(result: .finished(output: "ok\n", failureStatus: nil))))
+      launcher: FixtureUserScript(result: .finished(output: "ok\n", failureStatus: nil))),
+    recovery: recovery)
 }
 
 /// A permission model with no rule installed. Any admin prompt it tries to run fails the test.

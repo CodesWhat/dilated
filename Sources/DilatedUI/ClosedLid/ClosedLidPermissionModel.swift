@@ -8,6 +8,9 @@ import Observation
   public private(set) var busy = false
   public private(set) var lastError: String?
   public private(set) var recovery = ClosedLidSessionGuard.Recovery.notChecked
+  /// Why a live session's revert couldn't confirm normal sleep, while the service keeps retrying.
+  /// The app pushes it from the closed-lid controller; nil once sleep is confirmed normal.
+  public private(set) var liveRevertFailure: String?
   /// What the Mac App Store build's `probe` found. Always nil in the direct build.
   public private(set) var scriptState: ClosedLidScriptState?
   @ObservationIgnored private let permission: ClosedLidPermission
@@ -29,6 +32,11 @@ import Observation
   }
 
   public enum Result: Equatable, Sendable { case done, cancelled, failed }
+
+  public func setLiveRevertFailure(_ reason: String?) {
+    guard liveRevertFailure != reason else { return }
+    liveRevertFailure = reason
+  }
 
   public func refresh() async {
     #if MAS_CHANNEL
@@ -85,6 +93,7 @@ import Observation
         await refresh()
         return .failed
       }
+      liveRevertFailure = nil
       await refresh()
       return .done
     }
@@ -218,7 +227,7 @@ import Observation
     switch recovery {
     case .foreignSleepDisabled: "Another app has turned off sleep"
     case .failed: "Dilated couldn't restore normal sleep"
-    default: nil
+    default: liveRevertFailure == nil ? nil : "Dilated couldn't restore normal sleep"
     }
   }
 
@@ -226,12 +235,12 @@ import Observation
     switch recovery {
     case .foreignSleepDisabled: "Dilated left it alone because it didn't start it."
     case .failed(let reason): reason
-    default: nil
+    default: liveRevertFailure
     }
   }
 
   public var canRestoreNormalSleep: Bool {
     if case .failed = recovery { return true }
-    return false
+    return liveRevertFailure != nil
   }
 }

@@ -33,6 +33,8 @@ and automation starts paused. Settings decode missing keys with safe defaults.
 `TriggerStore` keeps a versioned rule set plus a legacy projection for beta.11
 readers. The versioned record includes the last projected rules, so changes made
 by an older build can be reconciled without discarding newer-only conditions.
+Focus-owned rules stay in the versioned store and are omitted from the legacy
+projection, so an older build cannot run them outside their Focus.
 A pending projection records both sides of the write; ambiguous edits, future
 schemas and unreadable files block saves instead of replacing saved rules.
 
@@ -444,8 +446,8 @@ readback confirmed normal sleep. While the marker exists `on` and `probe` answer
 work. `on` and `probe` also require `launchctl print gui/<uid>/com.codeswhat.dilated.closed-lid-repair` to succeed (bounded to
 1s). `on` checks the marker before the lock, waits at most 1.5s for it, and checks that wall-clock cap again after a successful acquisition, releasing the lock when it has passed (`busy`, exit 1; build 18 refuses any word but `ok`),
 and re-checks the marker and the agent under it before `pmset 1`. Anything else prints `usage` to stderr and exits 64. It uses absolute paths, runs
-`/usr/bin/env -i /usr/bin/sudo -n`, and reads only `HOME`. `probe` runs `sudo -n -l` for both `pmset -a disablesleep`
-commands. It prints one word, then exits:
+`/usr/bin/env -i /usr/bin/sudo -n`, and reads only `HOME`. `probe` reads the current `SleepDisabled` and runs `sudo -n -k pmset -a disablesleep <current>`, a no-op that only a NOPASSWD rule lets through, rather than `sudo -l`, which also succeeds for a password-required rule.
+It prints one word, then exits:
 
 | Word | Exit | Meaning |
 | --- | --- | --- |

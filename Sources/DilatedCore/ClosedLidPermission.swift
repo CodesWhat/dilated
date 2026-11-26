@@ -67,9 +67,17 @@ public struct ClosedLidPermission: Sendable {
     "%admin ALL=(root) NOPASSWD: DILATED_PMSET",
   ]
   public static let ruleContent = Data((ruleLines.joined(separator: "\n") + "\n").utf8)
-  /// One `sudo -n -l` probe per command the rule has to cover. Both must succeed.
-  static let probeArgumentSets = ["1", "0"].map {
-    ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", $0]
+  /// The probe needs two things. Listing each direction (`sudo -n -l`) proves a rule covers both
+  /// `disablesleep 0` and `disablesleep 1`, so turning sleep back on can't be denied later. Listing
+  /// isn't enough alone, since it succeeds for a rule that still wants a password. So the probe also
+  /// runs the command that sets `SleepDisabled` to the value it already has, which changes nothing.
+  /// `-k` ignores cached credentials and `-n` never prompts, so only a NOPASSWD rule passes.
+  static func listingArguments(disabled: Bool) -> [String] {
+    ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", disabled ? "1" : "0"]
+  }
+
+  static func probeArguments(current: Bool) -> [String] {
+    ["-n", "-k", "/usr/bin/pmset", "-a", "disablesleep", current ? "1" : "0"]
   }
 
   static let installScript = [
@@ -130,9 +138,17 @@ public struct ClosedLidPermission: Sendable {
       self.isAdmin = isAdmin
     }
 
-    public static let live = Seams(
-      stat: ClosedLidPermission.liveStat, readFile: { FileManager.default.contents(atPath: $0) },
-      probe: ClosedLidPermission.liveProbe, isAdmin: ClosedLidPermission.currentUserIsAdmin)
+    public static let live = live(lockFile: nil)
+
+    /// With a `lockFile` (the marker store's `lockFile`), the probe's read-and-write runs under the
+    /// lock every session enable and restore holds, so the two can't interleave.
+    public static func live(lockFile: URL?) -> Seams {
+      Seams(
+        stat: ClosedLidPermission.liveStat,
+        readFile: { FileManager.default.contents(atPath: $0) },
+        probe: { await ClosedLidPermission.liveProbe(lockFile: lockFile) },
+        isAdmin: ClosedLidPermission.currentUserIsAdmin)
+    }
   }
 
   private let seams: Seams
@@ -197,15 +213,49 @@ public struct ClosedLidPermission: Sendable {
       mode: info.st_mode & 0o7777, size: Int(info.st_size))
   }
 
-  static func liveProbe() async -> Bool {
-    for arguments in probeArgumentSets {
-      guard
-        let result = try? await BoundedProcess.run(
+  static func liveProbe(lockFile: URL? = nil) async -> Bool {
+    await probe(
+      readCurrent: { NativeClosedLidPower.readback() },
+      lock: {
+        guard let lockFile else { return {} }
+        let held = try await ClosedLidFileLock.acquire(
+          at: lockFile, timeout: .seconds(5), retry: .milliseconds(25))
+        return { held.release() }
+      },
+      run: { arguments in
+        try? await BoundedProcess.run(
           executable: URL(fileURLWithPath: SudoPowerRunner.sudoPath), arguments: arguments,
-          timeout: 3, environment: [:]),
-        !result.timedOut, result.status == 0
+          timeout: 3, environment: [:])
+      })
+  }
+
+  /// True only when `sudo` lists both `pmset` directions and runs `pmset` with no password. Both
+  /// listings come first and nothing is written if either fails. `pmset -a disablesleep` writes the
+  /// stored value, so the no-op only runs when the effective and stored values are both known and
+  /// agree. Otherwise re-setting one of them wouldn't be a no-op. An unreadable value, a timeout or
+  /// any failure to run all read as not allowed.
+  ///
+  /// The read and the write run under `lock`, the same lock the session guard and the watchdog hold
+  /// around every enable and restore. Without it a restore could write 0 between the read of 1 and
+  /// the probe's write, and the probe would put 1 back with no session left to revert it. If the
+  /// lock can't be taken, the write is skipped and the two listings decide.
+  static func probe(
+    readCurrent: @Sendable () -> ClosedLidReadback,
+    lock: @Sendable () async throws -> @Sendable () -> Void = { {} },
+    run: @Sendable ([String]) async -> ProcessOutcome?
+  ) async -> Bool {
+    for disabled in [false, true] {
+      guard let listing = await run(listingArguments(disabled: disabled)),
+        !listing.timedOut, listing.status == 0
       else { return false }
     }
+    guard let release = try? await lock() else { return true }
+    defer { release() }
+    let readback = readCurrent()
+    guard let current = readback.effectiveDisabled, readback.storedDisabled == current,
+      let result = await run(probeArguments(current: current)),
+      !result.timedOut, result.status == 0
+    else { return false }
     return true
   }
 
@@ -274,7 +324,8 @@ public struct OsascriptAdminRunner: PrivilegedScriptRunning {
           }
           DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
           let data = errors.fileHandleForReading.readDataToEndOfFile()
-          process.waitUntilExit()
+          // Foundation's waitUntilExit can spin its run loop after the child is gone; poll instead.
+          while process.isRunning { usleep(10_000) }
           watchdog.cancel()
           continuation.resume(
             returning: ClosedLidPermission.outcome(

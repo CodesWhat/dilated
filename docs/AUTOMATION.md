@@ -115,9 +115,23 @@ Stop/pause state are preserved. Custom icon files aren't exported; the file uses
 the selected built-in icon. Imports are limited to regular files up to 64 KB and
 reject unsupported versions, invalid choices and inconsistent duration presets.
 
+## Sleep when holds finish
+
+Choose **Sleep when holds finish** in the menu or run `dilated leaving`. Existing
+holds continue, including agent renewals. Once the last hold ends, Dilated waits
+five seconds and requests system sleep once. An indefinite hold keeps it waiting.
+The menu and `dilated status` show when the request is armed.
+
+New holds, Stop, quitting and any system sleep cancel the request. Use the menu's
+**Cancel sleep when idle** or `dilated leaving --cancel` to cancel it explicitly.
+It doesn't survive relaunch. Closed-lid cleanup keeps its existing sleep path;
+the system sleep notification cancels Leaving so waking won't trigger a second
+sleep. A refused sleep is reported without automatic retries. This feature adds
+no scheduled wake or display-off behavior.
+
 ## Shortcuts actions
 
-The signed app exposes four actions in the Mac's Shortcuts action library:
+The signed app provides these four automation actions:
 
 | Action | Result |
 |---|---|
@@ -125,6 +139,21 @@ The signed app exposes four actions in the Mac's Shortcuts action library:
 | Stop keeping awake | Ends every app-managed hold, confirms closed-lid is off and durably pauses automation |
 | Get awake status | Text containing active IDs/deadlines, pause state, requested closed-lid and last observed closed-lid state |
 | Set closed-lid mode | Takes a hold UUID and enabled Boolean; changes only that active hold |
+
+### Focus filter
+
+Create a rule in Dilated, then choose **Awake rule** in System Settings > Focus >
+your Focus > Add Filter and select that rule. The filter enables the selected rule;
+its normal conditions must still match. Changing Focus disables the previous
+filter's rule, and leaving Focus disables its selected rule. Other rules and manual
+holds keep their own settings. Use a dedicated rule if you only want it during Focus.
+
+Stop, the master trigger switch and each rule's pause still apply. A Focus change
+doesn't resume stopped automation, clear a rule's pause or arm closed-lid mode.
+After relaunch, a previously Focus-controlled rule stays off until macOS returns
+the current Dilated filter. A failed lookup leaves it off and reports the error.
+Dilated uses its own app filter configuration and doesn't read the user's global
+Focus status. The filter adds no polling timer or permission request.
 
 Chain Start's result into Set closed-lid's Hold ID. Closed-lid enable requires
 the sudo rule in place, any battery-warning review, and passing guards. It never

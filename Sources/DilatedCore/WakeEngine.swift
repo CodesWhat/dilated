@@ -60,6 +60,8 @@ public struct WakeEngine: Sendable {
   public private(set) var holds: [Hold] = []
   private var historyEvents: [HoldHistoryEvent] = []
   public private(set) var automationPaused = false
+  public private(set) var leavingPending = false
+  private var leavingIdleSince: Date?
   public private(set) var userReturnRestoration: UserReturnRestoration?
   public private(set) var attention: String?
   public private(set) var power = PowerState()
@@ -113,6 +115,7 @@ public struct WakeEngine: Sendable {
       lowPowerOverride: lowPowerOverride, batteryOverride: batteryOverride ? true : nil,
       closedLid: closedLid ? true : nil)
     holds.append(hold)
+    cancelLeaving()
     recordHistory(hold: hold, at: now)
     attention = nil
     return hold
@@ -145,6 +148,7 @@ public struct WakeEngine: Sendable {
     }
   }
   public mutating func stopAll(reason: HoldEndReason = .stopped, now: Date = Date()) {
+    cancelLeaving()
     for hold in holds { recordHistory(hold: hold, at: now, reason: reason) }
     holds.removeAll()
     automationPaused = true
@@ -201,7 +205,10 @@ public struct WakeEngine: Sendable {
       recordHistory(hold: hold, at: now)
       didRestore = true
     }
-    if didRestore { attention = nil }
+    if didRestore {
+      cancelLeaving()
+      attention = nil
+    }
     updatePower(power, now: now)
   }
   private static func covers(_ active: Hold, _ restored: Hold) -> Bool {
@@ -217,9 +224,35 @@ public struct WakeEngine: Sendable {
       && (active.batteryOverride == true || restored.batteryOverride != true)
   }
   public mutating func quit(reason: HoldEndReason = .quit, now: Date = Date()) {
+    cancelLeaving()
     for hold in holds { recordHistory(hold: hold, at: now, reason: reason) }
     holds.removeAll()
     userReturnRestoration = nil
+  }
+  public mutating func leaveWhenIdle() {
+    leavingPending = true
+    leavingIdleSince = nil
+  }
+  public mutating func cancelLeaving() {
+    leavingPending = false
+    leavingIdleSince = nil
+  }
+  public mutating func leavingSleepReady(now: Date = Date()) -> Bool {
+    guard leavingPending else { return false }
+    guard holds.isEmpty else {
+      leavingIdleSince = nil
+      return false
+    }
+    guard let leavingIdleSince else {
+      self.leavingIdleSince = now
+      return false
+    }
+    return now.timeIntervalSince(leavingIdleSince) >= 5
+  }
+  public mutating func takeLeavingSleepRequest(now: Date = Date()) -> Bool {
+    guard leavingSleepReady(now: now) else { return false }
+    cancelLeaving()
+    return true
   }
   public mutating func tick(now: Date = Date()) {
     for hold in holds where hold.expiry.map({ $0 <= now }) == true {

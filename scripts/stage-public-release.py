@@ -298,6 +298,13 @@ def cask_text(manifest, acceptance=None):
         livecheck = ('\n  livecheck do\n'
                      '    skip "Public beta; versions are tracked by scripts/check-cask-drift.sh."\n'
                      '  end\n\n')
+    else:
+        # Without this Homebrew reads git tags and reports the MAS tag
+        # (mas/v1.0.0-build18) as the newest version.
+        livecheck = ('\n  livecheck do\n'
+                     '    url :url\n'
+                     '    strategy :github_latest\n'
+                     '  end\n\n')
     return f'''cask "dilated" do
   version "{version}"
   sha256 "{digest}"

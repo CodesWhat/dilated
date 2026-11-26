@@ -16,7 +16,7 @@
 #   failed    N   anything else; N is the failing command's status, or 1
 #   none      0   (beat, check) there is no session
 #   live | dead | stale | reverted   (check) what `repair` would see; nothing is changed
-#   busy      1   (on) the lock stayed taken for about a second; any word but ok is a refusal to build 18
+#   busy      1   (on, probe) the lock stayed taken for about a second; any word but ok is a refusal to build 18
 #   begin-removal (companion only) takes the lock, writes the removal marker and, only when a session
 #                 file exists, latches "restore pending" and turns sleep back on (ok; none when
 #                 nothing was ours). The session stays. The latch survives off and repair, so a
@@ -63,6 +63,8 @@ test_sudo=""
 test_wake=""
 test_launchctl=""
 test_clock=""
+test_sleepdisabled="__real__"
+test_stored="__same__"
 self=${BASH_SOURCE[0]}
 case "$self" in
   */*) self_dir=${self%/*} ;;
@@ -76,6 +78,8 @@ if self_dir=$(cd "$self_dir" 2>/dev/null && pwd -P); then
         test_wake=${DILATED_POWER_TEST_WAKE:-}
         test_launchctl=${DILATED_POWER_TEST_LAUNCHCTL:-}
         test_clock=${DILATED_POWER_TEST_CLOCK:-}
+        test_sleepdisabled=${DILATED_POWER_TEST_SLEEPDISABLED-__real__}
+        test_stored=${DILATED_POWER_TEST_STORED_SLEEPDISABLED-__same__}
       fi
       ;;
   esac
@@ -263,6 +267,33 @@ classify() {
   echo live
 }
 
+# The SleepDisabled value macOS reports now: 0, 1, or empty when it can't be read.
+current_sleep_disabled() {
+  if [ "$test_sleepdisabled" != "__real__" ]; then
+    echo "$test_sleepdisabled"
+    return
+  fi
+  /usr/bin/env -i /usr/bin/pmset -g 2>/dev/null | /usr/bin/awk '/SleepDisabled/ { print $2; exit }'
+}
+
+# The SleepDisabled value `pmset -a disablesleep` writes: 0, 1, or empty when it can't be read. It
+# comes from the machine-wide power plist, the same store the app's readback checks.
+stored_sleep_disabled() {
+  if [ "$test_stored" != "__same__" ]; then
+    echo "$test_stored"
+    return
+  fi
+  if [ "$test_sleepdisabled" != "__real__" ]; then
+    echo "$test_sleepdisabled"
+    return
+  fi
+  case "$(/usr/bin/plutil -extract SystemPowerSettings.SleepDisabled raw -o - \
+    /Library/Preferences/com.apple.PowerManagement.plist 2>/dev/null || true)" in
+    true | 1) echo 1 ;;
+    false | 0) echo 0 ;;
+  esac
+}
+
 run_pmset() {
   local status=0 detail
   detail=$(run_sudo /usr/bin/pmset -a disablesleep "$1") || status=$?
@@ -395,11 +426,39 @@ case "$verb" in
     ;;
   probe)
     { [ ! -f "$removal_file" ] && agent_loaded; } || refuse_unready
-    # One `sudo -n -l` per command, mirroring ClosedLidPermission.probeArgumentSets.
-    for value in 1 0; do
-      detail=$(run_sudo -l /usr/bin/pmset -a disablesleep "$value") || status=$?
-      [ "$status" -eq 0 ] || break
+    # Two checks, both required. Listing (`sudo -l`) proves each direction, `disablesleep 0` and
+    # `disablesleep 1`, is covered by a rule, so `off` and `repair` can't be denied later.
+    # Listing succeeds for a rule that still wants a password, so the probe then runs the command:
+    # it re-sets the current value (a no-op, nothing of another app's is changed). `-k`
+    # ignores cached credentials and `-n` never prompts, so only a NOPASSWD rule gets through.
+    # `pmset -a disablesleep` writes the stored value, so it only runs when the effective and
+    # stored values are both known and agree, and under the lock `repair` and `off` hold so
+    # neither can change them between the read and the write. Mirrors ClosedLidPermission.probe.
+    take_lock 10 2 || {
+      echo busy
+      exit 1
+    }
+    for direction in 0 1; do
+      detail=$(run_sudo -l /usr/bin/pmset -a disablesleep "$direction") || {
+        status=$?
+        # `sudo -l` exits 1 with no message when no rule covers the command.
+        [ "$status" -ne 1 ] || detail="a password is required"
+        report "$status" "$detail"
+      }
     done
+    current=$(current_sleep_disabled)
+    stored=$(stored_sleep_disabled)
+    case "$current" in
+      0 | 1) [ "$stored" = "$current" ] || current="" ;;
+    esac
+    case "$current" in
+      0 | 1) ;;
+      *)
+        echo failed
+        exit 1
+        ;;
+    esac
+    detail=$(run_sudo -k /usr/bin/pmset -a disablesleep "$current") || status=$?
     ;;
 esac
 

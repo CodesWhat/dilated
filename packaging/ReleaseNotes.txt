@@ -1,3 +1,3 @@
-Dilated 1.0.0 is the first stable release.
-Fixes since beta.13: closed-lid mode now restores normal sleep when enabling fails, when the app or its repair agent goes away, and when something else changed the sleep setting. The control socket moved to a per-user directory and checks the connecting peer. The dilated run command stays awake across sleep, and trigger rules restart after a power-safety stop.
+Dilated 1.0.1 adds Focus filters for automation rules and a Leaving mode that lets the Mac sleep once existing holds finish (dilated leaving).
+Closed-lid mode now offers Restore Normal Sleep if a live session can't revert, and setup only counts a passwordless pmset rule.
 Closed-lid mode is still experimental. Its hardware recovery checks were not run for this release.

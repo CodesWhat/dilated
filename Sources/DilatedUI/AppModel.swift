@@ -212,6 +212,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored public var onChange: (() -> Void)?
   @ObservationIgnored public var onBatteryOverrideNeeded: ((TimeInterval?) -> Void)?
   @ObservationIgnored public var onClosedLidBatteryWarning: (() -> Bool)?
+  /// Called once per failure when a live closed-lid session can't turn sleep back on.
+  @ObservationIgnored public var onSleepRestoreFailed: ((String) -> Void)?
+  /// True from the moment a live revert fails until sleep is confirmed normal.
+  public private(set) var sleepRestoreAlertRaised = false
+  @ObservationIgnored private var restoredAtSequence: UInt64 = 0
   public let closedLid: ClosedLidController
   #if !MAS_CHANNEL
     public let helperMigration: HelperMigration
@@ -222,6 +227,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored private let store: StateStore
   @ObservationIgnored private let readPower: () -> PowerState
   @ObservationIgnored private let assertions: any AssertionControlling
+  @ObservationIgnored private let leavingClock: () -> Date
+  @ObservationIgnored private let requestSleep: () throws -> Void
+  @ObservationIgnored private var leavingTask: Task<Void, Never>?
   @ObservationIgnored var feedback: FeedbackController
   @ObservationIgnored var driveAlive = DriveAliveController()
   @ObservationIgnored private var downloads: [UUID: DownloadMonitor] = [:]
@@ -292,13 +300,17 @@ public struct AppSettings: Codable, Equatable, Sendable {
     closedLid: ClosedLidController? = nil,
     helperMigration: HelperMigrationInjection? = nil,
     closedLidPermission: ClosedLidPermissionModel? = nil,
-    updater: AppUpdater? = nil
+    updater: AppUpdater? = nil,
+    leavingClock: @escaping () -> Date = { Date() },
+    requestSleep: @escaping () throws -> Void = { try NativePowerRunner.requestSystemSleep() }
   ) {
     self.endpoint = endpoint
     self.store = StateStore(directory: endpoint.stateDirectory)
     self.historyStore = HistoryStore(directory: endpoint.stateDirectory)
     self.readPower = power
     self.assertions = assertions
+    self.leavingClock = leavingClock
+    self.requestSleep = requestSleep
     self.feedback = FeedbackController(
       service: NativeFeedbackService(),
       sounds: NativeFeedbackSounds(directory: endpoint.stateDirectory))
@@ -312,6 +324,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     self.closedLidPermission =
       closedLidPermission
       ?? ClosedLidPermissionModel(
+        permission: ClosedLidPermission(
+          seams: .live(
+            lockFile: ClosedLidMarkerStore(directory: endpoint.stateDirectory).lockFile)),
         recovery: { await lid.localTransport?.recovery() ?? .notChecked },
         acknowledgeRestore: { await lid.localTransport?.acknowledgeRestore() ?? false })
     self.updater = updater ?? AppUpdater()
@@ -332,7 +347,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
       }
     }
     do {
-      triggerRules = try TriggerStore(directory: endpoint.stateDirectory).load()
+      triggerRules = try TriggerStore(directory: endpoint.stateDirectory).load().map { rule in
+        var rule = rule
+        if rule.focusControlled { rule.enabled = false }
+        return rule
+      }
     } catch { loadMessage = "Couldn't load triggers: \(error.localizedDescription)" }
     preferences = loadedSettings
     historyWasEnabled = loadedSettings.historyEnabled
@@ -358,7 +377,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
       batteryFloorIgnoresAC: loadedSettings.batteryFloorIgnoresAC)
     settingsRecoveryIssue = recoveryIssue
     message = loadMessage
-    self.closedLid.onChange = { [weak self] in self?.onChange?() }
+    self.closedLid.onChange = { [weak self] in
+      self?.syncLiveRevertFailure()
+      self?.onChange?()
+    }
     self.closedLid.onEnded = { [weak self] reason in
       guard let self, !self.stopped else { return }
       self.resetTriggerLidArming()
@@ -508,7 +530,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public func handleSystemTransition(_ transition: SystemTransition) {
     switch transition {
     case .sleep:
-      guard settings.stopOnSystemSleep else { return }
+      engine.cancelLeaving()
+      guard settings.stopOnSystemSleep else {
+        commit(saveState: false)
+        return
+      }
       mutate { $0.stopAll(reason: .sleep) }
     case .userSwitch:
       guard settings.stopOnUserSwitch else { return }
@@ -678,6 +704,42 @@ public struct AppSettings: Codable, Equatable, Sendable {
     } catch { message = error.localizedDescription }
     onChange?()
   }
+  public func leaveWhenIdle() throws {
+    guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
+    engine.leaveWhenIdle()
+    guard commit(saveState: false) else {
+      cancelLeaving()
+      throw InputError(message ?? "Couldn't arm sleep when idle.")
+    }
+  }
+  public func cancelLeaving() {
+    engine.cancelLeaving()
+    commit(saveState: false)
+  }
+  private func queueLeavingSleep() {
+    guard leavingTask == nil else { return }
+    leavingTask = Task { [weak self] in
+      guard let self else { return }
+      defer { leavingTask = nil }
+      do {
+        try await synchronizeClosedLid()
+        try Task.checkCancellation()
+        guard !stopped, !preparingToQuit, !updater.blocksNewWork,
+          settingsRecoveryIssue == nil, !closedLid.busy, !closedLid.pendingEnable
+        else {
+          cancelLeaving()
+          return
+        }
+        guard engine.takeLeavingSleepRequest(now: leavingClock()) else { return }
+        try requestSleep()
+      } catch {
+        guard !Task.isCancelled, !stopped else { return }
+        engine.cancelLeaving()
+        message = "Couldn't sleep when idle: \(error.localizedDescription)"
+      }
+      commit(saveState: false)
+    }
+  }
   public func refreshClosedLidPermission() {
     guard !closedLidPermission.busy else { return }
     Task { [weak self] in
@@ -690,6 +752,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     guard !stopped else { return true }
     guard !preparingToQuit else { return false }
     preparingToQuit = true
+    engine.cancelLeaving()
     resetTriggerLidArming()
     defer { preparingToQuit = false }
     engine.clearClosedLidRequests()
@@ -714,6 +777,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       return false
     }
     preparingToQuit = true
+    engine.cancelLeaving()
     resetTriggerLidArming()
     defer { preparingToQuit = false }
     do {
@@ -773,6 +837,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       return false
     }
     preparingToQuit = true
+    engine.cancelLeaving()
     resetTriggerLidArming()
     defer { preparingToQuit = false }
     let handoff = PackageHandoffStore(directory: endpoint.stateDirectory)
@@ -879,6 +944,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       synchronizeAssertions()
       recordHistory()
     }
+    if engine.leavingSleepReady(now: leavingClock()) { queueLeavingSleep() }
     onChange?()
   }
   public func control(
@@ -887,13 +953,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
     guard !stopped, !preparingToQuit else {
       return ControlResponse(ok: false, message: "Dilated is quitting.", code: "unavailable")
     }
-    if updater.blocksNewWork, ![.status, .stopAll, .release].contains(request.action) {
+    if updater.blocksNewWork,
+      ![.status, .stopAll, .release, .cancelLeaving].contains(request.action)
+    {
       return ControlResponse(
         ok: false, message: "Dilated is installing an update.", code: "unavailable")
     }
     if settingsRecoveryIssue != nil,
       ![
-        .status, .stopAll, .release, .helperStatus, .helperRemove, .prepareUpdate,
+        .status, .stopAll, .release, .cancelLeaving, .helperStatus, .helperRemove, .prepareUpdate,
         .prepareUninstall, .lidPermissionStatus, .lidPermissionRemove,
       ]
       .contains(request.action)
@@ -927,6 +995,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     effective.lowPowerOverride = request.lowPowerOverride || settings.overrideLowPower
     var response = ControlRouter.handle(effective, engine: &engine, origin: origin)
     if !commit() {
+      if request.action == .leaving { cancelLeaving() }
       response.ok = false
       response.message = message
       response.code = "systemFailure"
@@ -950,6 +1019,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       }
     }
     response.snapshot = engine.snapshot
+    response.leavingPending = engine.leavingPending
     response.helper = closedLid.state
     if request.action == .status { response.appPID = ProcessInfo.processInfo.processIdentifier }
     if response.ok, request.action == .status, settingsRecoveryIssue != nil {
@@ -1026,12 +1096,37 @@ public struct AppSettings: Codable, Equatable, Sendable {
   }
   public func restoreNormalSleep() async {
     #if MAS_CHANNEL
-      _ = await closedLidPermission.restoreNormalSleep()
+      let restored = await closedLidPermission.restoreNormalSleep() == .done
     #else
-      if await closedLidPermission.restoreNormalSleep() == .done { helperMigration.sleepRestored() }
+      let restored = await closedLidPermission.restoreNormalSleep() == .done
+      if restored { helperMigration.sleepRestored() }
     #endif
+    // The service may still hold a failed state from before the restore until its next tick, so
+    // ignore anything it built earlier than this.
+    if restored { restoredAtSequence = closedLid.state?.sequence ?? 0 }
     message = closedLidPermission.lastError
+    syncLiveRevertFailure()
     onChange?()
+  }
+
+  /// A live session's revert that macOS hasn't confirmed: the service is retrying, and the user
+  /// gets Restore normal sleep and an alert. Sleep another app disabled isn't ours to restore.
+  private func syncLiveRevertFailure() {
+    let failure: String? = {
+      guard let state = closedLid.state, state.phase == .failed, !state.foreignSleepDisabled,
+        !state.readback.confirmedDisabled, state.sequence > restoredAtSequence
+      else { return nil }
+      return state.message ?? "macOS hasn't confirmed normal sleep."
+    }()
+    closedLidPermission.setLiveRevertFailure(failure)
+    guard let failure else {
+      sleepRestoreAlertRaised = false
+      return
+    }
+    guard !sleepRestoreAlertRaised else { return }
+    sleepRestoreAlertRaised = true
+    // Outside the controller's callback so a modal alert can't re-enter its snapshot drain.
+    Task { @MainActor [weak self] in self?.onSleepRestoreFailed?(failure) }
   }
   /// `dilated helper ...` is kept one release as an alias of `lid-permission`.
   private func controlHelper(_ action: ControlAction) async -> ControlResponse {
@@ -1064,6 +1159,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
   public func shutdown() {
     guard !stopped else { return }
     stopped = true
+    leavingTask?.cancel()
+    leavingTask = nil
     resetTriggerLidArming()
     triggerLidTask?.cancel()
     triggerMonitor?.stop()
@@ -1147,14 +1244,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
     driveAlive.configure(
       settings.driveAlive, awake: applied && !engine.holds.isEmpty, paused: engine.automationPaused)
     if resetClosedLid { queueClosedLidReset() }
-    if !engine.holds.isEmpty && timer == nil && !stopped {
+    if (!engine.holds.isEmpty || engine.leavingPending) && timer == nil && !stopped {
       let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
         MainActor.assumeIsolated { self?.tick() }
       }
       timer.tolerance = 0.1
       RunLoop.main.add(timer, forMode: .common)
       self.timer = timer
-    } else if engine.holds.isEmpty {
+    } else if engine.holds.isEmpty && !engine.leavingPending {
       timer?.invalidate()
       timer = nil
     }
@@ -1517,19 +1614,17 @@ public struct AppSettings: Codable, Equatable, Sendable {
     else {
       throw InputError("Enable this trigger and its closed-lid option first.")
     }
-    try await requireClosedLidSetup()
     armingClosedLidTrigger = id
     let revision = triggerLidRevision
     defer {
       armingClosedLidTrigger = nil
       onChange?()
     }
+    try await requireClosedLidSetup()
+    try requireCurrentTriggerArm(id: id, rule: rule, revision: revision)
     try confirmClosedLidBatteryWarning(allowPrompt: true)
     try await closedLid.refresh()
-    guard !Task.isCancelled, revision == triggerLidRevision, !stopped, !preparingToQuit,
-      !updater.blocksNewWork, !engine.automationPaused, settings.triggersEnabled,
-      triggerRules.first(where: { $0.id == id }) == rule
-    else { throw CancellationError() }
+    try requireCurrentTriggerArm(id: id, rule: rule, revision: revision)
     guard closedLid.state?.ready == true else {
       throw InputError(
         "Closed-lid isn't ready. Check Closed Lid settings before arming a trigger.")
@@ -1544,6 +1639,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
     guard armedClosedLidTriggers.contains(id) else {
       throw InputError(message ?? "Closed-lid disarmed. Arm this trigger again to continue.")
     }
+  }
+  private func requireCurrentTriggerArm(id: UUID, rule: TriggerRule, revision: UUID) throws {
+    guard !Task.isCancelled, revision == triggerLidRevision, !stopped, !preparingToQuit,
+      !updater.blocksNewWork, !engine.automationPaused, settings.triggersEnabled,
+      triggerRules.first(where: { $0.id == id }) == rule
+    else { throw CancellationError() }
   }
   public func disarmClosedLidTrigger(id: UUID) async throws {
     resetTriggerLidArming(ids: [id])
@@ -1641,6 +1742,17 @@ public struct AppSettings: Codable, Equatable, Sendable {
     try writeTriggers(rules)
     refreshTriggers()
   }
+  /// Saves a rule from the editor sheet. The editor works on a copy taken when it opened and has no
+  /// control for `enabled`, so Focus (or a row toggle) may have changed `enabled` and
+  /// `focusControlled` since. Those two come from the stored rule; everything else is the editor's.
+  public func saveEditedTrigger(_ rule: TriggerRule) throws {
+    var merged = rule
+    if let stored = triggerRules.first(where: { $0.id == rule.id }) {
+      merged.enabled = stored.enabled
+      merged.focusControlled = stored.focusControlled
+    }
+    try saveTrigger(merged)
+  }
   public func resumeTrigger(id: UUID) {
     guard var rule = triggerRules.first(where: { $0.id == id }) else { return }
     rule.enabled = true
@@ -1657,6 +1769,31 @@ public struct AppSettings: Codable, Equatable, Sendable {
       reconcileTriggers(lastTriggerInputs)
       refreshTriggers()
     } catch { message = error.localizedDescription }
+  }
+  func applyFocusRule(id: UUID?) throws {
+    guard allowNewWork() else { throw InputError(message ?? "Dilated is unavailable.") }
+    var rules = triggerRules
+    for index in rules.indices where rules[index].focusControlled {
+      rules[index].enabled = false
+      rules[index].focusControlled = false
+    }
+    let disabled = rules
+    let selected = id.flatMap { id in rules.firstIndex { $0.id == id } }
+    if let selected {
+      rules[selected].enabled = true
+      rules[selected].focusControlled = true
+    }
+    do {
+      try writeTriggers(rules)
+    } catch {
+      triggerRules = disabled
+      reconcileTriggers(lastTriggerInputs)
+      refreshTriggers()
+      throw error
+    }
+    reconcileTriggers(lastTriggerInputs)
+    refreshTriggers()
+    if id != nil, selected == nil { throw InputError("The Dilated Focus rule no longer exists.") }
   }
   private func writeTriggers(_ rules: [TriggerRule]) throws {
     try TriggerStore(directory: endpoint.stateDirectory).save(rules)

@@ -149,12 +149,110 @@ struct ClosedLidPermissionTests {
         == .failed("The administrator prompt timed out."))
   }
 
-  @Test func theProbeChecksBothPmsetCommands() {
+  @Test func theProbeReSetsTheCurrentValueWithoutPromptingOrCachedCredentials() {
     #expect(
-      ClosedLidPermission.probeArgumentSets == [
-        ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", "1"],
-        ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", "0"],
-      ])
+      ClosedLidPermission.probeArguments(current: true)
+        == ["-n", "-k", "/usr/bin/pmset", "-a", "disablesleep", "1"])
+    #expect(
+      ClosedLidPermission.probeArguments(current: false)
+        == ["-n", "-k", "/usr/bin/pmset", "-a", "disablesleep", "0"])
+  }
+
+  /// A stand-in for sudo. Listing succeeds for the directions in `listed`, but running the command
+  /// only succeeds when the rule is NOPASSWD.
+  private final class FakeSudo: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [[String]] = []
+    let runStatus: Int32
+    let timedOut: Bool
+    let listed: Set<String>
+
+    init(runStatus: Int32, timedOut: Bool = false, listed: Set<String> = ["0", "1"]) {
+      self.runStatus = runStatus
+      self.timedOut = timedOut
+      self.listed = listed
+    }
+
+    var executes: [[String]] { calls.filter { !$0.contains("-l") } }
+
+    var calls: [[String]] { lock.withLock { recorded } }
+
+    func run(_ arguments: [String]) async -> ProcessOutcome? {
+      lock.withLock { recorded.append(arguments) }
+      let listing = arguments.contains("-l")
+      let status = listing ? (listed.contains(arguments.last ?? "") ? 0 : 1) : runStatus
+      return ProcessOutcome(status: status, timedOut: timedOut, processID: 1)
+    }
+  }
+
+  private static func readback(_ value: Bool) -> ClosedLidReadback {
+    ClosedLidReadback(effectiveDisabled: value, storedDisabled: value)
+  }
+
+  @Test func aPasswordRequiredRuleReadsAsNotAllowed() async {
+    let sudo = FakeSudo(runStatus: 1)
+    let allowed = await ClosedLidPermission.probe(
+      readCurrent: { Self.readback(false) }, run: sudo.run)
+    #expect(!allowed)
+    #expect(sudo.executes.count == 1)
+  }
+
+  @Test func theListingChecksCoverBothDirectionsWithoutPrompting() {
+    #expect(
+      ClosedLidPermission.listingArguments(disabled: false)
+        == ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", "0"])
+    #expect(
+      ClosedLidPermission.listingArguments(disabled: true)
+        == ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", "1"])
+  }
+
+  @Test func aRuleListingOnlyOneDirectionReadsAsNotAllowedAndNeverExecutes() async {
+    for listed in [Set(["1"]), Set(["0"]), Set<String>()] {
+      let sudo = FakeSudo(runStatus: 0, listed: listed)
+      let allowed = await ClosedLidPermission.probe(
+        readCurrent: { Self.readback(false) }, run: sudo.run)
+      #expect(!allowed, "\(listed)")
+      #expect(sudo.executes.isEmpty, "\(listed)")
+    }
+  }
+
+  @Test func aPasswordlessRuleReadsAsAllowedAndUsesTheCurrentValue() async {
+    for current in [false, true] {
+      let sudo = FakeSudo(runStatus: 0)
+      let allowed = await ClosedLidPermission.probe(
+        readCurrent: { Self.readback(current) }, run: sudo.run)
+      #expect(allowed)
+      #expect(
+        sudo.calls == [
+          ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", "0"],
+          ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", "1"],
+          ["-n", "-k", "/usr/bin/pmset", "-a", "disablesleep", current ? "1" : "0"],
+        ])
+      #expect(sudo.executes.allSatisfy { $0.contains("-n") && $0.contains("-k") })
+    }
+  }
+
+  @Test func anUnreadableOrDisagreeingValueReadsAsNotAllowedWithoutRunningSudo() async {
+    let unreadable = [
+      ClosedLidReadback(),
+      ClosedLidReadback(effectiveDisabled: nil, storedDisabled: true),
+      ClosedLidReadback(effectiveDisabled: false, storedDisabled: nil),
+      ClosedLidReadback(effectiveDisabled: true, storedDisabled: false),
+      ClosedLidReadback(effectiveDisabled: false, storedDisabled: true),
+    ]
+    for readback in unreadable {
+      let sudo = FakeSudo(runStatus: 0)
+      let allowed = await ClosedLidPermission.probe(readCurrent: { readback }, run: sudo.run)
+      #expect(!allowed, "\(readback)")
+      #expect(sudo.executes.isEmpty, "\(readback)")
+    }
+  }
+
+  @Test func aTimedOutOrUnlaunchableProbeReadsAsNotAllowed() async {
+    let slow = FakeSudo(runStatus: 0, timedOut: true)
+    #expect(!(await ClosedLidPermission.probe(readCurrent: { Self.readback(true) }, run: slow.run)))
+    #expect(
+      !(await ClosedLidPermission.probe(readCurrent: { Self.readback(true) }, run: { _ in nil })))
   }
 
   @Test func theOsascriptRunnerMapsExitStatusAndStderr() async {
@@ -172,6 +270,23 @@ struct ClosedLidPermissionTests {
         == .failed("The administrator command couldn't start."))
     #expect(
       await run("exec sleep 5", timeout: 0.3) == .failed("The administrator prompt timed out."))
+  }
+
+  @Test(.timeLimit(.minutes(1)))
+  func theOsascriptRunnerReturnsPromptlyForFastAndTimedOutChildren() async {
+    let clock = ContinuousClock()
+    let fast = await clock.measure {
+      let outcome = await OsascriptAdminRunner.execute(
+        executable: URL(fileURLWithPath: "/usr/bin/true"), arguments: [], timeout: 30)
+      #expect(outcome == .succeeded)
+    }
+    #expect(fast < .seconds(5))
+    let slow = await clock.measure {
+      let outcome = await OsascriptAdminRunner.execute(
+        executable: URL(fileURLWithPath: "/bin/sleep"), arguments: ["30"], timeout: 0.3)
+      #expect(outcome == .failed("The administrator prompt timed out."))
+    }
+    #expect(slow < .seconds(10))
   }
 
   @Test func theAdminPromptBoundIsFiveMinutes() {
