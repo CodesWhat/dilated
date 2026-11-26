@@ -18,17 +18,20 @@ import Observation
   @ObservationIgnored private let readRecovery:
     @MainActor () async -> ClosedLidSessionGuard.Recovery
   @ObservationIgnored private let acknowledgeRestore: @MainActor () async -> Bool
+  @ObservationIgnored private let masRestoreRunner: any PowerCommandRunning
 
   public init(
     permission: ClosedLidPermission = ClosedLidPermission(),
     scriptPermission: ClosedLidScriptPermission = ClosedLidScriptPermission(),
     recovery: @escaping @MainActor () async -> ClosedLidSessionGuard.Recovery = { .notChecked },
-    acknowledgeRestore: @escaping @MainActor () async -> Bool = { false }
+    acknowledgeRestore: @escaping @MainActor () async -> Bool = { false },
+    masRestoreRunner: any PowerCommandRunning = UserScriptPowerRunner()
   ) {
     self.permission = permission
     self.scriptPermission = scriptPermission
     readRecovery = recovery
     self.acknowledgeRestore = acknowledgeRestore
+    self.masRestoreRunner = masRestoreRunner
   }
 
   public enum Result: Equatable, Sendable { case done, cancelled, failed }
@@ -103,7 +106,7 @@ import Observation
     #if MAS_CHANNEL
       // The sandboxed build can't show an admin prompt; the installed script does the revert.
       do {
-        try await UserScriptPowerRunner().run(.setSleepDisabled(false))
+        try await masRestoreRunner.run(.setSleepDisabled(false))
         return .succeeded
       } catch {
         return .failed(error.localizedDescription)
