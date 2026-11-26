@@ -19,7 +19,9 @@
 #   busy      1   (on, probe) the lock stayed taken for about a second; any word but ok is a refusal to build 18
 #   begin-removal (companion only) takes the lock, writes the removal marker and, only when a session
 #                 file exists, latches "restore pending" and turns sleep back on (ok; none when
-#                 nothing was ours). The session stays. The latch survives off and repair, so a
+#                 nothing was ours). Before it restores anything it waits, still holding the lock, for
+#                 any `on` already running from this script's path to give up (an old script's
+#                 shell never checks the marker). The session stays. The latch survives off and repair, so a
 #                 retry after they deleted the session still answers ok and needs the readback.
 #   finish-removal (companion only) deletes the session, tombstone and latch once the companion has
 #                 seen sleep read back normal.
@@ -66,6 +68,9 @@ test_launchctl=""
 test_clock=""
 test_sleepdisabled="__real__"
 test_stored="__same__"
+test_on_match=""
+test_gate=""
+in_checkout=0
 self=${BASH_SOURCE[0]}
 case "$self" in
   */*) self_dir=${self%/*} ;;
@@ -81,9 +86,23 @@ if self_dir=$(cd "$self_dir" 2>/dev/null && pwd -P); then
         test_clock=${DILATED_POWER_TEST_CLOCK:-}
         test_sleepdisabled=${DILATED_POWER_TEST_SLEEPDISABLED-__real__}
         test_stored=${DILATED_POWER_TEST_STORED_SLEEPDISABLED-__same__}
+        test_on_match=${DILATED_POWER_TEST_ON_MATCH:-}
+        test_gate=${DILATED_POWER_TEST_GATE:-}
+        in_checkout=1
       fi
       ;;
   esac
+fi
+
+# What an already-running `on` looks like in the process table. From a checkout only the test hook
+# names one, so tests running the repo script side by side never wait on each other.
+on_match=""
+on_match_raw=""
+if [ "$in_checkout" -eq 1 ]; then
+  on_match=$test_on_match
+elif [ -n "$self_dir" ]; then
+  on_match="$self_dir/${self##*/} on "
+  on_match_raw="$self on "
 fi
 
 stale_after=120
@@ -326,6 +345,45 @@ stored_sleep_disabled() {
   esac
 }
 
+# 0 when a shell is running `dilated-power on <pid>` from this script's path, 1 when none is, 2 when
+# the process table can't be read.
+on_shells_running() {
+  local listing line
+  [ -n "$on_match" ] || return 1
+  listing=$(/bin/ps -axww -o command= 2>/dev/null) || return 2
+  while IFS= read -r line; do
+    case "$line" in
+      *"$on_match"[0-9]*) return 0 ;;
+    esac
+    [ -z "$on_match_raw" ] || case "$line" in
+      *"$on_match_raw"[0-9]*) return 0 ;;
+    esac
+  done <<<"$listing"
+  return 1
+}
+
+# Waits, still holding the lock, until no `on` started before this removal is left. Replacing the
+# script doesn't stop a shell that already runs the old text (build 18's `on` never checks the
+# removal marker), and one parked on the lock would otherwise take it the moment begin-removal
+# exits and enable sleep after the restore. While the lock is held it can only keep retrying, and
+# build 18's loop gives up after 50 tries, a bit over 5 seconds. Gives up on an unreadable process
+# table after the same window, and fails when a shell is still there after 12 seconds.
+drain_legacy_on() {
+  local polls=0 status
+  [ -n "$on_match" ] || return 0
+  while :; do
+    status=0
+    on_shells_running || status=$?
+    [ "$status" -ne 1 ] || return 0
+    if [ "$polls" -ge 60 ]; then
+      [ "$status" -eq 2 ] && return 0
+      return 1
+    fi
+    polls=$((polls + 1))
+    /bin/sleep 0.2
+  done
+}
+
 run_pmset() {
   local status=0 detail
   detail=$(run_sudo /usr/bin/pmset -a disablesleep "$1") || status=$?
@@ -402,6 +460,19 @@ case "$verb" in
     }
     # The marker goes down first, so a failed pmset still leaves new enables blocked.
     write_atomic "$removal_file" "removing" || {
+      echo failed
+      exit 1
+    }
+    if [ -n "$test_gate" ]; then
+      : >"$test_gate/locked"
+      gate_polls=0
+      while [ ! -e "$test_gate/go" ] && [ "$gate_polls" -lt 400 ]; do
+        gate_polls=$((gate_polls + 1))
+        /bin/sleep 0.05
+      done
+    fi
+    # Before sleep is restored, so an `on` from an older script can't enable it afterwards.
+    drain_legacy_on || {
       echo failed
       exit 1
     }

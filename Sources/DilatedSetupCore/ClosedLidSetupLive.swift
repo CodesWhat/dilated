@@ -189,7 +189,11 @@ public struct LivePowerScript: PowerScriptRunning {
   public init() {}
 
   public func beginRemoval(scriptPath: String) async throws -> Bool {
-    guard let result = await SetupProcess.run("/bin/bash", [scriptPath, "begin-removal"]) else {
+    // The script may wait out a legacy `on` that is queued on its lock (about 5s) before it restores.
+    guard
+      let result = await SetupProcess.run(
+        "/bin/bash", [scriptPath, "begin-removal"], timeout: 30)
+    else {
       throw ClosedLidSetupLiveError(message: "The script couldn't start.")
     }
     let word = result.output.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""

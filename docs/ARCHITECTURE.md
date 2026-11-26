@@ -436,14 +436,14 @@ admin prompt.
 
 The script takes one verb: `on <pid>` (exactly one argument, all digits, at most 10), or `beat`, `off`, `check`, `repair`,
 `probe`, `begin-removal`, `finish-removal` with no argument. Both removal verbs are the companion's. `begin-removal`, under
-the lock, writes the removal marker `~/Library/Application Support/dilated-power/removal` and, only when a `session` file
+the lock, writes the removal marker `~/Library/Application Support/dilated-power/removal`, waits (lock still held, up to 12s, `failed` after that) for any `dilated-power on` already running from the script's own path to exit, and, only when a `session` file
 exists (a tombstone or a plain marker never means ours), writes the restore-pending latch `restore-pending` next to it, runs
 `pmset -a disablesleep 0` and prints `ok`; with no session and no latch it prints `none` and leaves sleep alone. The session
 stays, so a retry still answers `ok`. The latch is separate from the marker and survives `off` and `repair`, which can delete
 the session before the readback passed: with only the latch left, `begin-removal` still answers `ok` (without running pmset
 again) so the companion keeps owing the readback. `finish-removal` deletes the session, tombstone and latch once the
 readback confirmed normal sleep. While the marker exists `on` and `probe` answer `noagent`; `off` and `repair` still
-work. `on` and `probe` also require `launchctl print gui/<uid>/com.codeswhat.dilated.closed-lid-repair` to succeed (bounded to
+work. The wait covers an `on` from an older script (build 18's never reads the marker), which a replaced script file doesn't stop and which gives up after about 5s of lock retries; while the lock is held it can't enable. `on` and `probe` also require `launchctl print gui/<uid>/com.codeswhat.dilated.closed-lid-repair` to succeed (bounded to
 1s). `on` checks the marker before the lock, waits at most 1.5s for it, and checks that wall-clock cap again after a successful acquisition, releasing the lock when it has passed (`busy`, exit 1; build 18 refuses any word but `ok`),
 and re-checks the marker and the agent under it before `pmset 1`. Anything else prints `usage` to stderr and exits 64. It uses absolute paths, runs
 `/usr/bin/env -i /usr/bin/sudo -n`, and reads only `HOME`. `probe` reads the current `SleepDisabled` and runs `sudo -n -k pmset -a disablesleep <current>`, a no-op that only a NOPASSWD rule lets through, rather than `sudo -l`, which also succeeds for a password-required rule.
