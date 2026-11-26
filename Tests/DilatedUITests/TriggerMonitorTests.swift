@@ -102,6 +102,7 @@
       let probe = ScanProbe([Self.fake(900_004, "make")])
       var monitor: TriggerMonitor?
       var changes = 0
+      var guardedCallbacks = 0
       // The 5 second poll timer can also fire `changed` and queue its own follow-up scan on a loaded
       // machine, so compare the started-scan count around the read itself instead of counting every scan.
       var scansStartedByRead = 0
@@ -113,6 +114,7 @@
           // Only callbacks fired while a scan result is applied are under test. The poll timer
           // calls `changed` too, and a read from that callback legitimately starts a scan.
           guard monitor?.applyingScan == true else { return }
+          guardedCallbacks += 1
           let before = monitor?.scansStarted ?? 0
           _ = monitor?.read()
           scansStartedByRead += (monitor?.scansStarted ?? 0) - before
@@ -121,8 +123,9 @@
       monitor?.configure(rules: [TriggerRule(name: "Make", criteria: [.process(name: "make")])])
       _ = monitor?.read()
       probe.release()
-      try await settle { changes >= 1 }
+      try await settle { guardedCallbacks >= 1 }
       try await Task.sleep(for: .milliseconds(100))
+      #expect(guardedCallbacks >= 1)
       #expect(scansStartedByRead == 0)
       probe.release()
       probe.release()
