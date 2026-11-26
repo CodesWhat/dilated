@@ -203,13 +203,18 @@ clock() {
 # moved turns out to be fresh (the lock was replaced between the staleness check and the rename),
 # it goes back and the caller retries.
 steal_lock() {
-  local grave="$session_dir/lock.stale.$$" modified
+  local grave="$session_dir/lock.stale.$lock_owner" modified
   /bin/mv "$lock_dir" "$grave" 2>/dev/null || return 0
   modified=$(/usr/bin/stat -f %m "$grave" 2>/dev/null || echo 0)
   if [ $(($(clock) - modified)) -gt 60 ]; then
     /bin/rm -rf "$grave"
   else
-    /bin/mv "$grave" "$lock_dir" 2>/dev/null || /bin/rm -rf "$grave"
+    # Never rename onto an existing lock.d: mv would nest the grave inside the new holder's lock.
+    if [ -e "$lock_dir" ]; then
+      /bin/rm -rf "$grave"
+    else
+      /bin/mv "$grave" "$lock_dir" 2>/dev/null || /bin/rm -rf "$grave"
+    fi
   fi
 }
 
