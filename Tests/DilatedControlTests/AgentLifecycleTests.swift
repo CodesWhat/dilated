@@ -219,4 +219,42 @@ struct AgentLifecycleTests {
         agent: String(repeating: "a", count: 32), run: String(repeating: "r", count: 64))
     }
   }
+
+  @Test func pruneStaleRemovesOnlyDeadOldRunState() throws {
+    let state = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "agent-prune-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: state) }
+    let lifecycle = AgentLifecycle(stateDirectory: state) { _ in ControlResponse(ok: true) }
+    let dir = lifecycle.directory
+    let fm = FileManager.default
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    let now = Date()
+    let old = now.addingTimeInterval(-3 * AgentLifecycle.staleSeconds)
+    func put(_ name: String, _ data: Data, mtime: Date) throws {
+      let url = dir.appendingPathComponent(name)
+      try data.write(to: url)
+      try fm.setAttributes([.modificationDate: mtime], ofItemAtPath: url.path)
+    }
+    func record(_ renewed: Date) throws -> Data {
+      try WireJSON.encode(AgentRunRecord(holdID: UUID(), lastRenew: renewed))
+    }
+    func exists(_ name: String) -> Bool {
+      fm.fileExists(atPath: dir.appendingPathComponent(name).path)
+    }
+    try put("claude.dead.json", record(old), mtime: old)
+    try put("claude.dead.lock", Data(), mtime: old)
+    try put("claude.orphan.lock", Data(), mtime: old)
+    try put("claude.fresh.json", record(now), mtime: now)
+    try put("claude.fresh.lock", Data(), mtime: now)
+    try put("claude.newlock.lock", Data(), mtime: now)
+    lifecycle.pruneStale(now: now)
+    #expect(!exists("claude.dead.json"))
+    #expect(!exists("claude.orphan.lock"))
+    #expect(exists("claude.fresh.json"))
+    #expect(exists("claude.fresh.lock"))
+    #expect(exists("claude.newlock.lock"))
+    // The dead run's lock goes on the next pass, once its record is gone.
+    lifecycle.pruneStale(now: now)
+    #expect(!exists("claude.dead.lock"))
+  }
 }

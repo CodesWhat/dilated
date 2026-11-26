@@ -47,11 +47,12 @@ import Testing
     #expect(
       await model.prepareForPackage(
         .uninstall, app: app, removeLoginItem: { operations.append("login") },
-        removeCommandLine: { operations.append("cli") }))
+        removeCommandLine: { operations.append("cli") },
+        removeAgentHooks: { operations.append("hooks") }))
     #if MAS_CHANNEL
       #expect(operations == ["login"])
     #else
-      #expect(operations == ["login", "cli"])
+      #expect(operations == ["login", "hooks", "cli"])
     #endif
     #expect(model.history.records.first?.endReason?.rawValue == "packageRemoval")
     #expect(try StateStore(directory: directory).load().holds.isEmpty)
@@ -69,7 +70,7 @@ import Testing
     #expect(
       !(await model.prepareForPackage(
         .uninstall, app: app, removeLoginItem: { throw InputError("login removal failed") },
-        removeCommandLine: {})))
+        removeCommandLine: {}, removeAgentHooks: {})))
     #expect(model.engine.holds.count == 1)
     #expect(model.message?.contains("login removal failed") == true)
     #expect(throws: (any Error).self) {
@@ -85,7 +86,8 @@ import Testing
     defer { model.shutdown() }
     #expect(
       await model.prepareForPackage(
-        .uninstall, app: app, removeLoginItem: {}, removeCommandLine: {}))
+        .uninstall, app: app, removeLoginItem: {}, removeCommandLine: {},
+        removeAgentHooks: {}))
     #expect(world.scripts.isEmpty && world.installed)
     #if MAS_CHANNEL
       #expect(model.message?.contains("Dilated Closed-Lid Setup") == true)
@@ -105,7 +107,8 @@ import Testing
     defer { model.shutdown() }
     #expect(
       await model.prepareForPackage(
-        .uninstall, app: app, removeLoginItem: {}, removeCommandLine: {}))
+        .uninstall, app: app, removeLoginItem: {}, removeCommandLine: {},
+        removeAgentHooks: {}))
     #if MAS_CHANNEL
       #expect(!permission.canRemove)
       #expect(model.message?.contains("dilated lid-permission remove") == false)
@@ -150,7 +153,7 @@ import Testing
     #expect(
       !(await model.prepareForPackage(
         .uninstall, app: app, removeLidPermission: true, removeLoginItem: {},
-        removeCommandLine: {})))
+        removeCommandLine: {}, removeAgentHooks: {})))
     #expect(model.engine.holds.count == 1 && world.installed)
     #expect(throws: (any Error).self) {
       try PackageHandoffStore(directory: directory).requirePrepared(app: app)

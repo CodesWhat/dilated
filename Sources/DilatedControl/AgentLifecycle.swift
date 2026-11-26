@@ -173,12 +173,30 @@ public struct AgentLifecycle {
   ) async throws -> T {
     try FileManager.default.createDirectory(
       at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-    let descriptor = open(file(command, suffix: "lock").path, O_CREAT | O_RDWR, 0o600)
-    guard descriptor >= 0 else { throw InputError("Couldn't open the agent run lock.") }
-    defer { close(descriptor) }
-    guard flock(descriptor, LOCK_EX) == 0 else {
-      throw InputError("Couldn't lock the agent run state.")
+    let path = file(command, suffix: "lock").path
+    var descriptor: Int32 = -1
+    // pruneStale may unlink a lock file between our open and flock. Re-check the path still
+    // names the inode we locked, or two runs could hold "the same" lock on different files.
+    for _ in 0..<5 {
+      let candidate = open(path, O_CREAT | O_RDWR, 0o600)
+      guard candidate >= 0 else { throw InputError("Couldn't open the agent run lock.") }
+      guard flock(candidate, LOCK_EX) == 0 else {
+        close(candidate)
+        throw InputError("Couldn't lock the agent run state.")
+      }
+      var held = stat()
+      var named = stat()
+      if fstat(candidate, &held) == 0, stat(path, &named) == 0, held.st_ino == named.st_ino,
+        held.st_dev == named.st_dev
+      {
+        descriptor = candidate
+        break
+      }
+      flock(candidate, LOCK_UN)
+      close(candidate)
     }
+    guard descriptor >= 0 else { throw InputError("Couldn't lock the agent run state.") }
+    defer { close(descriptor) }
     defer { flock(descriptor, LOCK_UN) }
     return try await body()
   }
@@ -220,10 +238,60 @@ public struct AgentLifecycle {
     try? save(record, for: command)
   }
 
+  /// Records and lock files untouched this long belong to runs that are long gone.
+  public static let staleSeconds: TimeInterval = 86_400
+
+  /// Removes agent state for dead runs. A record goes when it is older than `staleSeconds` and
+  /// its renewer isn't alive; a lock file goes when it has no record, is that old, and nobody
+  /// holds it. `keeping` is the current run's files. Best effort: failures leave files behind.
+  public func pruneStale(now: Date = Date(), keeping: AgentCommand? = nil) {
+    let fm = FileManager.default
+    guard
+      let urls = try? fm.contentsOfDirectory(
+        at: directory, includingPropertiesForKeys: [.contentModificationDateKey])
+    else { return }
+    let keep = Set(
+      keeping.map { [file($0).lastPathComponent, file($0, suffix: "lock").lastPathComponent] }
+        ?? [])
+    func age(_ url: URL) -> TimeInterval {
+      let date =
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+        .contentModificationDate ?? now
+      return now.timeIntervalSince(date)
+    }
+    for url in urls where !keep.contains(url.lastPathComponent) {
+      switch url.pathExtension {
+      case "json":
+        guard age(url) > Self.staleSeconds,
+          let data = try? Data(contentsOf: url), data.count <= 4096,
+          let record = try? WireJSON.decode(AgentRunRecord.self, from: data),
+          now.timeIntervalSince(record.lastRenew) > Self.staleSeconds
+        else { continue }
+        if let pid = record.renewerPID, let started = record.renewerStartMicros,
+          pids.startMicros(pid) == started
+        {
+          continue
+        }
+        try? fm.removeItem(at: url)
+      case "lock":
+        let record = url.deletingPathExtension().appendingPathExtension("json")
+        guard age(url) > Self.staleSeconds, !fm.fileExists(atPath: record.path) else { continue }
+        let descriptor = open(url.path, O_RDWR)
+        guard descriptor >= 0 else { continue }
+        defer { close(descriptor) }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { continue }
+        try? fm.removeItem(at: url)
+        flock(descriptor, LOCK_UN)
+      default: continue
+      }
+    }
+  }
+
   public nonisolated(nonsending) func run(_ command: AgentCommand, now: Date = Date()) async throws
     -> ControlResponse
   {
     try await locked(command) {
+      if command.verb == .begin { pruneStale(now: now, keeping: command) }
       switch command.verb {
       case .begin:
         if let record = load(command) {
