@@ -189,6 +189,8 @@ import ViewInspector
         let strings = try settingsStrings(on: .automation, model: model)
         #expect(strings.contains("Allow automation links"))
         #expect(!strings.contains("Command line tool"))
+        #expect(!strings.contains { $0.contains("dilated hold") || $0.contains("dilated run") })
+        #expect(!strings.contains { $0.contains("Renew that ID") })
       }
 
       @Test func triggerEditorOffersNoProcessKind() throws {

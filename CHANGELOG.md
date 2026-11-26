@@ -6,6 +6,11 @@ All notable changes to Dilated are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The Mac App Store build's Automation settings no longer show command line examples for
+  a tool that build doesn't ship.
+
 ## [1.0.1] - 2026-11-24
 
 ### Added
