@@ -398,6 +398,46 @@ import Testing
     #expect(controller.localTransport != nil)
     #expect(!controller.hasLease)
   }
+
+  @Test func theLaunchWiringRevertsADeadSessionsMarker() async throws {
+    let runner = FakeSudoRunner()
+    await runner.setValue(.init(effectiveDisabled: true, storedDisabled: true))
+    let launch = ConfiguredLaunch(runner: runner, staleMarker: true)
+    defer { launch.cleanUp() }
+    launch.controller.localTransport?.startTicking()
+    await waitUntil { await launch.controller.localTransport?.recovery() == .reverted }
+    #expect(await runner.calls.contains(.setSleepDisabled(false)))
+    #expect(launch.store.read() == nil)
+    #expect(await runner.readback().confirmedDisabled)
+  }
+
+  @Test func theLaunchWiringLeavesAForeignDisableAloneWhenThereIsNoMarker() async throws {
+    let runner = FakeSudoRunner()
+    await runner.setValue(.init(effectiveDisabled: true, storedDisabled: true))
+    let launch = ConfiguredLaunch(runner: runner, staleMarker: false)
+    defer { launch.cleanUp() }
+    launch.controller.localTransport?.startTicking()
+    try await launch.controller.refresh()
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(await runner.calls.isEmpty)
+    #expect(launch.store.read() == nil)
+    #expect(!(await runner.readback().confirmedDisabled))
+  }
+
+  @Test func theLaunchWiringKeepsTheMarkerWhenTheRevertFails() async throws {
+    let runner = FakeSudoRunner()
+    await runner.setValue(.init(effectiveDisabled: true, storedDisabled: true))
+    await runner.deny()
+    let launch = ConfiguredLaunch(runner: runner, staleMarker: true)
+    defer { launch.cleanUp() }
+    launch.controller.localTransport?.startTicking()
+    await waitUntil {
+      guard case .failed = await launch.controller.localTransport?.recovery() else { return false }
+      return true
+    }
+    #expect(launch.store.read() != nil)
+    #expect(!(await runner.readback().confirmedDisabled))
+  }
 }
 
 private func blockMainActor(seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
@@ -462,6 +502,30 @@ private final class CountingLauncher: UserScriptLaunching, @unchecked Sendable {
   func run(arguments: [String]) async -> UserScriptRun {
     lock.withLock { runs += 1 }
     return .missing
+  }
+}
+
+/// The app's `ClosedLidController.configured` over a fake runner, with a marker in a temp directory.
+@MainActor private struct ConfiguredLaunch {
+  let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+    "lid-configured-\(UUID().uuidString)")
+  let store: ClosedLidMarkerStore
+  let controller: ClosedLidController
+  init(runner: FakeSudoRunner, staleMarker: Bool) {
+    store = ClosedLidMarkerStore(directory: directory)
+    if staleMarker {
+      try? store.write(
+        ClosedLidSessionMarker(
+          pid: 999_999, processStartMicros: 1_000, generation: UUID(),
+          enabledAt: Date(timeIntervalSince1970: 1)))
+    }
+    controller = ClosedLidController.configured(
+      stateDirectory: directory,
+      power: SerialPowerDriver(runner: runner, readback: { await runner.readback() }))
+  }
+  func cleanUp() {
+    controller.invalidate()
+    try? FileManager.default.removeItem(at: directory)
   }
 }
 
