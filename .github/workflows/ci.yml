@@ -99,12 +99,37 @@ jobs:
         run: |
           npm ci
           npx playwright test
+  # Reuse a verified green push run for the same tree (the promotion PR, the merge push to main) instead of repeating the
+  # macOS verify. reuse is 'true' only when a push run of this workflow recorded a receipt for an identical tree. It gates
+  # the macOS verify job only. The website job and the other workflows always run.
+  tree-receipt-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      statuses: read
+    outputs:
+      reuse: ${{ steps.receipt.outputs.reuse }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - id: receipt
+        uses: CodesWhat/.github/actions/tree-receipt/verify@b85ebce168f649bcd2fddf2ff0d433fb38e30866
   verify:
-    needs: changes
+    needs: [changes, tree-receipt-check]
     # Fail closed. A bare output check carries an implicit success(), so if `changes` fails, times
     # out or crashes, verify would be skipped, and a skipped job satisfies the required `verify`
-    # check. Run unless `changes` succeeded and said 'false' explicitly.
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.macos != 'false') }}
+    # check. Run unless `changes` succeeded and said 'false' explicitly. The same goes for the receipt:
+    # skip only when tree-receipt-check succeeded and said reuse=true. A skipped verify reports the
+    # same way the changes gate skip does, so the required `verify` check stays satisfied.
+    if: >-
+      ${{ !cancelled() &&
+      (needs.changes.result != 'success' || needs.changes.outputs.macos != 'false') &&
+      (needs.tree-receipt-check.result != 'success' || needs.tree-receipt-check.outputs.reuse != 'true') }}
     runs-on: macos-26
     timeout-minutes: 40
     steps:
@@ -142,3 +167,40 @@ jobs:
           files: .build/coverage/lcov.info
           disable_search: true
           fail_ci_if_error: false
+  # Final job on push runs: writes the receipt a later tree-receipt-check looks for. It records only when the macOS
+  # verify actually ran and passed, so a reused result is never re-recorded and its age never refreshed.
+  receipt:
+    needs: [changes, website, tree-receipt-check, verify]
+    # Push only: receipts come from push runs, so pull request runs never get a status-writing credential.
+    if: ${{ always() && github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - name: Fail on a failed job or an unverified skip
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          CHECK_RESULT: ${{ needs.tree-receipt-check.result }}
+          REUSE: ${{ needs.tree-receipt-check.outputs.reuse }}
+          MACOS: ${{ needs.changes.outputs.macos }}
+        run: |
+          # A skipped verify on push needs a verified reuse or an explicit macos=false from the push filter.
+          if [ "$VERIFY_RESULT" = skipped ] && [ "$MACOS" != false ] \
+              && { [ "$CHECK_RESULT" != success ] || [ "$REUSE" != true ]; }; then
+            echo "verify skipped without a verified reuse"; exit 1
+          fi
+          for result in $RESULTS; do
+            case "$result" in
+              success|skipped) ;;
+              *) echo "a needed job ended as $result"; exit 1 ;;
+            esac
+          done
+      - uses: actions/checkout@v4
+        if: ${{ needs.verify.result == 'success' && needs.website.result == 'success' }}
+        with:
+          persist-credentials: false
+      - uses: CodesWhat/.github/actions/tree-receipt/record@b85ebce168f649bcd2fddf2ff0d433fb38e30866
+        if: ${{ needs.verify.result == 'success' && needs.website.result == 'success' }}
