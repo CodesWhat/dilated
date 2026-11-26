@@ -30,14 +30,14 @@ import Testing
   let keepAwake: RunKeepAwake
   let managedID = UUID()
 
-  init(floor: Int? = nil) throws {
+  init(floor: Int? = nil, closedLid: Bool = false) throws {
     var local = WakeEngine(power: PowerState(), batteryFloor: floor)
     // Mirrors `dilated run`: an indefinite, local-only hold.
     _ = try local.start(source: .manual, label: "build", duration: nil, now: Date())
     let box = Box()
     keepAwake = RunKeepAwake(
       local: local, managedID: managedID, label: "build", displayAwake: false,
-      lowPowerOverride: false, assertions: assertions,
+      lowPowerOverride: false, closedLid: closedLid, assertions: assertions,
       environment: .init(
         now: { box.rig?.clock ?? Date() }, readPower: { box.rig?.power ?? PowerState() },
         send: { request in
@@ -78,6 +78,31 @@ import Testing
     #expect(rig.keepAwake.managedID == fresh)
     #expect(rig.sent.map(\.action) == [.renew, .runner])
     #expect(rig.reports.isEmpty)
+  }
+
+  @Test func aReleasedHoldIsNotRegisteredAgain() throws {
+    let rig = try Rig()
+    rig.replies = [
+      .success(ControlResponse(ok: false, message: "That hold has ended.", released: true))
+    ]
+    rig.keepAwake.refresh()
+    #expect(!rig.keepAwake.keepingAwake)
+    #expect(rig.sent.map(\.action) == [.renew])
+    #expect(rig.assertions.releases == 1)
+    #expect(rig.reports.count == 1)
+    #expect(rig.reports[0].contains("released"))
+  }
+
+  @Test func reRegisteringKeepsTheClosedLidRequest() throws {
+    let rig = try Rig(closedLid: true)
+    rig.replies = [.success(ControlResponse(ok: false, message: "gone"))]
+    rig.keepAwake.refresh()
+    #expect(rig.sent.map(\.action) == [.renew, .runner])
+    #expect(rig.sent[1].closedLid)
+    let plain = try Rig()
+    plain.replies = [.success(ControlResponse(ok: false, message: "gone"))]
+    plain.keepAwake.refresh()
+    #expect(!plain.sent[1].closedLid)
   }
 
   @Test func aStoppedRunIsReportedAndReleasedWithoutThrowing() throws {
