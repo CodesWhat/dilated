@@ -1178,6 +1178,27 @@ struct MASChannelRepairScriptTests {
     #expect(FileManager.default.fileExists(atPath: box.sessionFile.path))
   }
 
+  @Test func checkReadsLiveForASessionRecordedInLocalTimeByAnOlderScript() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    try FileManager.default.createDirectory(
+      at: box.sessionDirectory, withIntermediateDirectories: true)
+    let zone = "Pacific/Auckland"
+    let line = Process()
+    line.executableURL = URL(fileURLWithPath: "/bin/ps")
+    line.arguments = ["-o", "lstart=", "-p", String(child.processIdentifier)]
+    line.environment = ["LC_ALL": "C", "TZ": zone]
+    let pipe = Pipe()
+    line.standardOutput = pipe
+    try line.run()
+    let lstart = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    #expect(waitForExit(line), "ps did not exit.")
+    try "\(child.processIdentifier) \(lstart)\n".write(
+      to: box.sessionFile, atomically: true, encoding: .utf8)
+    #expect(try box.run(["check"], environment: ["TZ": zone]).out == "live")
+  }
+
   @Test func checkReadsDeadWhenThePidIsReusedWithAnotherStartTime() throws {
     let box = try Sandbox()
     let child = try box.spawnSleeper()
