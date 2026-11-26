@@ -91,9 +91,16 @@ import Foundation
     wake.signal()
     await service.start()
     let reply = await service.handle(request, owner: owner)
-    seen.record(reply.state)
     wake.signal()
     return reply
+  }
+
+  /// The controller calls this once it has applied a reply's state. A reply it dropped (an
+  /// invalidated or superseded request) is never recorded, so a later push of that state isn't
+  /// suppressed as already seen.
+  func acknowledge(_ state: HelperState) {
+    seen.record(state)
+    wake.signal()
   }
 
   /// What the launch-time check found. Slice 4's UI reads this to show a failed revert or a
