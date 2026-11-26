@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Builds the sandboxed Mac App Store bundle: DILATED_CHANNEL=mas, bundle ID com.codeswhat.dilated.appstore,
 # no Sparkle, no CLI, no helper. Mirrors scripts/build-app.sh (app shell from packaging/automation-shell).
-# Usage: scripts/build-mas.sh --output-dir DIR [--adhoc]
-#   --adhoc  sign with DILATED_SIGN_IDENTITY=- and skip the .pkg (no certificates needed).
+# Usage: scripts/build-mas.sh --output-dir DIR [--adhoc] [--candidate]
+#   --adhoc      sign with DILATED_SIGN_IDENTITY=- and skip the .pkg (no certificates needed). An
+#                ad-hoc bundle can't be submitted, so it skips the source checks below.
+#   --candidate  a really signed build from a clean tree without a release tag (cannot be submitted).
+# A really signed build, like scripts/package-release.py, needs a clean tree (untracked files
+# included) with HEAD on the exact tag v<CFBundleShortVersionString>.
 # Otherwise set DILATED_SIGN_IDENTITY (Apple Distribution), DILATED_INSTALLER_IDENTITY (Mac Installer
 # Distribution), DILATED_MAS_PROFILE and DILATED_MAS_CONTROL_PROFILE (host/extension
 # Mac App Store .provisionprofile paths), and DILATED_TEAM_ID.
@@ -12,9 +16,11 @@ root="$PWD"
 bundle_id="com.codeswhat.dilated.appstore"
 output_dir=""
 adhoc=false
+candidate=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --adhoc) adhoc=true; shift ;;
+        --candidate) candidate=true; shift ;;
         --output-dir) output_dir="${2:?--output-dir needs a path}"; shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -33,6 +39,20 @@ if [[ "$sign_as" != "-" ]]; then
     : "${DILATED_TEAM_ID:?DILATED_TEAM_ID is required with a real identity}"
     test -f "$DILATED_MAS_PROFILE"
     test -f "$DILATED_MAS_CONTROL_PROFILE"
+fi
+if [[ "$sign_as" != "-" ]]; then
+    if [[ -n "$(git status --porcelain)" ]]; then
+        echo "Release source must be clean, including untracked files." >&2
+        exit 1
+    fi
+    if ! $candidate; then
+        version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' packaging/Version.plist)"
+        tagged="$(git rev-parse --verify --quiet "refs/tags/v${version}^{commit}" || true)"
+        if [[ -z "$tagged" || "$tagged" != "$(git rev-parse HEAD)" ]]; then
+            echo "HEAD must match the exact release tag v${version} (use --candidate for an untagged build)." >&2
+            exit 1
+        fi
+    fi
 fi
 mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd -P)"
