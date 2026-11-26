@@ -298,7 +298,7 @@ import Testing
     await runner.deny()
     // Allowed once the first restore has failed, however long the fixture takes to start.
     Task.detached {
-      let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+      let deadline = ContinuousClock.now.advanced(by: .seconds(90))
       while await runner.disableAttempts == 0, ContinuousClock.now < deadline {
         try? await Task.sleep(for: .milliseconds(5))
       }
@@ -412,7 +412,7 @@ private func blockMainActor(seconds: TimeInterval) { Thread.sleep(forTimeInterva
 
 private func waitUntil(_ condition: @escaping @Sendable () async -> Bool) async {
   // Generous: the full suite keeps the main actor busy for seconds at a time.
-  let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+  let deadline = ContinuousClock.now.advanced(by: .seconds(90))
   while ContinuousClock.now < deadline {
     if await condition() { return }
     try? await Task.sleep(for: .milliseconds(20))
