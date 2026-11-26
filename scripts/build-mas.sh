@@ -6,7 +6,8 @@
 #                ad-hoc bundle can't be submitted, so it skips the source checks below.
 #   --candidate  a really signed build from a clean tree without a release tag (cannot be submitted).
 # A really signed build, like scripts/package-release.py, needs a clean tree (untracked files
-# included) with HEAD on the exact tag v<CFBundleShortVersionString>.
+# included) with HEAD on the exact tag v<CFBundleShortVersionString>, or on the build-specific tag
+# mas/v<CFBundleShortVersionString>-build<CFBundleVersion> for a rebuild after a rejected build.
 # Otherwise set DILATED_SIGN_IDENTITY (Apple Distribution), DILATED_INSTALLER_IDENTITY (Mac Installer
 # Distribution), DILATED_MAS_PROFILE and DILATED_MAS_CONTROL_PROFILE (host/extension
 # Mac App Store .provisionprofile paths), and DILATED_TEAM_ID.
@@ -47,9 +48,12 @@ if [[ "$sign_as" != "-" ]]; then
     fi
     if ! $candidate; then
         version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' packaging/Version.plist)"
+        build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' packaging/Version.plist)"
+        head_sha="$(git rev-parse HEAD)"
         tagged="$(git rev-parse --verify --quiet "refs/tags/v${version}^{commit}" || true)"
-        if [[ -z "$tagged" || "$tagged" != "$(git rev-parse HEAD)" ]]; then
-            echo "HEAD must match the exact release tag v${version} (use --candidate for an untagged build)." >&2
+        mas_tagged="$(git rev-parse --verify --quiet "refs/tags/mas/v${version}-build${build}^{commit}" || true)"
+        if [[ "$tagged" != "$head_sha" && "$mas_tagged" != "$head_sha" ]]; then
+            echo "HEAD must match the release tag v${version} or the build tag mas/v${version}-build${build} (use --candidate for an untagged build)." >&2
             exit 1
         fi
     fi
