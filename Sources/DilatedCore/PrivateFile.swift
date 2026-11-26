@@ -13,7 +13,13 @@ public enum PrivateFile {
       ".\(url.lastPathComponent).tmp.\(getpid()).\(UUID().uuidString.prefix(8))")
     guard
       manager.createFile(atPath: temp.path, contents: data, attributes: [.posixPermissions: 0o600])
-    else { throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: temp.path]) }
+    else {
+      // Report the destination, not the random temp name, so repeated failures read identically.
+      let denied = errno == EACCES || errno == EPERM || errno == EROFS
+      throw CocoaError(
+        denied ? .fileWriteNoPermission : .fileWriteUnknown,
+        userInfo: [NSFilePathErrorKey: url.path])
+    }
     do {
       // The umask may have stripped bits at creation.
       try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temp.path)
