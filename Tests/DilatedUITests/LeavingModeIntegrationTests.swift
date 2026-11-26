@@ -34,15 +34,15 @@ import Testing
     defer { fixture.close() }
     try fixture.model.leaveWhenIdle()
     fixture.model.tick()
-    fixture.clock += (4)
+    fixture.clock += 4
     fixture.model.tick()
     #expect(fixture.sleepRequests == 0)
-    fixture.clock += (1)
+    fixture.clock += 1
     fixture.model.tick()
     try await fixture.waitForRequest()
     #expect(!fixture.model.engine.leavingPending)
     #expect((fixture.model.message?.contains("Sleep refused") == true) == failSleep)
-    fixture.clock += (100)
+    fixture.clock += 100
     fixture.model.tick()
     #expect(fixture.sleepRequests == 1)
   }
@@ -52,7 +52,7 @@ import Testing
     defer { fixture.close() }
     try fixture.model.leaveWhenIdle()
     fixture.model.tick()
-    fixture.clock += (5)
+    fixture.clock += 5
     fixture.model.tick()
     fixture.model.shutdown()
     await Task.yield()
@@ -73,7 +73,7 @@ import Testing
     try fixture.model.leaveWhenIdle()
     fixture.model.handleSystemTransition(.sleep)
     #expect(!fixture.model.engine.leavingPending)
-    fixture.clock += (100)
+    fixture.clock += 100
     fixture.model.tick()
     #expect(fixture.sleepRequests == 0)
   }
@@ -99,7 +99,7 @@ import Testing
     try await model.synchronizeClosedLid()
     #expect(await power.sleepRequests == 1)
     #expect(!model.engine.leavingPending)
-    fixture.clock += (100)
+    fixture.clock += 100
     model.tick()
     #expect(fixture.sleepRequests == 0)
   }
