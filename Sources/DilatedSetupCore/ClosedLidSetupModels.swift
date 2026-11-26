@@ -40,6 +40,11 @@ public struct ClosedLidSetupPaths: Equatable, Sendable {
   public var stateDirectory: String {
     "\(home)/Library/Application Support/Dilated Closed-Lid Setup"
   }
+  /// The direct build's marker-store lock, which every closed-lid enable, restore and watchdog
+  /// revert holds. Setup runs unsandboxed as the user, so it reaches the same file the app does.
+  public var sessionLockFile: String {
+    "\(home)/Library/Application Support/Dilated/\(ClosedLidMarkerStore.lockFileName)"
+  }
   public var stateFile: String { "\(stateDirectory)/state.json" }
 }
 

@@ -62,14 +62,30 @@
     }
   }
 
+  private final class LockProbe: @unchecked Sendable {
+    private let state = NSLock()
+    private var _takes = 0
+    private var _held = false
+    var takes: Int { state.withLock { _takes } }
+    var isHeld: Bool { state.withLock { _held } }
+    func take() {
+      state.withLock {
+        _takes += 1
+        _held = true
+      }
+    }
+    func release() { state.withLock { _held = false } }
+  }
+
   @MainActor private func makeMigration(
     _ service: FakeHelperRegistration, _ world: MigrationWorld, _ directory: URL,
-    attempts: Int = 3
+    attempts: Int = 3,
+    lock: @escaping @Sendable () async throws -> @Sendable () -> Void = { {} }
   ) -> HelperMigration {
     HelperMigration(
       service: service, stateDirectory: directory, jobState: { world.readJob() },
       readPower: { world.readPower() }, hasSessionMarker: { world.marker },
-      revertSleep: { world.revert() }, sleep: { _ in }, jobAttempts: attempts)
+      lock: lock, revertSleep: { world.revert() }, sleep: { _ in }, jobAttempts: attempts)
   }
 
   private struct UnregisterFailure: LocalizedError {
@@ -200,6 +216,59 @@
       #expect(world.reverts == 1)
       #expect(migration.record?.outcome == .restoredSleep)
       #expect(world.readback.confirmedDisabled)
+    }
+
+    @Test func theRevertRunsUnderTheLockAndReleasesIt() async {
+      let directory = scratch()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let world = MigrationWorld(sleepDisabled: true)
+      let service = FakeHelperRegistration(status: .enabled)
+      service.onUnregister = { world.job = .absent }
+      let held = LockProbe()
+      let migration = HelperMigration(
+        service: service, stateDirectory: directory, jobState: { world.readJob() },
+        readPower: { world.readPower() }, hasSessionMarker: { world.marker },
+        lock: {
+          held.take()
+          return { held.release() }
+        },
+        revertSleep: {
+          #expect(held.isHeld)
+          return world.revert()
+        }, sleep: { _ in }, jobAttempts: 3)
+      await migration.run()
+      #expect(migration.record?.outcome == .restoredSleep)
+      #expect(held.takes == 1 && !held.isHeld)
+    }
+
+    @Test func aRevertThatCantTakeTheLockNeverWritesAndAsksForARestore() async {
+      struct Unavailable: Error {}
+      let directory = scratch()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let world = MigrationWorld(sleepDisabled: true)
+      let service = FakeHelperRegistration(status: .enabled)
+      service.onUnregister = { world.job = .absent }
+      let migration = makeMigration(service, world, directory, lock: { throw Unavailable() })
+      await migration.run()
+      #expect(world.reverts == 0)
+      #expect(migration.record?.outcome == .needsRestore)
+    }
+
+    @Test func aSessionThatStartsWhileWaitingForTheLockIsLeftAlone() async {
+      let directory = scratch()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let world = MigrationWorld(sleepDisabled: true)
+      let service = FakeHelperRegistration(status: .enabled)
+      service.onUnregister = { world.job = .absent }
+      let migration = makeMigration(
+        service, world, directory,
+        lock: {
+          world.marker = true
+          return {}
+        })
+      await migration.run()
+      #expect(world.reverts == 0)
+      #expect(migration.record?.outcome == .removed)
     }
 
     @Test func aFailedRevertSurfacesRestoreNormalSleepAndClearsOnceItWorks() async {
