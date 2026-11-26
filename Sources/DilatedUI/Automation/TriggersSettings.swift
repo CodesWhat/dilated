@@ -7,6 +7,8 @@ import UniformTypeIdentifiers
 @MainActor struct TriggersSettings: View {
   @Bindable var model: AppModel
   @State private var editing: TriggerRule?
+  @State private var confirmingRestore = false
+  @State private var restoreError: String?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
@@ -27,6 +29,31 @@ import UniformTypeIdentifiers
           } else {
             Button("Stop") { model.stopAll() }
           }
+        }
+      }
+      if let recovery = model.triggerRecovery {
+        SettingsGroup(eyebrow: "RESTORE") {
+          SettingsRow(
+            title: "Triggers couldn't be loaded",
+            detail: "An earlier copy of your automation rules is available."
+          ) {
+            Button("Restore last good…") { confirmingRestore = true }
+          }
+          if let restoreError {
+            Text(restoreError).foregroundStyle(DesignPalette.danger).fixedSize(
+              horizontal: false, vertical: true)
+          }
+        }
+        .alert("Restore automation rules?", isPresented: $confirmingRestore) {
+          Button("Restore") {
+            do {
+              try model.restoreTriggerBackup(confirmed: true)
+              restoreError = nil
+            } catch { restoreError = error.localizedDescription }
+          }
+          Button("Cancel", role: .cancel) {}
+        } message: {
+          Text(recovery.confirmation)
         }
       }
       ForEach(model.triggerRules) { rule in

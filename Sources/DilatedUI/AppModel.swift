@@ -193,6 +193,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored private var lastHistoryCheckpoint = Date.distantPast
   @ObservationIgnored private let historyStore: HistoryStore
   public private(set) var triggerRules: [TriggerRule] = []
+  /// Set when the trigger files won't load and an earlier backup would.
+  public private(set) var triggerRecovery: TriggerStore.Recovery?
   public private(set) var triggerStatuses: [UUID: String] = [:]
   public private(set) var armedClosedLidTriggers: Set<UUID> = []
   public private(set) var armingClosedLidTrigger: UUID?
@@ -352,7 +354,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
         if rule.focusControlled { rule.enabled = false }
         return rule
       }
-    } catch { loadMessage = "Couldn't load triggers: \(error.localizedDescription)" }
+    } catch {
+      loadMessage = "Couldn't load triggers: \(error.localizedDescription)"
+      triggerRecovery = TriggerStore(directory: endpoint.stateDirectory).recovery()
+    }
     preferences = loadedSettings
     historyWasEnabled = loadedSettings.historyEnabled
     do { history = try historyStore.load(retentionDays: loadedSettings.historyRetentionDays) } catch
@@ -1817,6 +1822,20 @@ public struct AppSettings: Codable, Equatable, Sendable {
     reconcileTriggers(lastTriggerInputs)
     refreshTriggers()
     if id != nil, selected == nil { throw InputError("The Dilated Focus rule no longer exists.") }
+  }
+  func restoreTriggerBackup(confirmed: Bool) throws {
+    guard triggerRecovery != nil else { throw InputError("Triggers don't need recovery.") }
+    let restored = try TriggerStore(directory: endpoint.stateDirectory)
+      .restoreLastGood(confirmed: confirmed)
+    triggerRules = restored.map { rule in
+      var rule = rule
+      if rule.focusControlled { rule.enabled = false }
+      return rule
+    }
+    triggerRecovery = nil
+    if message?.hasPrefix("Couldn't load triggers:") == true { message = nil }
+    reconcileTriggers(lastTriggerInputs)
+    refreshTriggers()
   }
   private func writeTriggers(_ rules: [TriggerRule]) throws {
     try TriggerStore(directory: endpoint.stateDirectory).save(rules)
