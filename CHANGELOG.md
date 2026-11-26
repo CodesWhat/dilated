@@ -8,6 +8,7 @@ All notable changes to Dilated are documented here. The format follows
 
 ### Changed
 
+- When your automation rules can't be loaded, including a file saved by a newer version of Dilated, the Triggers page now offers to restore the last good backup after you confirm. The unreadable file is kept beside it. Dilated keeps the three most recent backups.
 - Direct builds now ask on the second launch whether to check for updates automatically, so new releases can reach you. Nothing is checked until you say yes.
 
 ### Fixed
