@@ -226,7 +226,8 @@ is failed or not run stays in the record with its evidence. Staging then names
 those checks as unverified in the public release manifest, `latest.json` and the
 cask caveats, and the public manifest reports `acceptanceVerified: false` while
 any are open. A GA version keeps the full gate above, with every required check
-passed.
+passed, unless the acceptance record carries an `ownerWaiver` that lists the checks
+not run (see `docs/RELEASING.md`). 1.0.0 through 2.0.0 shipped that way.
 Accepted release staging also generates `dilated.rb` with the exact version and
 DMG digest as a versioned release asset. It does not publish the Homebrew tap.
 
