@@ -80,6 +80,38 @@ class ResourceBundleTests(unittest.TestCase):
             },
         )
 
+    def test_mas_build_flag_uses_the_mas_build_counter(self):
+        self.populate_flat()
+        result = subprocess.run([sys.executable, str(SCRIPT), str(self.bundle), '--mas-build'],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        info = plistlib.loads((self.bundle / 'Contents/Info.plist').read_bytes())
+        version = plistlib.loads((ROOT / 'packaging/Version.plist').read_bytes())
+        self.assertEqual(info['CFBundleVersion'], version['MASBundleVersion'])
+
+    def run_mas(self):
+        return subprocess.run([sys.executable, str(SCRIPT), str(self.bundle), '--mas-build'],
+                              capture_output=True, text=True)
+
+    def test_mas_build_stamps_an_existing_contents_plist(self):
+        (self.bundle / 'Contents/Resources').mkdir(parents=True)
+        (self.bundle / 'Contents/Info.plist').write_bytes(
+            plistlib.dumps({'CFBundleName': 'kept', 'CFBundleVersion': '21'}))
+        self.assertEqual(self.run_mas().returncode, 0)
+        info = plistlib.loads((self.bundle / 'Contents/Info.plist').read_bytes())
+        version = plistlib.loads((ROOT / 'packaging/Version.plist').read_bytes())
+        self.assertEqual(info, {'CFBundleName': 'kept', 'CFBundleVersion': version['MASBundleVersion']})
+
+    def test_mas_build_stamps_a_flat_plist(self):
+        self.populate_flat()
+        (self.bundle / 'Info.plist').write_bytes(
+            plistlib.dumps({'CFBundleName': 'flat', 'CFBundleVersion': '21'}))
+        self.assertEqual(self.run_mas().returncode, 0)
+        self.assert_layout()
+        info = plistlib.loads((self.bundle / 'Contents/Info.plist').read_bytes())
+        version = plistlib.loads((ROOT / 'packaging/Version.plist').read_bytes())
+        self.assertEqual(info, {'CFBundleName': 'flat', 'CFBundleVersion': version['MASBundleVersion']})
+
     def test_idempotent(self):
         self.populate_flat()
         self.assertEqual(self.run_script().returncode, 0)

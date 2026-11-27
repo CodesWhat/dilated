@@ -78,7 +78,7 @@ public struct DriveAliveSettings: Codable, Equatable, Sendable {
 
   var validationMessage: String? {
     guard (30...3600).contains(intervalSeconds) else {
-      return "Choose a Drive Alive interval from 30 seconds to 1 hour."
+      return "Choose a Keep Drives Awake interval from 30 seconds to 1 hour."
     }
     guard volumes.count <= 20, volumes.allSatisfy(\.isValid),
       Set(volumes.map(\.id)).count == volumes.count
@@ -236,7 +236,7 @@ enum DriveAliveWriter {
   static func write(in directory: URL, name: String, validate: (Int32) throws -> Void) throws {
     guard directory.isFileURL, name.hasPrefix(".dilated-drive-alive-"),
       !name.contains("/"), name.utf8.count <= 255, !name.utf8.contains(0)
-    else { throw DriveAliveError("Invalid Drive Alive file location.") }
+    else { throw DriveAliveError("Invalid Keep Drives Awake file location.") }
     try Task.checkCancellation()
     let root = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
     guard root >= 0 else { throw systemError() }

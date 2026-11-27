@@ -20,7 +20,7 @@
 #   begin-removal (companion only) takes the lock, writes the removal marker and, only when a session
 #                 file exists, latches "restore pending" and turns sleep back on (ok; none when
 #                 nothing was ours). Before it restores anything it waits, still holding the lock, for
-#                 any `on` already running from this script's path to give up (an old script's
+#                 any `on` already running from this script (matched by file, so a symlinked path counts) to give up (an old script's
 #                 shell never checks the marker). The session stays. The latch survives off and repair, so a
 #                 retry after they deleted the session still answers ok and needs the readback.
 #   finish-removal (companion only) deletes the session, tombstone and latch once the companion has
@@ -70,6 +70,7 @@ test_sleepdisabled="__real__"
 test_stored="__same__"
 test_on_match=""
 test_gate=""
+test_hook=""
 in_checkout=0
 self=${BASH_SOURCE[0]}
 case "$self" in
@@ -88,6 +89,7 @@ if self_dir=$(cd "$self_dir" 2>/dev/null && pwd -P); then
         test_stored=${DILATED_POWER_TEST_STORED_SLEEPDISABLED-__same__}
         test_on_match=${DILATED_POWER_TEST_ON_MATCH:-}
         test_gate=${DILATED_POWER_TEST_GATE:-}
+        test_hook=${DILATED_POWER_TEST_HOOK:-}
         in_checkout=1
       fi
       ;;
@@ -96,13 +98,14 @@ fi
 
 # What an already-running `on` looks like in the process table. From a checkout only the test hook
 # names one, so tests running the repo script side by side never wait on each other.
+# Outside a checkout a shell matches by file identity instead (see on_shells_running), so a
+# symlinked or differently spelled path to this script still counts.
 on_match=""
-on_match_raw=""
+on_by_identity=0
 if [ "$in_checkout" -eq 1 ]; then
   on_match=$test_on_match
 elif [ -n "$self_dir" ]; then
-  on_match="$self_dir/${self##*/} on "
-  on_match_raw="$self on "
+  on_by_identity=1
 fi
 
 stale_after=120
@@ -187,27 +190,19 @@ write_atomic() {
 }
 
 have_lock=0
-# Unique to this run, written into the lock directory it takes. A holder that outlived the steal
-# window finds someone else's id (or none) there and leaves the new holder's lock alone.
+have_guard=0
+owner_written=0
+guard_dir="$session_dir/lock.guard"
+# Unique to this run, written into the lock directory it takes. Release and steal compare against
+# it, so neither removes a lock that isn't the instance they looked at.
 lock_owner="$$.$RANDOM.$RANDOM"
-# shellcheck disable=SC2329  # runs from the EXIT trap
-release_lock() {
-  local current_owner
-  if [ "$have_lock" -eq 1 ]; then
-    current_owner=""
-    { read -r current_owner <"$lock_dir/owner"; } 2>/dev/null || true
-    if [ "$current_owner" = "$lock_owner" ]; then
-      /bin/rm -f "$lock_dir/owner"
-      /bin/rmdir "$lock_dir" 2>/dev/null || true
-    fi
-    have_lock=0
-  fi
-}
-trap release_lock EXIT
 
-# Serializes the app's verbs and the agent's repair. A lock older than a minute is a crashed holder's.
-# Waits up to $1 tenths of a second (default 5 seconds). $2, when given, also caps the wait in whole
-# wall-clock seconds: each retry spawns processes, so under load the tries alone can run long.
+# Test seam: runs $DILATED_POWER_TEST_HOOK with the name of the step, so a test can pause this
+# process between two steps. Honored only from a checkout, like the other test hooks.
+step_hook() {
+  [ -z "$test_hook" ] || "$test_hook" "$1" || true
+}
+
 # Whole seconds for the lock's wall-clock cap. The test hook scripts the clock, so a late
 # acquisition can be tested without depending on how slow the machine is.
 clock() {
@@ -218,28 +213,99 @@ clock() {
   /bin/date +%s
 }
 
-# Takes a stale lock out of the way. The rename is atomic, so of several stealers only one gets the
-# directory, and a holder that wakes up later can't remove what it no longer owns. If the directory
-# moved turns out to be fresh (the lock was replaced between the staleness check and the rename),
-# it goes back and the caller retries.
-steal_lock() {
-  local grave="$session_dir/lock.stale.$lock_owner" modified
-  /bin/mv "$lock_dir" "$grave" 2>/dev/null || return 0
-  modified=$(/usr/bin/stat -f %m "$grave" 2>/dev/null || echo 0)
-  if [ $(($(clock) - modified)) -gt 60 ]; then
-    /bin/rm -rf "$grave"
-  else
-    # Never rename onto an existing lock.d: mv would nest the grave inside the new holder's lock.
-    if [ -e "$lock_dir" ]; then
-      /bin/rm -rf "$grave"
-    else
-      /bin/mv "$grave" "$lock_dir" 2>/dev/null || /bin/rm -rf "$grave"
+# A short mutex around the only two steps that remove lock.d: release and steal. Both look at the
+# lock and then remove it, and with no mutex a second remover could replace the lock between the
+# look and the removal, so the first would delete a fresh holder's lock. Under the guard nobody
+# else removes lock.d, so the instance that was checked is the instance that goes.
+# It is held for a few commands, so one older than 10 seconds belongs to a crashed process. Waits
+# up to $guard_budget tenths of a second (3 seconds unless a caller with a deadline lowered it),
+# and answers 1 when it can't get it.
+guard_budget=30
+guard_deadline=
+take_guard() {
+  local tries=0 modified announced=0 stale
+  while ! (umask 077 && /bin/mkdir "$guard_dir" 2>/dev/null); do
+    if [ "$announced" -eq 0 ]; then
+      announced=1
+      step_hook guard-blocked
     fi
+    if modified=$(/usr/bin/stat -f %m "$guard_dir" 2>/dev/null) &&
+      [ $(($(clock) - modified)) -gt 10 ]; then
+      step_hook guard-stale-seen
+      # Only the instance that was looked at may go. Another process can reclaim the same stale
+      # guard and take a fresh one before this point, so the guard is renamed to a name of its own
+      # first and judged again there. A fresh one goes back only if the name is still free, never
+      # over a newer guard, and is dropped otherwise.
+      stale="$guard_dir.stale.$$.$RANDOM"
+      if /bin/mv "$guard_dir" "$stale" 2>/dev/null; then
+        if modified=$(/usr/bin/stat -f %m "$stale" 2>/dev/null) &&
+          [ $(($(clock) - modified)) -le 10 ]; then
+          /bin/mv -n "$stale" "$guard_dir" 2>/dev/null || true
+        fi
+        /bin/rmdir "$stale" 2>/dev/null || true
+      fi
+      continue
+    fi
+    tries=$((tries + 1))
+    [ "$tries" -le "$guard_budget" ] || return 1
+    # Counting tries undercounts on a slow machine, so a caller's wall-clock deadline also stops it.
+    if [ -n "$guard_deadline" ] && [ "$(clock)" -ge "$guard_deadline" ]; then return 1; fi
+    /bin/sleep 0.1
+  done
+  have_guard=1
+}
+
+drop_guard() {
+  if [ "$have_guard" -eq 1 ]; then
+    /bin/rmdir "$guard_dir" 2>/dev/null || true
+    have_guard=0
   fi
 }
 
+# shellcheck disable=SC2329  # runs from the EXIT trap
+release_lock() {
+  local current_owner
+  if [ "$have_lock" -eq 1 ]; then
+    # Without the guard the lock is left for the staleness rule rather than risk removing
+    # someone else's. Verbs under the app's 3 second timeout cap this wait at half a second.
+    guard_budget=${release_guard_budget:-30}
+    guard_deadline=
+    if take_guard; then
+      current_owner=""
+      { read -r current_owner <"$lock_dir/owner"; } 2>/dev/null || true
+      # A lock whose owner record was never written (the write failed) is still ours to clear.
+      if [ "$current_owner" = "$lock_owner" ] ||
+        { [ "$owner_written" -eq 0 ] && [ -z "$current_owner" ]; }; then
+        step_hook release-checked
+        /bin/rm -f "$lock_dir/owner"
+        /bin/rmdir "$lock_dir" 2>/dev/null || true
+      fi
+    fi
+    have_lock=0
+  fi
+  drop_guard
+}
+trap release_lock EXIT
+
+# Removes a stale lock. The guard is held, and the staleness is judged again under it: the lock the
+# caller saw may have been released and retaken since, and a fresh one stays where it is. Answers 1
+# when the guard wasn't available, so the caller counts it as a failed try instead of spinning.
+steal_lock() {
+  local modified
+  take_guard || return 1
+  if modified=$(/usr/bin/stat -f %m "$lock_dir" 2>/dev/null) &&
+    [ $(($(clock) - modified)) -gt 60 ]; then
+    step_hook steal-checked
+    /bin/rm -rf "$lock_dir"
+  fi
+  drop_guard
+}
+
+# Serializes the app's verbs and the agent's repair. A lock older than a minute is a crashed holder's.
+# Waits up to $1 tenths of a second (default 5 seconds). $2, when given, also caps the wait in whole
+# wall-clock seconds: each retry spawns processes, so under load the tries alone can run long.
 take_lock() {
-  local tries=0 modified now max=${1:-50} limit=${2:-} started
+  local tries=0 modified now max=${1:-50} limit=${2:-} started left
   ensure_dir || return 1
   started=$(clock)
   while ! (umask 077 && /bin/mkdir "$lock_dir" 2>/dev/null); do
@@ -249,8 +315,21 @@ take_lock() {
       return 1
     fi
     if [ $((now - modified)) -gt 60 ]; then
-      steal_lock
-      continue
+      step_hook before-steal
+      # The guard wait comes out of the same wall-clock cap as everything else here.
+      if [ -n "$limit" ]; then
+        left=$(((limit - (now - started)) * 10))
+        [ "$left" -ge 0 ] || left=0
+        [ "$left" -ge 30 ] || guard_budget=$left
+        guard_deadline=$((started + limit))
+      fi
+      if steal_lock; then
+        guard_budget=30
+        guard_deadline=
+        continue
+      fi
+      guard_budget=30
+      guard_deadline=
     fi
     tries=$((tries + 1))
     [ "$tries" -le "$max" ] || return 1
@@ -260,14 +339,15 @@ take_lock() {
   # The owner record is part of acquisition: without it release can't match, and the lock would
   # block everyone until it goes stale.
   if ! printf '%s\n' "$lock_owner" >"$lock_dir/owner" 2>/dev/null; then
-    /bin/rm -f "$lock_dir/owner"
-    /bin/rmdir "$lock_dir" 2>/dev/null || true
-    have_lock=0
+    release_guard_budget=0
+    release_lock
     return 1
   fi
+  owner_written=1
   # A late acquisition doesn't get past the cap either: the caller has stopped waiting, and the
   # work that follows could outlive the app's timeout.
   if [ -n "$limit" ] && [ $(($(clock) - started)) -ge "$limit" ]; then
+    release_guard_budget=0
     release_lock
     return 1
   fi
@@ -303,7 +383,7 @@ wake_age() {
 
 # live | dead | stale | reverted | none. Reads only.
 classify() {
-  local record recorded_pid recorded_start modified age
+  local record recorded_pid recorded_start modified age tagged
   if [ ! -f "$session_file" ]; then
     if [ -f "$tombstone_file" ]; then echo reverted; else echo none; fi
     return
@@ -311,6 +391,16 @@ classify() {
   record=$(<"$session_file") || record=""
   recorded_pid=${record%% *}
   recorded_start=${record#* }
+  tagged=0
+  # 1.2 records are `<pid> v2 <start in UTC>`. Only an untagged record from 1.0.x or 1.1.0 may match
+  # in the machine's local zone, so a reused pid can't pass on a start time that happens to agree
+  # with the old spelling in the other zone.
+  case "$recorded_start" in
+    "v2 "*)
+      tagged=1
+      recorded_start=${recorded_start#v2 }
+      ;;
+  esac
   case "$recorded_pid" in
     '' | *[!0-9]*)
       echo dead
@@ -319,7 +409,7 @@ classify() {
   esac
   if [ -z "$recorded_start" ] ||
     { [ "$(start_of "$recorded_pid")" != "$recorded_start" ] &&
-      [ "$(local_start_of "$recorded_pid")" != "$recorded_start" ]; }; then
+      { [ "$tagged" -eq 1 ] || [ "$(local_start_of "$recorded_pid")" != "$recorded_start" ]; }; }; then
     echo dead
     return
   fi
@@ -361,19 +451,37 @@ stored_sleep_disabled() {
   esac
 }
 
-# 0 when a shell is running `dilated-power on <pid>` from this script's path, 1 when none is, 2 when
+# True when a ps line is `... <path> on <pid>...` and <path> is this script's file: the same device
+# and inode, so a symlinked spelling matches. Tries each path-looking suffix of the part before
+# ` on <digit>`, because the installed path has spaces in it ("Application Scripts").
+line_runs_this_script() {
+  local prefix=${1% on [0-9]*} rest candidate
+  [ "$prefix" != "$1" ] || return 1
+  rest=$prefix
+  while [[ $rest == */* ]]; do
+    candidate="/${rest#*/}"
+    if [ -e "$candidate" ] && [ "$candidate" -ef "$self" ]; then
+      return 0
+    fi
+    rest=${candidate#/}
+  done
+  return 1
+}
+
+# 0 when a shell is running `dilated-power on <pid>` from this script's file, 1 when none is, 2 when
 # the process table can't be read.
 on_shells_running() {
   local listing line
-  [ -n "$on_match" ] || return 1
+  [ -n "$on_match" ] || [ "$on_by_identity" -eq 1 ] || return 1
   listing=$(/bin/ps -axww -o command= 2>/dev/null) || return 2
   while IFS= read -r line; do
-    case "$line" in
-      *"$on_match"[0-9]*) return 0 ;;
-    esac
-    [ -z "$on_match_raw" ] || case "$line" in
-      *"$on_match_raw"[0-9]*) return 0 ;;
-    esac
+    if [ "$on_by_identity" -eq 1 ]; then
+      ! line_runs_this_script "$line" || return 0
+    else
+      case "$line" in
+        *"$on_match"[0-9]*) return 0 ;;
+      esac
+    fi
   done <<<"$listing"
   return 1
 }
@@ -386,7 +494,7 @@ on_shells_running() {
 # table after the same window, and fails when a shell is still there after 12 seconds.
 drain_legacy_on() {
   local polls=0 status
-  [ -n "$on_match" ] || return 0
+  [ -n "$on_match" ] || [ "$on_by_identity" -eq 1 ] || return 0
   while :; do
     status=0
     on_shells_running || status=$?
@@ -414,6 +522,7 @@ case "$verb" in
     # wall-clock seconds under load, plus 1s for launchctl below), so the verb stays inside the
     # app's 3 second timeout. `busy` isn't `ok`, so build 18 refuses the enable.
     [ ! -f "$removal_file" ] || refuse_unready
+    release_guard_budget=5
     take_lock 10 2 || {
       echo busy
       exit 1
@@ -435,7 +544,7 @@ case "$verb" in
     # The record goes down before sleep is disabled, so a crash in between leaves the agent a
     # session to revert. A failed enable removes it again.
     /bin/rm -f "$tombstone_file"
-    write_atomic "$session_file" "$pid $start" || {
+    write_atomic "$session_file" "$pid v2 $start" || {
       echo failed
       exit 1
     }
@@ -553,6 +662,7 @@ case "$verb" in
     # `pmset -a disablesleep` writes the stored value, so it only runs when the effective and
     # stored values are both known and agree, and under the lock `repair` and `off` hold so
     # neither can change them between the read and the write. Mirrors ClosedLidPermission.probe.
+    release_guard_budget=5
     take_lock 10 2 || {
       echo busy
       exit 1

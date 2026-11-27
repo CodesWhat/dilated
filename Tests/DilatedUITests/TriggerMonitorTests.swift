@@ -72,6 +72,7 @@
       while !condition(), ContinuousClock.now < deadline {
         try await Task.sleep(for: .milliseconds(10))
       }
+      if !condition() { Issue.record("condition not met within 30 seconds") }
     }
 
     @Test func processScansCoalesceAndApplyResultsInOrder() async throws {
@@ -124,7 +125,7 @@
       _ = monitor?.read()
       probe.release()
       try await settle { guardedCallbacks >= 1 }
-      try await Task.sleep(for: .milliseconds(100))
+      // `scansStartedByRead` is measured synchronously inside the callback, so no further wait is needed.
       #expect(guardedCallbacks >= 1)
       #expect(scansStartedByRead == 0)
       probe.release()
@@ -150,8 +151,10 @@
       _ = monitor.read()
       try await settle { probe.scans == 2 }
       let before = changes
+      let appliedBefore = monitor.scansApplied
       probe.release()
-      try await Task.sleep(for: .milliseconds(50))
+      try await settle { monitor.scansApplied > appliedBefore }
+      #expect(monitor.scansApplied > appliedBefore)
       #expect(changes == before)
       let input = monitor.read()
       #expect(input.processNames.contains("make") && input.processNames.contains("/bin/make"))

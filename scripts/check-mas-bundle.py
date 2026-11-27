@@ -10,6 +10,7 @@ import argparse
 import importlib.util
 from pathlib import Path
 import plistlib
+import re
 import struct
 import subprocess
 import sys
@@ -113,6 +114,10 @@ def check_bundle(app, bundle_id, entitlements):
         failures.append(f'CFBundleIdentifier is {info.get("CFBundleIdentifier")!r}, expected {bundle_id!r}')
     if info.get('DilatedDisplayVersion', info.get('CFBundleShortVersionString')) != info.get('CFBundleShortVersionString'):
         failures.append('MAS display version must match CFBundleShortVersionString')
+    if not re.fullmatch(r'[1-9][0-9]*', str(info.get('CFBundleVersion', ''))):
+        failures.append('CFBundleVersion must be a positive integer (the MAS build counter)')
+    if 'MASBundleVersion' in info:
+        failures.append('MASBundleVersion is a source key and must not be in the bundle Info.plist')
     if not info.get('LSApplicationCategoryType'):
         failures.append('LSApplicationCategoryType is missing from Info.plist')
     if info.get('CFBundleExecutable') != MAIN_EXECUTABLE:

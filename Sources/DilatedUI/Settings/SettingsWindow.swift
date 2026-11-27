@@ -126,7 +126,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
   case closedLid = "Closed Lid"
   case hotKeys = "Hot Keys"
   case triggers = "Triggers"
-  case driveAlive = "Drive Alive"
+  case driveAlive = "Keep Drives Awake"
   case notifications = "Notifications & Sounds"
   case inspector = "Why Awake"
   case statistics = "Statistics"

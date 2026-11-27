@@ -172,9 +172,9 @@ developer team identity. Use a developer-signed build for real runtime checks.
 
 ## AppleScript
 
-The dictionary exposes these Amphetamine-compatible commands. Change the target app
-to Dilated in existing scripts; the event/parameter codes are retained. The initial
-surface excludes screen-saver and Drive Alive commands while those mechanisms remain
+The dictionary exposes these commands under Dilated's own `DilA` event class. Scripts
+written against other apps need the target app and command names updated. The initial
+surface excludes screen-saver and Keep Drives Awake commands while those mechanisms remain
 unimplemented.
 
 | Commands | Behavior |
@@ -185,8 +185,8 @@ unimplemented.
 | `session time remaining` | Longest timed lifetime in seconds; -3 inactive, 0 indefinite non-trigger, -1 trigger |
 | `display sleep allowed` | Aggregate current holds, or the session default when inactive |
 | `allow display sleep`, `prevent display sleep` | Changes current holds without replacing their IDs/deadlines, or changes the idle session default |
-| `closed display mode enabled` | Confirmed sleep-disable state; unknown state is an error |
-| `enable closed display mode`, `disable closed display mode` | Targets its own AppleScript hold, otherwise requires exactly one active hold |
+| `closed lid mode enabled` | Confirmed sleep-disable state; unknown state is an error |
+| `enable closed lid mode`, `disable closed lid mode` | Targets its own AppleScript hold, otherwise requires exactly one active hold |
 | `Triggers are enabled`, `enable Triggers`, `disable Triggers` | Persistent master switch, independent of each rule and the automation pause |
 
 For example, `tell application "Dilated" to start new session with options
@@ -199,7 +199,7 @@ numbers, invalid types and durations beyond ten years are rejected before replac
 
 For mixed holds, indefinite non-trigger work takes precedence over trigger, then
 timed work in the remaining-time result. Until-time holds report seconds rather than
-Amphetamine's -2 sentinel. Trigger display changes affect only the current run, and
+the -2 sentinel other apps use. Trigger display changes affect only the current run, and
 the master switch never chooses Resume automation. Closed-lid without an unambiguous
 current target returns an error and never saves a future default. Start and closed-lid
 enable respect Stop; manual timers from the app remain available during the pause.
@@ -377,7 +377,8 @@ killed agent can't keep the Mac awake, and an idle open session holds nothing be
 
 ## Manual agent hook pattern
 
-Automatic hook installation is deferred. Configure your workflow to capture the
+Settings installs hooks for Claude Code, Codex and OpenCode (above). For any other
+tool, configure your workflow to capture the
 ID from `dilated hold --label agent --ttl 10m` at the start of work, keep it in
 that workflow's runtime state, and call `dilated hold --id ID --ttl 10m` while work
 continues. Call `dilated release --id ID` when finished. Give concurrent agent
@@ -456,7 +457,8 @@ preserved until Clear. No diagnostic/history files are uploaded.
 `dilated prepare-update [--json]` prepares an external package upgrade and quits
 the app, keeping only unexpired timed holds at their original deadlines.
 `dilated prepare-uninstall [--remove-lid-permission] [--json]` removes the login
-item and owned CLI link, discards saved holds and quits. It leaves the closed-lid
+item, owned CLI link and the hooks and plugin Dilated added to Claude Code, Codex and
+OpenCode, discards saved holds and quits. It leaves the closed-lid
 sudo rule alone unless you pass `--remove-lid-permission`, which asks for an
 administrator password; `brew uninstall --zap` removes it too. Both require
 closed-lid to be off. They remain available while automation is paused

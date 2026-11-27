@@ -16,11 +16,11 @@ import Testing
     #expect(NSClassFromString("DilatedScriptCommand") == DilatedScriptCommand.self)
     let codes = Set(
       commands.compactMap { ($0 as? XMLElement)?.attribute(forName: "code")?.stringValue })
-    #expect(codes == Set(ScriptOperation.allCases.map { "amph" + $0.rawValue }))
+    #expect(codes == Set(ScriptOperation.allCases.map { "DilA" + $0.rawValue }))
     for node in commands {
       #expect(try node.nodes(forXPath: "cocoa/@class").first?.stringValue == "DilatedScriptCommand")
     }
-    let options = try dictionary.nodes(forXPath: "//command[@code='amphcmOn']/parameter").first
+    let options = try dictionary.nodes(forXPath: "//command[@code='DilAcmOn']/parameter").first
     #expect((options as? XMLElement)?.attribute(forName: "name")?.stringValue == "with options")
     #expect((options as? XMLElement)?.attribute(forName: "code")?.stringValue == "optn")
     #expect(try options?.nodes(forXPath: "cocoa/@key").first?.stringValue == "options")
@@ -32,11 +32,11 @@ import Testing
       NSScriptCommandDescription(
         suiteName: "DilatedTests", commandName: "sessionIsActive",
         dictionary: [
-          "AppleEventClassCode": "amph", "AppleEventCode": "cAct",
+          "AppleEventClassCode": "DilA", "AppleEventCode": "cAct",
           "CommandClass": "DilatedScriptCommand", "Type": "NSNumber<Bool>",
           "ResultAppleEventCode": "bool",
         ]))
-    #expect(description.appleEventClassCode == 0x616d_7068)
+    #expect(description.appleEventClassCode == 0x4469_6c41)
     #expect(description.appleEventCode == ScriptOperation.isActive.eventID)
     #expect(description.createCommandInstance() is DilatedScriptCommand)
   }
@@ -47,7 +47,7 @@ import Testing
     let dictionary = try XMLDocument(
       contentsOf: root.appendingPathComponent("packaging/Dilated.sdef"))
     let options = try #require(
-      dictionary.nodes(forXPath: "//command[@code='amphcmOn']/parameter").first as? XMLElement)
+      dictionary.nodes(forXPath: "//command[@code='DilAcmOn']/parameter").first as? XMLElement)
     let typeName = try #require(options.attribute(forName: "type")?.stringValue)
     let valueType = try #require(
       dictionary.nodes(forXPath: "//value-type[@name='\(typeName)']").first as? XMLElement)
