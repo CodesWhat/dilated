@@ -8,11 +8,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def stamp_build(plist_path: Path) -> None:
+    with (ROOT / 'packaging/Version.plist').open('rb') as handle:
+        build = plistlib.load(handle)['MASBundleVersion']
+    with plist_path.open('rb') as handle:
+        info = plistlib.load(handle)
+    info['CFBundleVersion'] = build
+    plist_path.write_bytes(plistlib.dumps(info))
+
+
 def normalize(bundle: Path, mas_build: bool = False) -> None:
     if not bundle.is_dir():
         raise SystemExit(f'normalize-resource-bundle: not a directory: {bundle}')
     contents = bundle / 'Contents'
     if (contents / 'Info.plist').is_file():
+        if mas_build:
+            stamp_build(contents / 'Info.plist')
         return
     resources = contents / 'Resources'
     resources.mkdir(parents=True, exist_ok=True)
@@ -23,6 +34,8 @@ def normalize(bundle: Path, mas_build: bool = False) -> None:
         shutil.move(str(entry), str(resources / entry.name))
     if flat_plist.is_file():
         shutil.move(str(flat_plist), str(contents / 'Info.plist'))
+        if mas_build:
+            stamp_build(contents / 'Info.plist')
         return
     with (ROOT / 'packaging/Version.plist').open('rb') as handle:
         version = plistlib.load(handle)
