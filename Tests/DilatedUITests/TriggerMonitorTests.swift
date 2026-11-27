@@ -72,6 +72,7 @@
       while !condition(), ContinuousClock.now < deadline {
         try await Task.sleep(for: .milliseconds(10))
       }
+      if !condition() { Issue.record("condition not met within 30 seconds") }
     }
 
     @Test func processScansCoalesceAndApplyResultsInOrder() async throws {
