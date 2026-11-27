@@ -7,7 +7,7 @@
 #   --candidate  a really signed build from a clean tree without a release tag (cannot be submitted).
 # A really signed build, like scripts/package-release.py, needs a clean tree (untracked files
 # included) with HEAD on the exact tag v<CFBundleShortVersionString>, or on the build-specific tag
-# mas/v<CFBundleShortVersionString>-build<CFBundleVersion> for a rebuild after a rejected build.
+# mas/v<CFBundleShortVersionString>-build<MASBundleVersion> for a rebuild after a rejected build.
 # Otherwise set DILATED_SIGN_IDENTITY (Apple Distribution), DILATED_INSTALLER_IDENTITY (Mac Installer
 # Distribution), DILATED_MAS_PROFILE and DILATED_MAS_CONTROL_PROFILE (host/extension
 # Mac App Store .provisionprofile paths), and DILATED_TEAM_ID.
@@ -48,7 +48,7 @@ if [[ "$sign_as" != "-" ]]; then
     fi
     if ! $candidate; then
         version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' packaging/Version.plist)"
-        build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' packaging/Version.plist)"
+        build="$(/usr/libexec/PlistBuddy -c 'Print :MASBundleVersion' packaging/Version.plist)"
         head_sha="$(git rev-parse HEAD)"
         tagged="$(git rev-parse --verify --quiet "refs/tags/v${version}^{commit}" || true)"
         mas_tagged="$(git rev-parse --verify --quiet "refs/tags/mas/v${version}-build${build}^{commit}" || true)"
@@ -92,11 +92,11 @@ source scripts/build-lib.sh
 dilated_copy_shell_parts "$app" "$shell_app"
 # Start from the plist Xcode produced (it adds the DT* build keys) and layer the release metadata on it.
 cp "$shell_app/Contents/Info.plist" "$app/Contents/Info.plist"
-python3 scripts/bundle-metadata.py stamp "$app/Contents/Info.plist" --display-version
+python3 scripts/bundle-metadata.py stamp "$app/Contents/Info.plist" --display-version --mas-build
 dilated_copy_static_resources "$app"
 python3 scripts/package-release.py --check-automation "$app"
 python3 scripts/controls-bundle.py "$app"
-dilated_add_ui_bundle "$app" "$bin_dir"
+dilated_add_ui_bundle "$app" "$bin_dir" --mas-build
 
 timestamp="--timestamp"
 if [[ "$sign_as" == "-" ]]; then timestamp="--timestamp=none"; fi

@@ -36,6 +36,11 @@ def release_metadata(root):
         raise RuntimeError('Marketing version must match the release version')
     if not re.fullmatch(r'[1-9][0-9]*', metadata.get('CFBundleVersion', '')):
         raise RuntimeError('Build number must be a positive integer')
+    mas_build = metadata.get('MASBundleVersion')
+    if 'MASBundleVersion' in metadata and not (
+        isinstance(mas_build, str) and re.fullmatch(r'[1-9][0-9]*', mas_build)
+    ):
+        raise RuntimeError('MAS build number must be a positive integer')
     return metadata
 
 
@@ -97,7 +102,7 @@ def validate_automation_bundle(app):
                 or any(action.get('supportedModes') != 1 or not action.get('isDiscoverable')
                        for name, action in actions.items() if name != 'SetAwakeControlIntent')):
             raise ValueError('Invalid intent or scripting configuration')
-        codes = {'amph' + code for code in ['cAct', 'cmOn', 'cOff', 'STRm', 'DSOK', 'AWDS', 'PTDS',
+        codes = {'DilA' + code for code in ['cAct', 'cmOn', 'cOff', 'STRm', 'DSOK', 'AWDS', 'PTDS',
                                           'CDMK', 'ECDM', 'DCDM', 'SisT', 'TrEn', 'EnTr', 'DsTr']}
         commands = dictionary.findall('./suite/command')
         if (len(commands) != len(codes) or {item.get('code') for item in commands} != codes

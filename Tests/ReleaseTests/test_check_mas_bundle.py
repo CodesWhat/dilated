@@ -163,6 +163,21 @@ class CheckMasBundleTests(unittest.TestCase):
         self.write_info()
         self.assert_fails_with('LSApplicationCategoryType')
 
+    def test_build_number_must_be_a_positive_integer(self):
+        self.info['CFBundleVersion'] = '0'
+        self.write_info()
+        self.assert_fails_with('CFBundleVersion')
+
+    def test_build_number_must_be_a_plist_string(self):
+        self.info['CFBundleVersion'] = 18
+        self.write_info()
+        self.assert_fails_with('CFBundleVersion')
+
+    def test_mas_counter_source_key_must_not_ship_in_the_bundle(self):
+        self.info['MASBundleVersion'] = '18'
+        self.write_info()
+        self.assert_fails_with('MASBundleVersion')
+
     def test_launch_daemon_plist_fails(self):
         daemon = self.app / 'Contents/Library/LaunchDaemons/com.example.helper.plist'
         daemon.parent.mkdir(parents=True)

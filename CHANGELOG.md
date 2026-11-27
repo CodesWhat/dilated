@@ -6,7 +6,16 @@ All notable changes to Dilated are documented here. The format follows
 
 ## [Unreleased]
 
-## [1.1.0] - 2026-11-26
+## [2.0.0] - 2026-11-27
+
+This is a major version because the AppleScript dictionary changed incompatibly. If you script Dilated, open each script, switch to the new command names below and compile it again. Nothing else about Dilated's behavior changes.
+
+### Changed
+
+- The AppleScript dictionary now uses Dilated's own codes (suite and event class `DilA`) instead of codes borrowed from another app, with no aliases for the old ones. Scripts that call commands by raw code need updating, and compiled scripts that use Dilated's commands keep the old codes, so open them, switch to the new command names and compile them again. The `closed display mode` commands are now `closed lid mode enabled`, `enable closed lid mode` and `disable closed lid mode`.
+- Drive Alive is now called Keep Drives Awake in Settings, the README and the docs.
+
+## [1.1.0] - 2026-11-27
 
 ### Changed
 
@@ -23,7 +32,7 @@ All notable changes to Dilated are documented here. The format follows
   a tool that build doesn't ship.
 - Preparing Dilated for uninstall now removes the hooks and plugin it added to Claude Code, Codex and OpenCode, so they no longer point at an app that's gone.
 
-## [1.0.1] - 2026-11-24
+## [1.0.1] - 2026-11-26
 
 ### Added
 
@@ -75,7 +84,8 @@ First stable release. It includes everything from the 1.0.0 betas plus the fixes
 - Trigger rules are kept when an older settings projection is missing, and downgrades
   preserve your data.
 
-[Unreleased]: https://github.com/CodesWhat/dilated/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/CodesWhat/dilated/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/CodesWhat/dilated/compare/v1.1.0...v2.0.0
 [1.1.0]: https://github.com/CodesWhat/dilated/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/CodesWhat/dilated/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/CodesWhat/dilated/releases/tag/v1.0.0

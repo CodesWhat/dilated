@@ -15,7 +15,7 @@ ID. Main Stop is durable and blocks new automation until explicit Resume.
 `DilatedUI` adapts Mouthtype's Dock, login item, hotkeys, template image loading,
 fonts, adaptive palette and glass Settings patterns. The app delegate wires
 power, wake, clock and accessibility notifications. Idle operation has no engine
-timer; opt-in Drive Alive has its own eligible-write schedule, and active holds use a coalesced timer for expiry/countdown and a slower native
+timer; opt-in Keep Drives Awake has its own eligible-write schedule, and active holds use a coalesced timer for expiry/countdown and a slower native
 assertion refresh. Icon animation uses short bursts capped at 8 fps, with still
 frames for Off/Reduce Motion.
 
@@ -233,9 +233,9 @@ paths aren't saved; their indefinite manual hold is excluded from timer recovery
 A new explicit selection is allowed while automation is paused, without resuming
 it. No watcher or automatic hold is recreated by Resume automation.
 
-## Drive Alive
+## Keep Drives Awake
 
-Persisted Drive Alive settings default off, at a 60 second interval and only while
+Persisted Keep Drives Awake settings default off, at a 60 second interval and only while
 Dilated has an applied awake assertion. Each selected volume can inherit that
 global default, require an awake hold or run while the app is open. Missing mode
 fields preserve inheritance; unknown/malformed mode values become awake-only
@@ -490,7 +490,7 @@ reads as `ruleMissing`. `ClosedLidPermissionModel` shows plain copy for each sta
 
 Download targets in this channel are `DownloadTargetRecord`s (path, folder flag, optional `bookmark`; old records decode with no bookmark). `SecurityScopedBookmarks` creates `.withSecurityScope` data from an open-panel URL, re-creates stale data, throws `missingTarget` for a deleted target, and hands `AppModel.startDownload` a `BookmarkAccess` that the monitor holds until it's released. Every download target comes from an open panel, so `~/Downloads` is bookmarked like any other folder and the build carries no `files.downloads.read-only` entitlement. The direct build keeps plain paths.
 
-Drive Alive needs write access, so `files.user-selected.read-write` is in the entitlements and each volume carries its own
+Keep Drives Awake needs write access, so `files.user-selected.read-write` is in the entitlements and each volume carries its own
 read-write bookmark (`DriveAliveVolume.grant`, `SecurityScopedBookmarks.liveReadWrite`). Turning a volume on opens a panel at
 its mount point, and the picked folder must be the volume root (`DriveAliveGrants`). Every pulse resolves the bookmark,
 holds scoped access for the write, and refuses a bookmark that resolves to a different path; a volume with no grant reports

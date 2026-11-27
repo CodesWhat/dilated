@@ -32,8 +32,12 @@ const test = base.extend({
     page.on('console', message => {
       if (message.type() === 'error') problems.push({ text: `console error: ${message.text()}`, url: message.location().url });
     });
-    // A test that calls open() twice navigates away while the first page's favicon (not load-blocking) is
-    // still in flight, and the browser aborts it. Only an abort after a later navigation is ignored.
+    // Browsers cancel sub-resource loads (an SVG, the favicon) when the page navigates, the element is
+    // superseded or the load event wins a race, and report the cancellation as a failed request: Firefox
+    // NS_BINDING_ABORTED, Chromium net::ERR_ABORTED, WebKit "cancelled". A cancellation is not a failure.
+    // Real network failures (DNS, refused, reset) have different error text, and 4xx/5xx arrive as
+    // responses below. An aborted navigation still counts unless a later navigation superseded it.
+    const cancelled = /NS_BINDING_ABORTED|ERR_ABORTED|cancel+ed/i;
     let navigations = 0;
     const startedAt = new WeakMap();
     page.on('request', request => {
@@ -43,7 +47,7 @@ const test = base.extend({
     page.on('requestfailed', request => {
       if (!request.url().startsWith(origin)) return;
       const error = request.failure()?.errorText ?? '';
-      if (/NS_BINDING_ABORTED|ERR_ABORTED/.test(error) && navigations > startedAt.get(request)) return;
+      if (cancelled.test(error) && (!request.isNavigationRequest() || navigations > startedAt.get(request))) return;
       problems.push({ text: `request failed: ${request.url()} (${error})`, url: request.url() });
     });
     page.on('response', response => {

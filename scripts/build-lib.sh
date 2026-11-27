@@ -18,11 +18,11 @@ dilated_copy_static_resources() {
     cp docs/THIRD-PARTY.md "$app/Contents/Resources/THIRD-PARTY.md"
 }
 
-# dilated_add_ui_bundle APP BIN_DIR: the SwiftPM resource bundle, normalized and lint-checked.
+# dilated_add_ui_bundle APP BIN_DIR [--mas-build]: the SwiftPM resource bundle, normalized and lint-checked.
 dilated_add_ui_bundle() {
     local app="$1" bundle="$2/Dilated_DilatedUI.bundle"
     test -d "$bundle"
     ditto "$bundle" "$app/Contents/Resources/$(basename "$bundle")"
-    python3 scripts/normalize-resource-bundle.py "$app/Contents/Resources/$(basename "$bundle")"
+    python3 scripts/normalize-resource-bundle.py "$app/Contents/Resources/$(basename "$bundle")" ${3:+"$3"}
     plutil -lint "$app/Contents/Resources/$(basename "$bundle")/Contents/Info.plist"
 }

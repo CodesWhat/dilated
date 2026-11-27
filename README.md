@@ -11,7 +11,7 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 </div>
 
 <p align="center">
-  <a href="https://dilated.app/download/file"><img src="https://img.shields.io/badge/version-1.1.0-2ea44f" alt="Version 1.1.0"></a>
+  <a href="https://dilated.app/download/file"><img src="https://img.shields.io/badge/version-2.0.0-2ea44f" alt="Version 2.0.0"></a>
   <a href="https://dilated.app/"><img src="https://img.shields.io/badge/macOS-26%2B-000000?logo=apple&amp;logoColor=white" alt="macOS 26 or later"></a>
   <a href="https://dilated.app/"><img src="https://img.shields.io/badge/Apple_Silicon-arm64-000000?logo=apple&amp;logoColor=white" alt="Apple Silicon"></a>
   <a href="https://github.com/CodesWhat/dilated/releases"><img src="https://img.shields.io/github/v/release/CodesWhat/dilated?include_prereleases" alt="Latest release"></a>
@@ -22,7 +22,7 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 <hr>
 
 > [!IMPORTANT]
-> **1.1.0 is out.** Closed-lid mode is still experimental, and its hardware recovery checks (reboot recovery among them) weren't run for this release. If Dilated quits or stops responding during a closed-lid session, normal sleep is meant to come back on its own. Report problems on [GitHub](https://github.com/CodesWhat/dilated/issues).
+> **2.0.0 is out.** AppleScript users: the dictionary changed, so recompile your scripts with the new command names (see the [changelog](CHANGELOG.md)). Closed-lid mode is still experimental, and its hardware recovery checks (reboot recovery among them) weren't run for this release. If Dilated quits or stops responding during a closed-lid session, normal sleep is meant to come back on its own. Report problems on [GitHub](https://github.com/CodesWhat/dilated/issues).
 
 <h2 align="center">Contents</h2>
 
@@ -58,7 +58,7 @@ Timed holds, triggers, a CLI for agents, and an opt-in closed-lid mode.
 
 <h2 align="center" id="quick-start">Quick Start</h2>
 
-Dilated needs **macOS 26 or later on Apple Silicon**. The current release is 1.1.0.
+Dilated needs **macOS 26 or later on Apple Silicon**. The current release is 2.0.0.
 
 1. Download the signed, notarized DMG from [dilated.app](https://dilated.app/download/file).
 2. Open the DMG, drag Dilated to Applications and open it.
@@ -93,7 +93,7 @@ Battery floor and Low Power Mode guards can end a hold before it drains your bat
 | **Preferences file** | Export timer and appearance choices, then preview them before applying on another Mac. Local safety policy, automation, files, active holds and Stop state stay unchanged. |
 | **Why Awake** | Shows Dilated’s awake reasons and the processes asking macOS to stay awake. Refreshes when opened; other apps’ assertions are read-only. |
 | **Automation** | URL scheme, AppleScript, four Shortcuts actions and a `dilated` CLI. The CLI covers `on`, `off`, `status`, `run -- <command>` and renewable agent holds (`hold`, `release`). Configurable global shortcuts. |
-| **Drive Alive** | Opt-in. Writes a small hidden file to selected volumes at an interval you choose (30 to 3600 seconds) so they don't idle. It doesn't wake a sleeping Mac. |
+| **Keep Drives Awake** | Opt-in. Writes a small hidden file to selected volumes at an interval you choose (30 to 3600 seconds) so they don't idle. It doesn't wake a sleeping Mac. |
 | **Closed-lid mode** | Keeps the Mac running with the lid closed, through a sudo rule that lets Dilated run only `pmset -a disablesleep 0` and `1`. Admin accounts only. Experimental. A closed-lid trigger has to be armed each app run. |
 | **Feedback** | Optional notification banners and sounds, both off by default. Local history and statistics. |
 
@@ -111,7 +111,7 @@ automation** in Dilated before using On again.
 - **Bluetooth** is used only to match paired devices you choose for triggers. It doesn't scan for nearby devices or change their connections.
 - **Closed-lid mode** needs the sudo rule at `/private/etc/sudoers.d/dilated`. Remove it any time with `dilated lid-permission remove` or `sudo rm /private/etc/sudoers.d/dilated`. If Dilated crashes, a watchdog restores sleep within seconds. A reboot without relaunching Dilated can leave sleep disabled until it next opens.
 - **Notifications** are requested only when you enable banners.
-- **Files** are accessed only through your selection, for example a download watch or a Drive Alive volume.
+- **Files** are accessed only through your selection, for example a download watch or a Keep Drives Awake volume.
 
 History and statistics stay on your Mac. The only network use in the app code is Sparkle's update check against `dilated.app`. From 1.1.0, Sparkle asks on the second launch whether to check automatically, and until you say yes it only checks when you choose Check for Updates. Versions 1.0.1 and earlier have automatic checks off and don't show that prompt. There's no analytics code in it.
 
@@ -119,7 +119,7 @@ History and statistics stay on your Mac. The only network use in the app code is
 
 <h2 align="center" id="roadmap">Roadmap</h2>
 
-1.0.0 GA is gated on the hardware recovery checks listed in the [installation guide](docs/INSTALLATION.md#release-acceptance): sudo rule revocation and integrity, app crash recovery, reboot recovery, helper migration and the closed-lid transitions.
+The hardware recovery checks listed in the [installation guide](docs/INSTALLATION.md#release-acceptance) are still open: sudo rule revocation and integrity, app crash recovery, reboot recovery, helper migration and the closed-lid transitions. 1.0.0, 1.0.1 and 1.1.0 shipped with them waived.
 
 <hr>
 
