@@ -168,6 +168,11 @@ class CheckMasBundleTests(unittest.TestCase):
         self.write_info()
         self.assert_fails_with('CFBundleVersion')
 
+    def test_build_number_must_be_a_plist_string(self):
+        self.info['CFBundleVersion'] = 18
+        self.write_info()
+        self.assert_fails_with('CFBundleVersion')
+
     def test_mas_counter_source_key_must_not_ship_in_the_bundle(self):
         self.info['MASBundleVersion'] = '18'
         self.write_info()

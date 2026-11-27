@@ -114,7 +114,8 @@ def check_bundle(app, bundle_id, entitlements):
         failures.append(f'CFBundleIdentifier is {info.get("CFBundleIdentifier")!r}, expected {bundle_id!r}')
     if info.get('DilatedDisplayVersion', info.get('CFBundleShortVersionString')) != info.get('CFBundleShortVersionString'):
         failures.append('MAS display version must match CFBundleShortVersionString')
-    if not re.fullmatch(r'[1-9][0-9]*', str(info.get('CFBundleVersion', ''))):
+    build = info.get('CFBundleVersion')
+    if not isinstance(build, str) or not re.fullmatch(r'[1-9][0-9]*', build):
         failures.append('CFBundleVersion must be a positive integer (the MAS build counter)')
     if 'MASBundleVersion' in info:
         failures.append('MASBundleVersion is a source key and must not be in the bundle Info.plist')

@@ -312,7 +312,8 @@ import Foundation
            dilated leaving [--cancel] [--json]
            dilated on [--for 2h | --until 17:00] [--label NAME] [--display-awake | --display-sleep] [--override-low-power] [--lid]
            dilated off [--id ID | --label NAME]
-           dilated hold [--ttl 10m | --for "until 5pm"] [--label NAME] [--display-awake | --display-sleep] [--override-low-power] [--id ID | --lid]
+           dilated hold --ttl 10m | --for "until 5pm" [--label NAME] [--display-awake | --display-sleep] [--override-low-power] [--lid]
+           dilated hold --id ID --ttl 10m | --for "until 5pm"   (renews; keeps the hold's display and power settings)
            dilated release --id ID
            dilated agent begin|renew|end --agent NAME --run ID [--pid N] [--json]
            dilated run [--label NAME] [--lid] -- command arguments
