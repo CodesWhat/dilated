@@ -36,7 +36,10 @@ def release_metadata(root):
         raise RuntimeError('Marketing version must match the release version')
     if not re.fullmatch(r'[1-9][0-9]*', metadata.get('CFBundleVersion', '')):
         raise RuntimeError('Build number must be a positive integer')
-    if 'MASBundleVersion' in metadata and not re.fullmatch(r'[1-9][0-9]*', str(metadata['MASBundleVersion'])):
+    mas_build = metadata.get('MASBundleVersion')
+    if 'MASBundleVersion' in metadata and not (
+        isinstance(mas_build, str) and re.fullmatch(r'[1-9][0-9]*', mas_build)
+    ):
         raise RuntimeError('MAS build number must be a positive integer')
     return metadata
 
