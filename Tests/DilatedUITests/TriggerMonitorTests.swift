@@ -133,10 +133,15 @@
 
     @Test func unchangedProcessListDoesNotNotify() async throws {
       let probe = ScanProbe([Self.fake(900_003, "make")])
+      // Count only callbacks fired while a scan result is applied. The 5 second poll timer calls
+      // `changed` too, and on a loaded machine it can land inside the window below.
       var changes = 0
+      var monitorRef: TriggerMonitor?
       let monitor = TriggerMonitor(
         readPower: { .init() }, readProcesses: { probe.scan() },
-        workspaceNotifications: NotificationCenter(), changed: { changes += 1 })
+        workspaceNotifications: NotificationCenter(),
+        changed: { if monitorRef?.applyingScan == true { changes += 1 } })
+      monitorRef = monitor
       defer { monitor.stop() }
       monitor.configure(rules: [TriggerRule(name: "Make", criteria: [.process(name: "make")])])
       _ = monitor.read()
