@@ -1,3 +1,3 @@
 Dilated 1.1.0 can restore your automation rules from the last good backup when they won't load, and remembers holds you stopped so dilated run doesn't restart them.
-It asks on the second launch whether to check for updates automatically, ends a download watch whose scan stalls, and removes its Claude Code and Codex hooks when you prepare to uninstall. Closed-lid removal and repair are safer when an older helper script is still running.
+It asks on the second launch whether to check for updates automatically, ends a download watch whose scan stalls, and removes its Claude Code, Codex and OpenCode hooks when you prepare to uninstall. Closed-lid removal and repair are safer when an older helper script is still running.
 Closed-lid mode is still experimental. Its hardware recovery checks were not run for this release.

@@ -377,7 +377,8 @@ killed agent can't keep the Mac awake, and an idle open session holds nothing be
 
 ## Manual agent hook pattern
 
-Automatic hook installation is deferred. Configure your workflow to capture the
+Settings installs hooks for Claude Code, Codex and OpenCode (above). For any other
+tool, configure your workflow to capture the
 ID from `dilated hold --label agent --ttl 10m` at the start of work, keep it in
 that workflow's runtime state, and call `dilated hold --id ID --ttl 10m` while work
 continues. Call `dilated release --id ID` when finished. Give concurrent agent
@@ -456,7 +457,8 @@ preserved until Clear. No diagnostic/history files are uploaded.
 `dilated prepare-update [--json]` prepares an external package upgrade and quits
 the app, keeping only unexpired timed holds at their original deadlines.
 `dilated prepare-uninstall [--remove-lid-permission] [--json]` removes the login
-item and owned CLI link, discards saved holds and quits. It leaves the closed-lid
+item, owned CLI link and the hooks and plugin Dilated added to Claude Code, Codex and
+OpenCode, discards saved holds and quits. It leaves the closed-lid
 sudo rule alone unless you pass `--remove-lid-permission`, which asks for an
 administrator password; `brew uninstall --zap` removes it too. Both require
 closed-lid to be off. They remain available while automation is paused

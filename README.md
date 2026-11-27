@@ -119,7 +119,7 @@ History and statistics stay on your Mac. The only network use in the app code is
 
 <h2 align="center" id="roadmap">Roadmap</h2>
 
-1.0.0 GA is gated on the hardware recovery checks listed in the [installation guide](docs/INSTALLATION.md#release-acceptance): sudo rule revocation and integrity, app crash recovery, reboot recovery, helper migration and the closed-lid transitions.
+The hardware recovery checks listed in the [installation guide](docs/INSTALLATION.md#release-acceptance) are still open: sudo rule revocation and integrity, app crash recovery, reboot recovery, helper migration and the closed-lid transitions. 1.0.0, 1.0.1 and 1.1.0 shipped with them waived.
 
 <hr>
 
