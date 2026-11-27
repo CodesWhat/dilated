@@ -15,7 +15,7 @@ macOS 27.2, and beta.10 through beta.12 don't change the direct closed-lid path:
 come from earlier betas. These hardware checks haven't run for this build and are
 listed in the cask caveats and `latest.json`: `sudoRuleRevoked`, `guardTransitions`,
 `rebootRecovery`, `adminPromptCancelled`, `helperMigration`, `uninstallNormalSleep`
-and `nativeUI`. Versions 1.0.0 and 1.0.1 shipped with these checks waived by the owner, not passed (see `ownerWaiver` in `docs/RELEASING.md`). A signed or notarized build alone does not close them.
+and `nativeUI`. Versions 1.0.0, 1.0.1 and 1.1.0 shipped with these checks waived by the owner, not passed (see `ownerWaiver` in `docs/RELEASING.md`). A signed or notarized build alone does not close them.
 
 ## Local builds and first launch
 
@@ -124,7 +124,7 @@ under System Settings → General → Login Items & Extensions.
 Local candidates do not contact a production update feed. Release builds,
 including the beta, carry the Sparkle feed at
 https://dilated.app/updates/appcast.xml with updates enabled. The feed
-and update archives are signed. Builds after 1.0.1 ask on the second
+and update archives are signed. Builds from 1.1.0 ask on the second
 launch whether to check for updates automatically (1.0.1 has automatic checks off
 and doesn't ask). The choice lives in Settings
 under Check automatically. Updates wait until closed-lid mode is off.
