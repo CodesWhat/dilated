@@ -164,10 +164,14 @@
         NativeProcess(id: getpid(), name: name, path: "/bin/\(name)", identity: identity)
       }
       let probe = ScanProbe([record("make")])
+      // Count only scan-result callbacks so the 5 second poll can't satisfy the assertion.
       var changes = 0
+      var monitorRef: TriggerMonitor?
       let monitor = TriggerMonitor(
         readPower: { .init() }, readProcesses: { probe.scan() },
-        workspaceNotifications: NotificationCenter(), changed: { changes += 1 })
+        workspaceNotifications: NotificationCenter(),
+        changed: { if monitorRef?.applyingScan == true { changes += 1 } })
+      monitorRef = monitor
       defer { monitor.stop() }
       monitor.configure(rules: [TriggerRule(name: "Make", criteria: [.process(name: "make")])])
       _ = monitor.read()

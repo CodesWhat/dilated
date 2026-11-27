@@ -821,7 +821,6 @@ struct ClosedLidSetupLiveFileSystemTests {
     let marker = FileManager.default.temporaryDirectory
       .appendingPathComponent("setup-started-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: marker) }
-    let started = ContinuousClock.now
     // The child touches the marker once it's running, so the cancel can't beat the launch.
     let task = Task {
       await SetupProcess.run(
@@ -832,6 +831,7 @@ struct ClosedLidSetupLiveFileSystemTests {
       try await Task.sleep(for: .milliseconds(10))
     }
     #expect(FileManager.default.fileExists(atPath: marker.path), "The child never started.")
+    let started = ContinuousClock.now
     task.cancel()
     let result = await task.value
     #expect(result != nil)
