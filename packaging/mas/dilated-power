@@ -267,7 +267,9 @@ release_lock() {
   local current_owner
   if [ "$have_lock" -eq 1 ]; then
     # Without the guard the lock is left for the staleness rule rather than risk removing
-    # someone else's.
+    # someone else's. Verbs under the app's 3 second timeout cap this wait at half a second.
+    guard_budget=${release_guard_budget:-30}
+    guard_deadline=
     if take_guard; then
       current_owner=""
       { read -r current_owner <"$lock_dir/owner"; } 2>/dev/null || true
@@ -337,7 +339,7 @@ take_lock() {
   # The owner record is part of acquisition: without it release can't match, and the lock would
   # block everyone until it goes stale.
   if ! printf '%s\n' "$lock_owner" >"$lock_dir/owner" 2>/dev/null; then
-    guard_budget=0
+    release_guard_budget=0
     release_lock
     return 1
   fi
@@ -345,7 +347,7 @@ take_lock() {
   # A late acquisition doesn't get past the cap either: the caller has stopped waiting, and the
   # work that follows could outlive the app's timeout.
   if [ -n "$limit" ] && [ $(($(clock) - started)) -ge "$limit" ]; then
-    guard_budget=0
+    release_guard_budget=0
     release_lock
     return 1
   fi
@@ -520,6 +522,7 @@ case "$verb" in
     # wall-clock seconds under load, plus 1s for launchctl below), so the verb stays inside the
     # app's 3 second timeout. `busy` isn't `ok`, so build 18 refuses the enable.
     [ ! -f "$removal_file" ] || refuse_unready
+    release_guard_budget=5
     take_lock 10 2 || {
       echo busy
       exit 1
@@ -659,6 +662,7 @@ case "$verb" in
     # `pmset -a disablesleep` writes the stored value, so it only runs when the effective and
     # stored values are both known and agree, and under the lock `repair` and `off` hold so
     # neither can change them between the read and the write. Mirrors ClosedLidPermission.probe.
+    release_guard_budget=5
     take_lock 10 2 || {
       echo busy
       exit 1
