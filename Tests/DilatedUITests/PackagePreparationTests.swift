@@ -61,6 +61,23 @@ import Testing
         == .uninstall)
   }
 
+  #if !MAS_CHANNEL
+    @Test func uninstallFallbackRemovesOnlyDilatedsOpenCodePlugin() throws {
+      let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      defer { try? FileManager.default.removeItem(at: home) }
+      let plugins = home.appendingPathComponent(".config/opencode/plugins")
+      try FileManager.default.createDirectory(at: plugins, withIntermediateDirectories: true)
+      let file = plugins.appendingPathComponent("dilated.js")
+      let executable = app.appendingPathComponent("Contents/MacOS/dilated")
+      try OpenCodePluginInstallation(file: file, executable: executable).install()
+      AppModel.removeAgentIntegrations(home: home, executable: executable)
+      #expect(!FileManager.default.fileExists(atPath: file.path))
+      try Data("// someone else's plugin\n".utf8).write(to: file)
+      AppModel.removeAgentIntegrations(home: home, executable: executable)
+      #expect(FileManager.default.fileExists(atPath: file.path))
+    }
+  #endif
+
   @Test func failedIntegrationRemovalLeavesAppOpenWithoutPackagePermission() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }

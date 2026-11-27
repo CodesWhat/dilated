@@ -261,6 +261,25 @@ public struct AppSettings: Codable, Equatable, Sendable {
         ? nil : "Couldn't read settings. Open Settings to recover before starting a hold.")
       ?? customGlyphIssue
   }
+
+  #if !MAS_CHANNEL
+    /// Best effort: a malformed or concurrently edited file must not block uninstall.
+    static func removeAgentIntegrations(home: URL, executable: URL) {
+      for (tool, path) in [
+        (AgentHookTool.claude, ".claude/settings.json"), (.codex, ".codex/hooks.json"),
+      ] {
+        try? AgentHookInstallation(
+          settingsURL: home.appendingPathComponent(path), executable: executable, tool: tool
+        ).remove()
+      }
+      // `remove` refuses a file that isn't Dilated's plugin, so another plugin of that name stays.
+      try? OpenCodePluginInstallation(
+        file: home.appendingPathComponent(".config/opencode/plugins/dilated.js"),
+        executable: executable
+      ).remove()
+    }
+  #endif
+
   func menuGlyphImage(frame: String) -> NSImage? {
     guard settings.useCustomGlyph else {
       customGlyphIssue = nil
@@ -895,16 +914,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
           if let removeAgentHooks = removeAgentHooks ?? agentHooksRemover {
             removeAgentHooks()
           } else {
-            let executable = app.appendingPathComponent("Contents/MacOS/dilated")
-            let home = FileManager.default.homeDirectoryForCurrentUser
-            for (tool, path) in [
-              (AgentHookTool.claude, ".claude/settings.json"), (.codex, ".codex/hooks.json"),
-            ] {
-              // Best effort: a malformed or concurrently edited file must not block uninstall.
-              try? AgentHookInstallation(
-                settingsURL: home.appendingPathComponent(path), executable: executable, tool: tool
-              ).remove()
-            }
+            Self.removeAgentIntegrations(
+              home: FileManager.default.homeDirectoryForCurrentUser,
+              executable: app.appendingPathComponent("Contents/MacOS/dilated"))
           }
           if let removeCommandLine {
             try removeCommandLine()
