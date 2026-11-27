@@ -221,6 +221,7 @@ clock() {
 # up to $guard_budget tenths of a second (3 seconds unless a caller with a deadline lowered it),
 # and answers 1 when it can't get it.
 guard_budget=30
+guard_deadline=
 take_guard() {
   local tries=0 modified announced=0 stale
   while ! (umask 077 && /bin/mkdir "$guard_dir" 2>/dev/null); do
@@ -247,6 +248,8 @@ take_guard() {
     fi
     tries=$((tries + 1))
     [ "$tries" -le "$guard_budget" ] || return 1
+    # Counting tries undercounts on a slow machine, so a caller's wall-clock deadline also stops it.
+    if [ -n "$guard_deadline" ] && [ "$(clock)" -ge "$guard_deadline" ]; then return 1; fi
     /bin/sleep 0.1
   done
   have_guard=1
@@ -316,12 +319,15 @@ take_lock() {
         left=$(((limit - (now - started)) * 10))
         [ "$left" -ge 0 ] || left=0
         [ "$left" -ge 30 ] || guard_budget=$left
+        guard_deadline=$((started + limit))
       fi
       if steal_lock; then
         guard_budget=30
+        guard_deadline=
         continue
       fi
       guard_budget=30
+      guard_deadline=
     fi
     tries=$((tries + 1))
     [ "$tries" -le "$max" ] || return 1
