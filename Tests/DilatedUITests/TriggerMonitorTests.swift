@@ -153,6 +153,61 @@
       probe.release()
     }
 
+    @Test func execInPlaceNameChangeNotifies() async throws {
+      let identity = ProcessIdentity(pid: 900_010, startedAtMicroseconds: 1)
+      func record(_ name: String) -> NativeProcess {
+        NativeProcess(id: getpid(), name: name, path: "/bin/\(name)", identity: identity)
+      }
+      let probe = ScanProbe([record("make")])
+      var changes = 0
+      let monitor = TriggerMonitor(
+        readPower: { .init() }, readProcesses: { probe.scan() },
+        workspaceNotifications: NotificationCenter(), changed: { changes += 1 })
+      defer { monitor.stop() }
+      monitor.configure(rules: [TriggerRule(name: "Make", criteria: [.process(name: "make")])])
+      _ = monitor.read()
+      probe.release()
+      try await settle { changes == 1 }
+      _ = monitor.read()
+      try await settle { probe.scans == 2 }
+      let before = changes
+      probe.set([record("ninja")])
+      probe.release()
+      try await settle { changes > before }
+      #expect(changes > before)
+      probe.release()
+    }
+
+    @Test func processExitDropsThePidAndDoesNotStormCallbacks() async throws {
+      let process = Process()
+      process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+      process.arguments = ["120"]
+      try process.run()
+      defer {
+        if process.isRunning {
+          process.terminate()
+          waitForExit(process)
+        }
+      }
+      let pid = process.processIdentifier
+      var changes = 0
+      let monitor = TriggerMonitor(
+        readPower: { .init() }, readProcesses: { ProcessCatalog.read().filter { $0.id == pid } },
+        workspaceNotifications: NotificationCenter(), changed: { changes += 1 })
+      defer { monitor.stop() }
+      monitor.configure(rules: [TriggerRule(name: "Sleep", criteria: [.process(name: "sleep")])])
+      try await settle { monitor.read().processNames.contains("sleep") }
+      #expect(monitor.read().processNames.contains("sleep"))
+      changes = 0
+      process.terminate()
+      waitForExit(process)
+      try await settle { !monitor.read().processNames.contains("sleep") }
+      try await Task.sleep(for: .milliseconds(500))
+      #expect(!monitor.read().processInstances.contains { $0.pid == pid })
+      #expect(!monitor.read().processNames.contains("sleep"))
+      #expect(changes <= 6, "exit callbacks stormed: \(changes)")
+    }
+
     @Test func pickerListSortsByNaturalNameThenPid() {
       func native(_ id: Int32, _ name: String) -> NativeProcess {
         NativeProcess(
