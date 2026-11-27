@@ -123,6 +123,8 @@ struct TriggerRequirements: Equatable {
     /// and may still list the pid.
     private var exitedPIDs: [Int32: Int] = [:]
     private(set) var scansStarted = 0
+    /// Scans whose result was accepted and applied, whether or not the list changed. Tests wait on it.
+    private(set) var scansApplied = 0
   #endif
 
   init(
@@ -275,6 +277,7 @@ struct TriggerRequirements: Equatable {
       scanInFlight = false
       if scanPending && requirements.processes { requestProcessScan() }
       guard generation == scanGeneration, requirements.processes else { return }
+      defer { scansApplied += 1 }
       // A scan that began before a pid's exit may still list it. Drop it from that result.
       let processes = scanned.filter { exitedPIDs[$0.id].map { serial > $0 } ?? true }
       exitedPIDs = exitedPIDs.filter { serial <= $0.value }
