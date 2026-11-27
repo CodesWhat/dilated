@@ -6,6 +6,11 @@ All notable changes to Dilated are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The AppleScript dictionary now uses Dilated's own codes (suite and event class `DilA`) instead of codes borrowed from another app, with no aliases for the old ones. Scripts that call commands by raw code need updating. The `closed display mode` commands are now `closed lid mode enabled`, `enable closed lid mode` and `disable closed lid mode`.
+- Drive Alive is now called Keep Drives Awake in Settings, the README and the docs.
+
 ## [1.1.0] - 2026-11-26
 
 ### Changed

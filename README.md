@@ -93,7 +93,7 @@ Battery floor and Low Power Mode guards can end a hold before it drains your bat
 | **Preferences file** | Export timer and appearance choices, then preview them before applying on another Mac. Local safety policy, automation, files, active holds and Stop state stay unchanged. |
 | **Why Awake** | Shows Dilated’s awake reasons and the processes asking macOS to stay awake. Refreshes when opened; other apps’ assertions are read-only. |
 | **Automation** | URL scheme, AppleScript, four Shortcuts actions and a `dilated` CLI. The CLI covers `on`, `off`, `status`, `run -- <command>` and renewable agent holds (`hold`, `release`). Configurable global shortcuts. |
-| **Drive Alive** | Opt-in. Writes a small hidden file to selected volumes at an interval you choose (30 to 3600 seconds) so they don't idle. It doesn't wake a sleeping Mac. |
+| **Keep Drives Awake** | Opt-in. Writes a small hidden file to selected volumes at an interval you choose (30 to 3600 seconds) so they don't idle. It doesn't wake a sleeping Mac. |
 | **Closed-lid mode** | Keeps the Mac running with the lid closed, through a sudo rule that lets Dilated run only `pmset -a disablesleep 0` and `1`. Admin accounts only. Experimental. A closed-lid trigger has to be armed each app run. |
 | **Feedback** | Optional notification banners and sounds, both off by default. Local history and statistics. |
 
@@ -111,7 +111,7 @@ automation** in Dilated before using On again.
 - **Bluetooth** is used only to match paired devices you choose for triggers. It doesn't scan for nearby devices or change their connections.
 - **Closed-lid mode** needs the sudo rule at `/private/etc/sudoers.d/dilated`. Remove it any time with `dilated lid-permission remove` or `sudo rm /private/etc/sudoers.d/dilated`. If Dilated crashes, a watchdog restores sleep within seconds. A reboot without relaunching Dilated can leave sleep disabled until it next opens.
 - **Notifications** are requested only when you enable banners.
-- **Files** are accessed only through your selection, for example a download watch or a Drive Alive volume.
+- **Files** are accessed only through your selection, for example a download watch or a Keep Drives Awake volume.
 
 History and statistics stay on your Mac. The only network use in the app code is Sparkle's update check against `dilated.app`. From 1.1.0, Sparkle asks on the second launch whether to check automatically, and until you say yes it only checks when you choose Check for Updates. Versions 1.0.1 and earlier have automatic checks off and don't show that prompt. There's no analytics code in it.
 

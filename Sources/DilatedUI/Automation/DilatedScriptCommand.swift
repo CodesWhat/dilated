@@ -27,7 +27,7 @@ import DilatedControl
   }
   private func beginReply() {
     do {
-      guard commandDescription.appleEventClassCode == 0x616d_7068,
+      guard commandDescription.appleEventClassCode == 0x4469_6c41,
         let operation = ScriptOperation.allCases.first(where: {
           $0.eventID == commandDescription.appleEventCode
         })

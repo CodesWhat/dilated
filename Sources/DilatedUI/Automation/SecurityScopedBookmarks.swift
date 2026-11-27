@@ -70,7 +70,7 @@ struct SecurityScopedBookmarks: Sendable {
   var options = SecurityScopedBookmarks.creationOptions
 
   static let live = SecurityScopedBookmarks(operations: LiveBookmarkFileOperations())
-  /// For targets Dilated writes to (Drive Alive volumes). Needs `files.user-selected.read-write`.
+  /// For targets Dilated writes to (Keep Drives Awake volumes). Needs `files.user-selected.read-write`.
   static let liveReadWrite = SecurityScopedBookmarks(
     operations: LiveBookmarkFileOperations(), options: readWriteCreationOptions)
 

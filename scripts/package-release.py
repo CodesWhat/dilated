@@ -97,7 +97,7 @@ def validate_automation_bundle(app):
                 or any(action.get('supportedModes') != 1 or not action.get('isDiscoverable')
                        for name, action in actions.items() if name != 'SetAwakeControlIntent')):
             raise ValueError('Invalid intent or scripting configuration')
-        codes = {'amph' + code for code in ['cAct', 'cmOn', 'cOff', 'STRm', 'DSOK', 'AWDS', 'PTDS',
+        codes = {'DilA' + code for code in ['cAct', 'cmOn', 'cOff', 'STRm', 'DSOK', 'AWDS', 'PTDS',
                                           'CDMK', 'ECDM', 'DCDM', 'SisT', 'TrEn', 'EnTr', 'DsTr']}
         commands = dictionary.findall('./suite/command')
         if (len(commands) != len(codes) or {item.get('code') for item in commands} != codes
