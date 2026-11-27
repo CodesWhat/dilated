@@ -767,6 +767,20 @@ struct ClosedLidSetupAssetTests {
       ClosedLidSetupPaths(home: "/Users/test", uid: 501).sessionLockFile
         == "/Users/test/Library/Application Support/Dilated/closed-lid-session.lock")
   }
+
+  @Test func theSessionLockFollowsTheAppsStateDirectoryOverride() {
+    let directory = "/tmp/dilated-state-override"
+    let paths = ClosedLidSetupPaths(
+      home: "/Users/test", uid: 501, stateDirectoryOverride: directory)
+    #expect(
+      paths.sessionLockFile
+        == ClosedLidMarkerStore(
+          directory: DilatedStateDirectory.resolve(
+            environment: ["DILATED_STATE_DIR": directory],
+            applicationSupport: URL(fileURLWithPath: "/Users/test/Library/Application Support"))
+        ).lockFile.path)
+    #expect(paths.sessionLockFile == "\(directory)/closed-lid-session.lock")
+  }
 }
 
 struct ClosedLidSetupLiveFileSystemTests {
@@ -803,14 +817,39 @@ struct ClosedLidSetupLiveFileSystemTests {
   }
 
   @Test(.timeLimit(.minutes(1)))
-  func setupProcessTerminatesTheChildWhenTheTaskIsCancelled() async {
+  func setupProcessTerminatesTheChildWhenTheTaskIsCancelled() async throws {
+    let marker = FileManager.default.temporaryDirectory
+      .appendingPathComponent("setup-started-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: marker) }
+    // The child touches the marker once it's running, so the cancel can't beat the launch.
+    let task = Task {
+      await SetupProcess.run(
+        "/bin/sh", ["-c", "touch '\(marker.path)'; exec sleep 30"], timeout: 30)
+    }
+    let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+    while !FileManager.default.fileExists(atPath: marker.path), ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(FileManager.default.fileExists(atPath: marker.path), "The child never started.")
     let started = ContinuousClock.now
-    let task = Task { await SetupProcess.run("/bin/sleep", ["30"], timeout: 30) }
-    try? await Task.sleep(for: .milliseconds(300))
     task.cancel()
     let result = await task.value
     #expect(result != nil)
     #expect(result?.timedOut == false)
     #expect(started.duration(to: .now) < .seconds(10))
+  }
+
+  @Test(.timeLimit(.minutes(1)))
+  func setupProcessCancelledBeforeLaunchReturnsNilAndStartsNothing() async {
+    let marker = FileManager.default.temporaryDirectory
+      .appendingPathComponent("setup-never-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: marker) }
+    let task = Task {
+      while !Task.isCancelled { await Task.yield() }
+      return await SetupProcess.run("/usr/bin/touch", [marker.path], timeout: 30)
+    }
+    task.cancel()
+    #expect(await task.value == nil)
+    #expect(!FileManager.default.fileExists(atPath: marker.path))
   }
 }

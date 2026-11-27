@@ -133,10 +133,15 @@
 
     @Test func unchangedProcessListDoesNotNotify() async throws {
       let probe = ScanProbe([Self.fake(900_003, "make")])
+      // Count only callbacks fired while a scan result is applied. The 5 second poll timer calls
+      // `changed` too, and on a loaded machine it can land inside the window below.
       var changes = 0
+      var monitorRef: TriggerMonitor?
       let monitor = TriggerMonitor(
         readPower: { .init() }, readProcesses: { probe.scan() },
-        workspaceNotifications: NotificationCenter(), changed: { changes += 1 })
+        workspaceNotifications: NotificationCenter(),
+        changed: { if monitorRef?.applyingScan == true { changes += 1 } })
+      monitorRef = monitor
       defer { monitor.stop() }
       monitor.configure(rules: [TriggerRule(name: "Make", criteria: [.process(name: "make")])])
       _ = monitor.read()
@@ -151,6 +156,65 @@
       let input = monitor.read()
       #expect(input.processNames.contains("make") && input.processNames.contains("/bin/make"))
       probe.release()
+    }
+
+    @Test func execInPlaceNameChangeNotifies() async throws {
+      let identity = ProcessIdentity(pid: 900_010, startedAtMicroseconds: 1)
+      func record(_ name: String) -> NativeProcess {
+        NativeProcess(id: getpid(), name: name, path: "/bin/\(name)", identity: identity)
+      }
+      let probe = ScanProbe([record("make")])
+      // Count only scan-result callbacks so the 5 second poll can't satisfy the assertion.
+      var changes = 0
+      var monitorRef: TriggerMonitor?
+      let monitor = TriggerMonitor(
+        readPower: { .init() }, readProcesses: { probe.scan() },
+        workspaceNotifications: NotificationCenter(),
+        changed: { if monitorRef?.applyingScan == true { changes += 1 } })
+      monitorRef = monitor
+      defer { monitor.stop() }
+      monitor.configure(rules: [TriggerRule(name: "Make", criteria: [.process(name: "make")])])
+      _ = monitor.read()
+      probe.release()
+      try await settle { changes == 1 }
+      _ = monitor.read()
+      try await settle { probe.scans == 2 }
+      let before = changes
+      probe.set([record("ninja")])
+      probe.release()
+      try await settle { changes > before }
+      #expect(changes > before)
+      probe.release()
+    }
+
+    @Test func processExitDropsThePidAndDoesNotStormCallbacks() async throws {
+      let process = Process()
+      process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+      process.arguments = ["120"]
+      try process.run()
+      defer {
+        if process.isRunning {
+          process.terminate()
+          waitForExit(process)
+        }
+      }
+      let pid = process.processIdentifier
+      var changes = 0
+      let monitor = TriggerMonitor(
+        readPower: { .init() }, readProcesses: { ProcessCatalog.read().filter { $0.id == pid } },
+        workspaceNotifications: NotificationCenter(), changed: { changes += 1 })
+      defer { monitor.stop() }
+      monitor.configure(rules: [TriggerRule(name: "Sleep", criteria: [.process(name: "sleep")])])
+      try await settle { monitor.read().processNames.contains("sleep") }
+      #expect(monitor.read().processNames.contains("sleep"))
+      changes = 0
+      process.terminate()
+      waitForExit(process)
+      try await settle { !monitor.read().processNames.contains("sleep") }
+      try await Task.sleep(for: .milliseconds(500))
+      #expect(!monitor.read().processInstances.contains { $0.pid == pid })
+      #expect(!monitor.read().processNames.contains("sleep"))
+      #expect(changes <= 6, "exit callbacks stormed: \(changes)")
     }
 
     @Test func pickerListSortsByNaturalNameThenPid() {

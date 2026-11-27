@@ -17,6 +17,17 @@ public struct ClosedLidSessionMarker: Codable, Equatable, Sendable {
   }
 }
 
+/// The state directory the app, the CLI and setup all agree on. `DILATED_STATE_DIR` wins,
+/// otherwise it's `Dilated` under `applicationSupport`.
+public enum DilatedStateDirectory {
+  public static let environmentKey = "DILATED_STATE_DIR"
+
+  public static func resolve(environment: [String: String], applicationSupport: URL) -> URL {
+    environment[environmentKey].map { URL(fileURLWithPath: $0) }
+      ?? applicationSupport.appendingPathComponent("Dilated")
+  }
+}
+
 public struct ClosedLidMarkerStore: Sendable {
   public static let fileName = "closed-lid-session.json"
   public static let lockFileName = "closed-lid-session.lock"

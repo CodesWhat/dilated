@@ -54,15 +54,17 @@ struct OpenCodeAdapterTests {
     process.environment = ProcessInfo.processInfo.environment.merging([
       "DILATED_ADAPTER_LOG": output.path
     ]) { _, new in new }
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = pipe
+    // Capture output in a file, not a pipe: a descendant the plugin spawns can inherit a pipe and
+    // hold it open past the harness's exit, so EOF would never come.
+    let strayLog = directory.appendingPathComponent("stray.log")
+    FileManager.default.createFile(atPath: strayLog.path, contents: nil)
+    let strayHandle = try FileHandle(forWritingTo: strayLog)
+    defer { try? strayHandle.close() }
+    process.standardOutput = strayHandle
+    process.standardError = strayHandle
     try process.run()
-    // Drain on another thread so the exit deadline in waitForExit still applies when the child
-    // never closes its output, and a full pipe can't block the child while we wait.
-    let drained = PipeDrain(pipe.fileHandleForReading)
     #expect(waitForExit(process), "The adapter harness did not exit.")
-    let stray = drained.finish()
+    let stray = try Data(contentsOf: strayLog)
     #expect(process.terminationStatus == 0)
     #expect(stray.isEmpty)
     if missingCLI {
@@ -126,29 +128,5 @@ struct OpenCodeAdapterTests {
     #expect(throws: (any Error).self) { try installation.install() }
     #expect(throws: (any Error).self) { try installation.remove() }
     #expect(try Data(contentsOf: file) == original)
-  }
-}
-
-private final class PipeDrain: @unchecked Sendable {
-  private let lock = NSLock()
-  private var data = Data()
-  private let done = DispatchSemaphore(value: 0)
-
-  init(_ handle: FileHandle) {
-    DispatchQueue.global().async { [self] in
-      let read = handle.readDataToEndOfFile()
-      lock.lock()
-      data = read
-      lock.unlock()
-      done.signal()
-    }
-  }
-
-  /// Output collected so far once the reader reaches EOF, or after a short grace period.
-  func finish() -> Data {
-    _ = done.wait(timeout: .now() + 5)
-    lock.lock()
-    defer { lock.unlock() }
-    return data
   }
 }

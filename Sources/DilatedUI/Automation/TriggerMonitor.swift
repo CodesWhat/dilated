@@ -3,7 +3,7 @@ import Darwin
 import DilatedCore
 import SystemConfiguration
 
-struct NativeProcess: Identifiable, Sendable {
+struct NativeProcess: Identifiable, Sendable, Hashable {
   let id: Int32
   let name: String
   let path: String
@@ -119,6 +119,9 @@ struct TriggerRequirements: Equatable {
     private var scanPending = false
     private(set) var applyingScan = false
     private var scanGeneration = 0
+    /// pid -> `scansStarted` when it exited. A scan numbered at or below that began before the exit
+    /// and may still list the pid.
+    private var exitedPIDs: [Int32: Int] = [:]
     private(set) var scansStarted = 0
   #endif
 
@@ -237,6 +240,7 @@ struct TriggerRequirements: Equatable {
       scanGeneration += 1
       scanPending = false
       processSnapshot = nil
+      exitedPIDs = [:]
     #endif
   }
 
@@ -255,22 +259,28 @@ struct TriggerRequirements: Equatable {
       scanPending = false
       scansStarted += 1
       let generation = scanGeneration
+      let serial = scansStarted
       let reader = readProcesses
       Task { [weak self] in
         let processes = await withCheckedContinuation { continuation in
           Self.scanQueue.async { continuation.resume(returning: reader()) }
         }
-        self?.finishProcessScan(processes, generation: generation)
+        self?.finishProcessScan(processes, generation: generation, serial: serial)
       }
     }
 
-    private func finishProcessScan(_ processes: [NativeProcess], generation: Int) {
+    private func finishProcessScan(
+      _ scanned: [NativeProcess], generation: Int, serial: Int
+    ) {
       scanInFlight = false
       if scanPending && requirements.processes { requestProcessScan() }
       guard generation == scanGeneration, requirements.processes else { return }
+      // A scan that began before a pid's exit may still list it. Drop it from that result.
+      let processes = scanned.filter { exitedPIDs[$0.id].map { serial > $0 } ?? true }
+      exitedPIDs = exitedPIDs.filter { serial <= $0.value }
       let previous = processSnapshot
       processSnapshot = processes
-      if previous.map({ Set($0.map(\.identity)) }) != Set(processes.map(\.identity)) {
+      if previous.map(Set.init) != Set(processes) {
         // The owner re-reads synchronously from `changed`. That read must not start another
         // scan, or a list that churns on every scan would rescan back to back.
         applyingScan = true
@@ -357,8 +367,11 @@ struct TriggerRequirements: Equatable {
             identifier: pid, eventMask: .exit, queue: .main)
           source.setEventHandler { [weak self] in
             MainActor.assumeIsolated {
-              self?.exits.removeValue(forKey: pid)?.cancel()
-              self?.changed()
+              guard let self else { return }
+              self.exits.removeValue(forKey: pid)?.cancel()
+              self.processSnapshot?.removeAll { $0.id == pid }
+              self.exitedPIDs[pid] = self.scansStarted
+              self.changed()
             }
           }
           exits[pid] = source
