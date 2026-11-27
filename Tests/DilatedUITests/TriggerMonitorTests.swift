@@ -124,8 +124,7 @@
       _ = monitor?.read()
       probe.release()
       try await settle { guardedCallbacks >= 1 }
-      let appliedAtCallback = monitor?.scansApplied ?? 0
-      try await settle { (monitor?.scansApplied ?? 0) > appliedAtCallback }
+      // `scansStartedByRead` is measured synchronously inside the callback, so no further wait is needed.
       #expect(guardedCallbacks >= 1)
       #expect(scansStartedByRead == 0)
       probe.release()
