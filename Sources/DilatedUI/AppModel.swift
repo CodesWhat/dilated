@@ -193,6 +193,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored private var lastHistoryCheckpoint = Date.distantPast
   @ObservationIgnored private let historyStore: HistoryStore
   public private(set) var triggerRules: [TriggerRule] = []
+  /// Set when the trigger files won't load and an earlier backup would.
+  public private(set) var triggerRecovery: TriggerStore.Recovery?
   public private(set) var triggerStatuses: [UUID: String] = [:]
   public private(set) var armedClosedLidTriggers: Set<UUID> = []
   public private(set) var armingClosedLidTrigger: UUID?
@@ -227,14 +229,16 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @ObservationIgnored private let store: StateStore
   @ObservationIgnored private let readPower: () -> PowerState
   @ObservationIgnored private let assertions: any AssertionControlling
-  @ObservationIgnored private let leavingClock: () -> Date
+  @ObservationIgnored private let leavingClock: () -> TimeInterval
   @ObservationIgnored private let requestSleep: () throws -> Void
+  /// Replaces the real agent-settings cleanup when a package is prepared through `control`.
+  @ObservationIgnored private let agentHooksRemover: (() -> Void)?
   @ObservationIgnored private var leavingTask: Task<Void, Never>?
   @ObservationIgnored var feedback: FeedbackController
   @ObservationIgnored var driveAlive = DriveAliveController()
   @ObservationIgnored private var downloads: [UUID: DownloadMonitor] = [:]
   @ObservationIgnored private var timer: Timer?
-  @ObservationIgnored private var lastAssertionRefresh = Date.distantPast
+  @ObservationIgnored private var lastAssertionRefresh: TimeInterval?
   @ObservationIgnored private var stopped = false
   @ObservationIgnored private var preparingToQuit = false
   @ObservationIgnored private var savedForUpdate = false
@@ -257,6 +261,25 @@ public struct AppSettings: Codable, Equatable, Sendable {
         ? nil : "Couldn't read settings. Open Settings to recover before starting a hold.")
       ?? customGlyphIssue
   }
+
+  #if !MAS_CHANNEL
+    /// Best effort: a malformed or concurrently edited file must not block uninstall.
+    static func removeAgentIntegrations(home: URL, executable: URL) {
+      for (tool, path) in [
+        (AgentHookTool.claude, ".claude/settings.json"), (.codex, ".codex/hooks.json"),
+      ] {
+        try? AgentHookInstallation(
+          settingsURL: home.appendingPathComponent(path), executable: executable, tool: tool
+        ).remove()
+      }
+      // `remove` refuses a file that isn't Dilated's plugin, so another plugin of that name stays.
+      try? OpenCodePluginInstallation(
+        file: home.appendingPathComponent(".config/opencode/plugins/dilated.js"),
+        executable: executable
+      ).remove()
+    }
+  #endif
+
   func menuGlyphImage(frame: String) -> NSImage? {
     guard settings.useCustomGlyph else {
       customGlyphIssue = nil
@@ -301,8 +324,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     helperMigration: HelperMigrationInjection? = nil,
     closedLidPermission: ClosedLidPermissionModel? = nil,
     updater: AppUpdater? = nil,
-    leavingClock: @escaping () -> Date = { Date() },
-    requestSleep: @escaping () throws -> Void = { try NativePowerRunner.requestSystemSleep() }
+    leavingClock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+    requestSleep: @escaping () throws -> Void = { try NativePowerRunner.requestSystemSleep() },
+    agentHooksRemover: (() -> Void)? = nil
   ) {
     self.endpoint = endpoint
     self.store = StateStore(directory: endpoint.stateDirectory)
@@ -311,6 +335,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     self.assertions = assertions
     self.leavingClock = leavingClock
     self.requestSleep = requestSleep
+    self.agentHooksRemover = agentHooksRemover
     self.feedback = FeedbackController(
       service: NativeFeedbackService(),
       sounds: NativeFeedbackSounds(directory: endpoint.stateDirectory))
@@ -352,7 +377,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
         if rule.focusControlled { rule.enabled = false }
         return rule
       }
-    } catch { loadMessage = "Couldn't load triggers: \(error.localizedDescription)" }
+    } catch {
+      loadMessage = "Couldn't load triggers: \(error.localizedDescription)"
+      triggerRecovery = TriggerStore(directory: endpoint.stateDirectory).recovery()
+    }
     preferences = loadedSettings
     historyWasEnabled = loadedSettings.historyEnabled
     do { history = try historyStore.load(retentionDays: loadedSettings.historyRetentionDays) } catch
@@ -730,7 +758,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
           cancelLeaving()
           return
         }
-        guard engine.takeLeavingSleepRequest(now: leavingClock()) else { return }
+        guard engine.takeLeavingSleepRequest(uptime: leavingClock()) else { return }
         try requestSleep()
       } catch {
         guard !Task.isCancelled, !stopped else { return }
@@ -829,7 +857,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     _ intent: PackageIntent, app: URL = Bundle.main.bundleURL,
     removeLidPermission: Bool = false,
     removeLoginItem: (() throws -> Void)? = nil,
-    removeCommandLine: (() throws -> Void)? = nil
+    removeCommandLine: (() throws -> Void)? = nil,
+    removeAgentHooks: (() -> Void)? = nil
   ) async -> Bool {
     guard !stopped, !preparingToQuit, !updater.blocksNewWork, updateActivity == .idle else {
       message = "Turn off closed-lid and finish permission changes before preparing the package."
@@ -881,6 +910,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
           }
         }
         #if !MAS_CHANNEL
+          // Hooks would otherwise keep pointing at a binary that's about to disappear.
+          if let removeAgentHooks = removeAgentHooks ?? agentHooksRemover {
+            removeAgentHooks()
+          } else {
+            Self.removeAgentIntegrations(
+              home: FileManager.default.homeDirectoryForCurrentUser,
+              executable: app.appendingPathComponent("Contents/MacOS/dilated"))
+          }
           if let removeCommandLine {
             try removeCommandLine()
           } else {
@@ -940,11 +977,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     feedback.tick(uptime: ProcessInfo.processInfo.systemUptime)
     if engine.holds != previous {
       commit()
-    } else if now.timeIntervalSince(lastAssertionRefresh) >= 20 {
+    } else if lastAssertionRefresh.map({ leavingClock() - $0 >= 20 }) ?? true {
       synchronizeAssertions()
       recordHistory()
     }
-    if engine.leavingSleepReady(now: leavingClock()) { queueLeavingSleep() }
+    if engine.leavingSleepReady(uptime: leavingClock()) { queueLeavingSleep() }
     onChange?()
   }
   public func control(
@@ -996,6 +1033,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
     var response = ControlRouter.handle(effective, engine: &engine, origin: origin)
     if !commit() {
       if request.action == .leaving { cancelLeaving() }
+      if [.start, .lease, .runner, .toggle].contains(request.action), let id = response.id {
+        // The caller is told the start failed, so don't leave the hold running.
+        engine.stop(id: id)
+        response.id = nil
+        commit()
+        response.snapshot = engine.snapshot
+      }
       response.ok = false
       response.message = message
       response.code = "systemFailure"
@@ -1263,7 +1307,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
   @discardableResult private func synchronizeAssertions() -> Bool {
     do {
       try assertions.synchronize(holds: engine.holds, now: Date())
-      lastAssertionRefresh = Date()
+      lastAssertionRefresh = leavingClock()
       return true
     } catch {
       message = error.localizedDescription
@@ -1329,12 +1373,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     guard settingsRecoveryIssue == nil || recovering else {
       throw InputError("Recover unreadable settings in Settings before making changes.")
     }
-    try FileManager.default.createDirectory(
-      at: endpoint.stateDirectory, withIntermediateDirectories: true,
-      attributes: [.posixPermissions: 0o700])
-    try JSONEncoder().encode(value).write(to: settingsFile, options: .atomic)
-    try FileManager.default.setAttributes(
-      [.posixPermissions: 0o600], ofItemAtPath: settingsFile.path)
+    try PrivateFile.write(try JSONEncoder().encode(value), to: settingsFile)
   }
   @discardableResult func resetUnreadableSettings() throws -> URL {
     guard settingsRecoveryIssue != nil else { throw InputError("Settings don't need recovery.") }
@@ -1347,8 +1386,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
       at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
     let backup = directory.appendingPathComponent("settings-\(UUID().uuidString).json")
-    try original.write(to: backup, options: .atomic)
-    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
+    try PrivateFile.write(original, to: backup)
     try store.save(engine.snapshot)
     let defaults = AppSettings()
     try writeSettings(defaults, recovering: true)
@@ -1794,6 +1832,20 @@ public struct AppSettings: Codable, Equatable, Sendable {
     reconcileTriggers(lastTriggerInputs)
     refreshTriggers()
     if id != nil, selected == nil { throw InputError("The Dilated Focus rule no longer exists.") }
+  }
+  func restoreTriggerBackup(confirmed: Bool) throws {
+    guard triggerRecovery != nil else { throw InputError("Triggers don't need recovery.") }
+    let restored = try TriggerStore(directory: endpoint.stateDirectory)
+      .restoreLastGood(confirmed: confirmed)
+    triggerRules = restored.map { rule in
+      var rule = rule
+      if rule.focusControlled { rule.enabled = false }
+      return rule
+    }
+    triggerRecovery = nil
+    if message?.hasPrefix("Couldn't load triggers:") == true { message = nil }
+    reconcileTriggers(lastTriggerInputs)
+    refreshTriggers()
   }
   private func writeTriggers(_ rules: [TriggerRule]) throws {
     try TriggerStore(directory: endpoint.stateDirectory).save(rules)

@@ -49,6 +49,7 @@
     @ObservationIgnored private let readPower: () -> ClosedLidReadback
     @ObservationIgnored private let hasSessionMarker: () -> Bool
     @ObservationIgnored private let revertSleep: () async -> Bool
+    @ObservationIgnored private let lock: @Sendable () async throws -> @Sendable () -> Void
     @ObservationIgnored private let sleep: @Sendable (Duration) async -> Void
     @ObservationIgnored private let jobAttempts: Int
     @ObservationIgnored private let file: URL
@@ -57,6 +58,10 @@
     public convenience init(stateDirectory: URL) {
       self.init(
         service: SystemHelperRegistration(), stateDirectory: stateDirectory,
+        lock: {
+          let held = try await ClosedLidMarkerStore(directory: stateDirectory).acquireLock()
+          return { held.release() }
+        },
         revertSleep: {
           let driver = SerialPowerDriver(runner: SudoPowerRunner())
           return (try? await driver.setSleepDisabled(false))?.confirmedDisabled == true
@@ -70,6 +75,7 @@
       },
       readPower: @escaping () -> ClosedLidReadback = NativeClosedLidPower.readback,
       hasSessionMarker: (() -> Bool)? = nil,
+      lock: @escaping @Sendable () async throws -> @Sendable () -> Void = { {} },
       revertSleep: @escaping () async -> Bool,
       sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
       jobAttempts: Int = 10, now: @escaping () -> Date = { Date() }
@@ -80,6 +86,7 @@
       self.hasSessionMarker =
         hasSessionMarker ?? { ClosedLidMarkerStore(directory: stateDirectory).read() != nil }
       self.revertSleep = revertSleep
+      self.lock = lock
       self.sleep = sleep
       self.jobAttempts = jobAttempts
       self.now = now
@@ -143,13 +150,16 @@
         save(.init(outcome: .removed, message: "Removed the old background helper.", date: now()))
         return
       }
-      if await revertSleep(), !Self.sleepIsDisabled(readPower()) {
+      switch await revertUnderLock() {
+      case .sessionStarted:
+        save(.init(outcome: .removed, message: "Removed the old background helper.", date: now()))
+      case .reverted:
         save(
           .init(
             outcome: .restoredSleep,
             message: "Removed the old background helper and turned normal sleep back on.",
             date: now()))
-      } else {
+      case .failed:
         save(
           .init(
             outcome: .needsRestore,
@@ -157,6 +167,19 @@
               "Removed the old background helper, but it left sleep turned off. Use Restore normal sleep.",
             date: now()))
       }
+    }
+
+    private enum Revert { case reverted, failed, sessionStarted }
+
+    /// The write runs under the marker-store lock every session enable and restore holds. A session
+    /// that started since the marker check owns the sleep state, so it's left alone. With the lock
+    /// unavailable the write is skipped and the user gets "Restore normal sleep".
+    private func revertUnderLock() async -> Revert {
+      guard let release = try? await lock() else { return .failed }
+      defer { release() }
+      if hasSessionMarker() { return .sessionStarted }
+      if await revertSleep(), !Self.sleepIsDisabled(readPower()) { return .reverted }
+      return .failed
     }
 
     private func confirmJobGone() async -> Bool {
@@ -177,10 +200,7 @@
       let encoder = JSONEncoder()
       encoder.dateEncodingStrategy = .iso8601
       do {
-        try FileManager.default.createDirectory(
-          at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
-          attributes: [.posixPermissions: 0o700])
-        try encoder.encode(value).write(to: file, options: .atomic)
+        try PrivateFile.write(try encoder.encode(value), to: file)
       } catch {
         Logger(subsystem: HelperIdentity.appID, category: "HelperMigration").error(
           "Couldn't save the migration result: \(error.localizedDescription, privacy: .public)")

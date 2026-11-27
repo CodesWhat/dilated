@@ -388,7 +388,9 @@ struct ClosedLidSetupRemoveTests {
 
   @Test func blocksEnablesAndRevertsBeforeAnythingElseWithOrWithoutASession() async {
     for hasSession in [true, false] {
-      let rig = Rig(rule: .ready)
+      // Explicitly owned: the readback in events[1] only happens when begin-removal reports a
+      // session of ours, which the no-session pass gets from this flag, not from a session file.
+      let rig = Rig(rule: .ready, ownsSleep: true)
       installed(rig, recordRule: false)
       if hasSession { rig.files.put(rig.paths.sessionFile, Data("123 Mon".utf8)) }
       #expect(await rig.setup.remove() == .completed)
@@ -568,6 +570,30 @@ struct ClosedLidSetupRemoveTests {
     #expect(blocked.files.entry(blocked.paths.removalMarker) != nil)
   }
 
+  @Test func aVerifiedReinstallClearsAStaleRestoreLatchAndOtherwiseKeepsIt() async {
+    let clean = Rig(rule: .ready)
+    clean.files.put(clean.paths.restorePendingFile, Data("pending\n".utf8))
+    #expect(await clean.setup.install() == .completed)
+    #expect(clean.files.entry(clean.paths.restorePendingFile) == nil)
+
+    let dirty = Rig(rule: .ready, sleepRestored: false)
+    dirty.files.put(dirty.paths.restorePendingFile, Data("pending\n".utf8))
+    #expect(await dirty.setup.install() == .completed)
+    #expect(dirty.files.entry(dirty.paths.restorePendingFile) != nil)
+
+    let live = Rig(rule: .ready)
+    live.files.put(live.paths.restorePendingFile, Data("pending\n".utf8))
+    live.files.put(live.paths.sessionFile, Data("1 x\n".utf8))
+    #expect(await live.setup.install() == .completed)
+    #expect(live.files.entry(live.paths.restorePendingFile) != nil)
+    #expect(!live.log.events.contains("readback"))
+
+    let unloaded = Rig(rule: .ready, neverLoads: true)
+    unloaded.files.put(unloaded.paths.restorePendingFile, Data("pending\n".utf8))
+    _ = await unloaded.setup.install()
+    #expect(unloaded.files.entry(unloaded.paths.restorePendingFile) != nil)
+  }
+
   @Test func aRetryAfterAFailedReadbackStillOwnsTheSessionAndChecksAgain() async {
     let rig = Rig(rule: .ready, sleepRestored: false)
     installed(rig, recordRule: false)
@@ -737,6 +763,23 @@ struct ClosedLidSetupAssetTests {
 
   @Test func theSharedRuleIsTheDirectBuildsRule() {
     #expect(ClosedLidPermission.rulePath == "/private/etc/sudoers.d/dilated")
+    #expect(
+      ClosedLidSetupPaths(home: "/Users/test", uid: 501).sessionLockFile
+        == "/Users/test/Library/Application Support/Dilated/closed-lid-session.lock")
+  }
+
+  @Test func theSessionLockFollowsTheAppsStateDirectoryOverride() {
+    let directory = "/tmp/dilated-state-override"
+    let paths = ClosedLidSetupPaths(
+      home: "/Users/test", uid: 501, stateDirectoryOverride: directory)
+    #expect(
+      paths.sessionLockFile
+        == ClosedLidMarkerStore(
+          directory: DilatedStateDirectory.resolve(
+            environment: ["DILATED_STATE_DIR": directory],
+            applicationSupport: URL(fileURLWithPath: "/Users/test/Library/Application Support"))
+        ).lockFile.path)
+    #expect(paths.sessionLockFile == "\(directory)/closed-lid-session.lock")
   }
 }
 
@@ -771,5 +814,42 @@ struct ClosedLidSetupLiveFileSystemTests {
     let slow = await SetupProcess.run("/bin/sleep", ["30"], timeout: 0.3)
     #expect(slow?.timedOut == true)
     #expect(await SetupProcess.run("/nonexistent/tool", []) == nil)
+  }
+
+  @Test(.timeLimit(.minutes(1)))
+  func setupProcessTerminatesTheChildWhenTheTaskIsCancelled() async throws {
+    let marker = FileManager.default.temporaryDirectory
+      .appendingPathComponent("setup-started-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: marker) }
+    // The child touches the marker once it's running, so the cancel can't beat the launch.
+    let task = Task {
+      await SetupProcess.run(
+        "/bin/sh", ["-c", "touch '\(marker.path)'; exec sleep 30"], timeout: 30)
+    }
+    let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+    while !FileManager.default.fileExists(atPath: marker.path), ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(FileManager.default.fileExists(atPath: marker.path), "The child never started.")
+    let started = ContinuousClock.now
+    task.cancel()
+    let result = await task.value
+    #expect(result != nil)
+    #expect(result?.timedOut == false)
+    #expect(started.duration(to: .now) < .seconds(10))
+  }
+
+  @Test(.timeLimit(.minutes(1)))
+  func setupProcessCancelledBeforeLaunchReturnsNilAndStartsNothing() async {
+    let marker = FileManager.default.temporaryDirectory
+      .appendingPathComponent("setup-never-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: marker) }
+    let task = Task {
+      while !Task.isCancelled { await Task.yield() }
+      return await SetupProcess.run("/usr/bin/touch", [marker.path], timeout: 30)
+    }
+    task.cancel()
+    #expect(await task.value == nil)
+    #expect(!FileManager.default.fileExists(atPath: marker.path))
   }
 }

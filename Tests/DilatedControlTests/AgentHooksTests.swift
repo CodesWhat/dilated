@@ -68,6 +68,24 @@ struct AgentHooksTests {
       JSONSerialization.jsonObject(with: Data(contentsOf: installer.settingsURL)) as? NSDictionary)
     #expect(removed == (try JSONSerialization.jsonObject(with: original) as? NSDictionary))
   }
+  @Test func installRefusesWhenSettingsChangeAfterTheSnapshot() throws {
+    var (directory, installer) = try rig()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let original = Data(#"{"model":"test"}"#.utf8)
+    try original.write(to: installer.settingsURL)
+    let edited = Data(#"{"model":"edited elsewhere"}"#.utf8)
+    let url = installer.settingsURL
+    installer.beforeWriteCheck = { try edited.write(to: url) }
+    #expect(throws: InputError.self) { try installer.install() }
+    #expect(try Data(contentsOf: url) == edited)
+    let backups = try FileManager.default.contentsOfDirectory(
+      at: directory, includingPropertiesForKeys: nil
+    ).filter { $0.pathExtension == "backup" }
+    #expect(backups.isEmpty)
+    installer.beforeWriteCheck = nil
+    try installer.install()
+    #expect(try installer.health() == .installed)
+  }
   @Test func markerInsideUserCommandsIsPreserved() throws {
     let (directory, installer) = try rig()
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -180,5 +198,22 @@ struct AgentHooksTests {
       try ClaudeHookInput.command(
         data: Data(#"{"session_id":"../bad","hook_event_name":"UserPromptSubmit"}"#.utf8), pid: 42)
     }
+  }
+
+  @Test func hookBackupsAreCappedAndOnlyOwnFilesPruned() throws {
+    let (directory, installer) = try rig()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let unrelated = directory.appendingPathComponent("settings.backup")
+    try Data("keep".utf8).write(to: unrelated)
+    try Data(#"{"model":"test"}"#.utf8).write(
+      to: directory.appendingPathComponent("settings.json"))
+    for _ in 0..<4 {
+      try installer.install()
+      try installer.remove()
+    }
+    let backups = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+      .filter { $0.hasPrefix("dilated-settings-") }
+    #expect(backups.count == ClaudeHookInstallation.backupsToKeep)
+    #expect(FileManager.default.fileExists(atPath: unrelated.path))
   }
 }

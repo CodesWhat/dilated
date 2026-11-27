@@ -62,10 +62,13 @@ public struct ControlResponse: Codable, Sendable {
   public var helperInstallation: String?
   public var lidPermission: String?
   public var appPID: Int32?
+  /// Set on a failed renew when the user released that hold, as opposed to it expiring or the app
+  /// restarting. Absent from older apps, which clients read as "lost".
+  public var released: Bool?
   public init(
     ok: Bool, id: UUID? = nil, snapshot: EngineSnapshot? = nil, message: String? = nil,
     code: String? = nil, helper: HelperState? = nil, helperInstallation: String? = nil,
-    appPID: Int32? = nil, lidPermission: String? = nil
+    appPID: Int32? = nil, lidPermission: String? = nil, released: Bool? = nil
   ) {
     self.ok = ok
     self.id = id
@@ -76,6 +79,7 @@ public struct ControlResponse: Codable, Sendable {
     self.helperInstallation = helperInstallation
     self.lidPermission = lidPermission
     self.appPID = appPID
+    self.released = released
   }
 }
 public enum ControlOrigin: Sendable {
@@ -145,7 +149,9 @@ public enum ControlRouter {
     } catch {
       return ControlResponse(
         ok: false, snapshot: engine.snapshot, message: error.localizedDescription,
-        code: (error as? WakeError)?.rawValue ?? "invalidRequest")
+        code: (error as? WakeError)?.rawValue ?? "invalidRequest",
+        released: request.action == .renew && (error as? WakeError) == .holdNotFound
+          && request.id.map { engine.wasReleased(id: $0, now: now) } == true ? true : nil)
     }
   }
 }

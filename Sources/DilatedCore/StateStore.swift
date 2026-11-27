@@ -11,12 +11,7 @@ public struct StateStore: Sendable {
   }
 
   public func save(_ snapshot: EngineSnapshot) throws {
-    try FileManager.default.createDirectory(
-      at: directory, withIntermediateDirectories: true,
-      attributes: [.posixPermissions: 0o700])
-    let data = try JSONEncoder().encode(snapshot)
-    try data.write(to: file, options: [.atomic])
-    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    try PrivateFile.write(try JSONEncoder().encode(snapshot), to: file)
   }
 }
 
@@ -48,7 +43,7 @@ public enum TimeInput {
     -> Date
   {
     let pieces = text.split(separator: ":", omittingEmptySubsequences: false)
-    guard pieces.count == 2, pieces[0].count <= 2, pieces[1].count == 2,
+    guard pieces.count == 2, pieces[0].count == 2, pieces[1].count == 2,
       let hour = Int(pieces[0]), let minute = Int(pieces[1]),
       (0...23).contains(hour), (0...59).contains(minute),
       let next = calendar.nextDate(

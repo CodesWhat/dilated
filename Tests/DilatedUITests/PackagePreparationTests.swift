@@ -47,11 +47,12 @@ import Testing
     #expect(
       await model.prepareForPackage(
         .uninstall, app: app, removeLoginItem: { operations.append("login") },
-        removeCommandLine: { operations.append("cli") }))
+        removeCommandLine: { operations.append("cli") },
+        removeAgentHooks: { operations.append("hooks") }))
     #if MAS_CHANNEL
       #expect(operations == ["login"])
     #else
-      #expect(operations == ["login", "cli"])
+      #expect(operations == ["login", "hooks", "cli"])
     #endif
     #expect(model.history.records.first?.endReason?.rawValue == "packageRemoval")
     #expect(try StateStore(directory: directory).load().holds.isEmpty)
@@ -59,6 +60,23 @@ import Testing
       (try? PackageHandoffStore(directory: directory).requirePrepared(app: app))?.intent
         == .uninstall)
   }
+
+  #if !MAS_CHANNEL
+    @Test func uninstallFallbackRemovesOnlyDilatedsOpenCodePlugin() throws {
+      let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      defer { try? FileManager.default.removeItem(at: home) }
+      let plugins = home.appendingPathComponent(".config/opencode/plugins")
+      try FileManager.default.createDirectory(at: plugins, withIntermediateDirectories: true)
+      let file = plugins.appendingPathComponent("dilated.js")
+      let executable = app.appendingPathComponent("Contents/MacOS/dilated")
+      try OpenCodePluginInstallation(file: file, executable: executable).install()
+      AppModel.removeAgentIntegrations(home: home, executable: executable)
+      #expect(!FileManager.default.fileExists(atPath: file.path))
+      try Data("// someone else's plugin\n".utf8).write(to: file)
+      AppModel.removeAgentIntegrations(home: home, executable: executable)
+      #expect(FileManager.default.fileExists(atPath: file.path))
+    }
+  #endif
 
   @Test func failedIntegrationRemovalLeavesAppOpenWithoutPackagePermission() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -69,7 +87,7 @@ import Testing
     #expect(
       !(await model.prepareForPackage(
         .uninstall, app: app, removeLoginItem: { throw InputError("login removal failed") },
-        removeCommandLine: {})))
+        removeCommandLine: {}, removeAgentHooks: {})))
     #expect(model.engine.holds.count == 1)
     #expect(model.message?.contains("login removal failed") == true)
     #expect(throws: (any Error).self) {
@@ -85,7 +103,8 @@ import Testing
     defer { model.shutdown() }
     #expect(
       await model.prepareForPackage(
-        .uninstall, app: app, removeLoginItem: {}, removeCommandLine: {}))
+        .uninstall, app: app, removeLoginItem: {}, removeCommandLine: {},
+        removeAgentHooks: {}))
     #expect(world.scripts.isEmpty && world.installed)
     #if MAS_CHANNEL
       #expect(model.message?.contains("Dilated Closed-Lid Setup") == true)
@@ -105,7 +124,8 @@ import Testing
     defer { model.shutdown() }
     #expect(
       await model.prepareForPackage(
-        .uninstall, app: app, removeLoginItem: {}, removeCommandLine: {}))
+        .uninstall, app: app, removeLoginItem: {}, removeCommandLine: {},
+        removeAgentHooks: {}))
     #if MAS_CHANNEL
       #expect(!permission.canRemove)
       #expect(model.message?.contains("dilated lid-permission remove") == false)
@@ -150,7 +170,7 @@ import Testing
     #expect(
       !(await model.prepareForPackage(
         .uninstall, app: app, removeLidPermission: true, removeLoginItem: {},
-        removeCommandLine: {})))
+        removeCommandLine: {}, removeAgentHooks: {})))
     #expect(model.engine.holds.count == 1 && world.installed)
     #expect(throws: (any Error).self) {
       try PackageHandoffStore(directory: directory).requirePrepared(app: app)
@@ -190,7 +210,9 @@ import Testing
     AppModel(
       endpoint: .init(stateDirectory: directory), power: { .init() },
       closedLid: inertClosedLid(), helperMigration: inertMigration(directory),
-      closedLidPermission: permission)
+      closedLidPermission: permission,
+      // Never reach the developer's real ~/.claude and ~/.codex settings from a test.
+      agentHooksRemover: {})
   }
 }
 

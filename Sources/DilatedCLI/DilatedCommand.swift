@@ -268,7 +268,7 @@ import Foundation
     let keepAwake = RunKeepAwake(
       local: local, managedID: managedID, label: options.label,
       displayAwake: options.displayAwake, lowPowerOverride: lowPowerOverride,
-      assertions: assertions,
+      closedLid: options.closedLid, assertions: assertions,
       environment: .init(
         now: { Date() }, readPower: { SystemPower.read() },
         send: { try LocalSocketClient.send($0, to: endpoint) },

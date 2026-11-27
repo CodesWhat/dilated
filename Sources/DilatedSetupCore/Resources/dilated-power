@@ -19,17 +19,20 @@
 #   busy      1   (on, probe) the lock stayed taken for about a second; any word but ok is a refusal to build 18
 #   begin-removal (companion only) takes the lock, writes the removal marker and, only when a session
 #                 file exists, latches "restore pending" and turns sleep back on (ok; none when
-#                 nothing was ours). The session stays. The latch survives off and repair, so a
+#                 nothing was ours). Before it restores anything it waits, still holding the lock, for
+#                 any `on` already running from this script's path to give up (an old script's
+#                 shell never checks the marker). The session stays. The latch survives off and repair, so a
 #                 retry after they deleted the session still answers ok and needs the readback.
 #   finish-removal (companion only) deletes the session, tombstone and latch once the companion has
 #                 seen sleep read back normal.
 #                 While the marker exists `on` and `probe` answer noagent; off and repair still work.
 #                 The marker outlives a removal; installing the companion again clears it once the
-#                 agent is loaded.
+#                 agent is loaded. It also clears a leftover restore-pending latch, but only
+#                 when no session file exists and sleep reads back normal.
 # Anything but a valid verb with its exact arguments prints usage to stderr and exits 64.
 #
 # Session record: $HOME/Library/Application Support/dilated-power/session holds
-# `<pid> <ps lstart>`; its mtime is the heartbeat. `repair` (run every 30s by the
+# `<pid> <ps lstart, UTC>`; its mtime is the heartbeat. `repair` (run every 30s by the
 # com.codeswhat.dilated.closed-lid-repair LaunchAgent) reverts when the pid is gone, its start time
 # differs, or the heartbeat is older than 120s while kern.waketime is too (a hung app, not a sleeping Mac).
 set -euo pipefail
@@ -65,6 +68,9 @@ test_launchctl=""
 test_clock=""
 test_sleepdisabled="__real__"
 test_stored="__same__"
+test_on_match=""
+test_gate=""
+in_checkout=0
 self=${BASH_SOURCE[0]}
 case "$self" in
   */*) self_dir=${self%/*} ;;
@@ -80,9 +86,23 @@ if self_dir=$(cd "$self_dir" 2>/dev/null && pwd -P); then
         test_clock=${DILATED_POWER_TEST_CLOCK:-}
         test_sleepdisabled=${DILATED_POWER_TEST_SLEEPDISABLED-__real__}
         test_stored=${DILATED_POWER_TEST_STORED_SLEEPDISABLED-__same__}
+        test_on_match=${DILATED_POWER_TEST_ON_MATCH:-}
+        test_gate=${DILATED_POWER_TEST_GATE:-}
+        in_checkout=1
       fi
       ;;
   esac
+fi
+
+# What an already-running `on` looks like in the process table. From a checkout only the test hook
+# names one, so tests running the repo script side by side never wait on each other.
+on_match=""
+on_match_raw=""
+if [ "$in_checkout" -eq 1 ]; then
+  on_match=$test_on_match
+elif [ -n "$self_dir" ]; then
+  on_match="$self_dir/${self##*/} on "
+  on_match_raw="$self on "
 fi
 
 stale_after=120
@@ -167,10 +187,19 @@ write_atomic() {
 }
 
 have_lock=0
+# Unique to this run, written into the lock directory it takes. A holder that outlived the steal
+# window finds someone else's id (or none) there and leaves the new holder's lock alone.
+lock_owner="$$.$RANDOM.$RANDOM"
 # shellcheck disable=SC2329  # runs from the EXIT trap
 release_lock() {
+  local current_owner
   if [ "$have_lock" -eq 1 ]; then
-    /bin/rmdir "$lock_dir" 2>/dev/null || true
+    current_owner=""
+    { read -r current_owner <"$lock_dir/owner"; } 2>/dev/null || true
+    if [ "$current_owner" = "$lock_owner" ]; then
+      /bin/rm -f "$lock_dir/owner"
+      /bin/rmdir "$lock_dir" 2>/dev/null || true
+    fi
     have_lock=0
   fi
 }
@@ -189,6 +218,26 @@ clock() {
   /bin/date +%s
 }
 
+# Takes a stale lock out of the way. The rename is atomic, so of several stealers only one gets the
+# directory, and a holder that wakes up later can't remove what it no longer owns. If the directory
+# moved turns out to be fresh (the lock was replaced between the staleness check and the rename),
+# it goes back and the caller retries.
+steal_lock() {
+  local grave="$session_dir/lock.stale.$lock_owner" modified
+  /bin/mv "$lock_dir" "$grave" 2>/dev/null || return 0
+  modified=$(/usr/bin/stat -f %m "$grave" 2>/dev/null || echo 0)
+  if [ $(($(clock) - modified)) -gt 60 ]; then
+    /bin/rm -rf "$grave"
+  else
+    # Never rename onto an existing lock.d: mv would nest the grave inside the new holder's lock.
+    if [ -e "$lock_dir" ]; then
+      /bin/rm -rf "$grave"
+    else
+      /bin/mv "$grave" "$lock_dir" 2>/dev/null || /bin/rm -rf "$grave"
+    fi
+  fi
+}
+
 take_lock() {
   local tries=0 modified now max=${1:-50} limit=${2:-} started
   ensure_dir || return 1
@@ -200,7 +249,7 @@ take_lock() {
       return 1
     fi
     if [ $((now - modified)) -gt 60 ]; then
-      /bin/rmdir "$lock_dir" 2>/dev/null || true
+      steal_lock
       continue
     fi
     tries=$((tries + 1))
@@ -208,6 +257,14 @@ take_lock() {
     /bin/sleep 0.1
   done
   have_lock=1
+  # The owner record is part of acquisition: without it release can't match, and the lock would
+  # block everyone until it goes stale.
+  if ! printf '%s\n' "$lock_owner" >"$lock_dir/owner" 2>/dev/null; then
+    /bin/rm -f "$lock_dir/owner"
+    /bin/rmdir "$lock_dir" 2>/dev/null || true
+    have_lock=0
+    return 1
+  fi
   # A late acquisition doesn't get past the cap either: the caller has stopped waiting, and the
   # work that follows could outlive the app's timeout.
   if [ -n "$limit" ] && [ $(($(clock) - started)) -ge "$limit" ]; then
@@ -216,9 +273,17 @@ take_lock() {
   fi
 }
 
-# Start time of a live pid, empty when it's gone. The locale is pinned: lstart is localized, and
-# the app's task and the LaunchAgent don't share an environment.
+# Start time of a live pid, empty when it's gone. The locale and time zone are pinned: lstart is
+# localized and printed in local time, and the app's task and the LaunchAgent don't share an
+# environment (or a TZ that stays put across a travel or DST change).
 start_of() {
+  { /usr/bin/env LC_ALL=C TZ=UTC /bin/ps -o lstart= -p "$1" 2>/dev/null || true; } | /usr/bin/sed 's/^ *//; s/ *$//'
+}
+
+# The same start time in the machine's local zone, which is how builds before the UTC pin recorded
+# it. `classify` accepts either form, so a session written by the old script before an upgrade isn't
+# read as a dead pid and reverted under a running app.
+local_start_of() {
   { /usr/bin/env LC_ALL=C /bin/ps -o lstart= -p "$1" 2>/dev/null || true; } | /usr/bin/sed 's/^ *//; s/ *$//'
 }
 
@@ -252,7 +317,9 @@ classify() {
       return
       ;;
   esac
-  if [ -z "$recorded_start" ] || [ "$(start_of "$recorded_pid")" != "$recorded_start" ]; then
+  if [ -z "$recorded_start" ] ||
+    { [ "$(start_of "$recorded_pid")" != "$recorded_start" ] &&
+      [ "$(local_start_of "$recorded_pid")" != "$recorded_start" ]; }; then
     echo dead
     return
   fi
@@ -292,6 +359,45 @@ stored_sleep_disabled() {
     true | 1) echo 1 ;;
     false | 0) echo 0 ;;
   esac
+}
+
+# 0 when a shell is running `dilated-power on <pid>` from this script's path, 1 when none is, 2 when
+# the process table can't be read.
+on_shells_running() {
+  local listing line
+  [ -n "$on_match" ] || return 1
+  listing=$(/bin/ps -axww -o command= 2>/dev/null) || return 2
+  while IFS= read -r line; do
+    case "$line" in
+      *"$on_match"[0-9]*) return 0 ;;
+    esac
+    [ -z "$on_match_raw" ] || case "$line" in
+      *"$on_match_raw"[0-9]*) return 0 ;;
+    esac
+  done <<<"$listing"
+  return 1
+}
+
+# Waits, still holding the lock, until no `on` started before this removal is left. Replacing the
+# script doesn't stop a shell that already runs the old text (build 18's `on` never checks the
+# removal marker), and one parked on the lock would otherwise take it the moment begin-removal
+# exits and enable sleep after the restore. While the lock is held it can only keep retrying, and
+# build 18's loop gives up after 50 tries, a bit over 5 seconds. Gives up on an unreadable process
+# table after the same window, and fails when a shell is still there after 12 seconds.
+drain_legacy_on() {
+  local polls=0 status
+  [ -n "$on_match" ] || return 0
+  while :; do
+    status=0
+    on_shells_running || status=$?
+    [ "$status" -ne 1 ] || return 0
+    if [ "$polls" -ge 60 ]; then
+      [ "$status" -eq 2 ] && return 0
+      return 1
+    fi
+    polls=$((polls + 1))
+    /bin/sleep 0.2
+  done
 }
 
 run_pmset() {
@@ -370,6 +476,19 @@ case "$verb" in
     }
     # The marker goes down first, so a failed pmset still leaves new enables blocked.
     write_atomic "$removal_file" "removing" || {
+      echo failed
+      exit 1
+    }
+    if [ -n "$test_gate" ]; then
+      : >"$test_gate/locked"
+      gate_polls=0
+      while [ ! -e "$test_gate/go" ] && [ "$gate_polls" -lt 400 ]; do
+        gate_polls=$((gate_polls + 1))
+        /bin/sleep 0.05
+      done
+    fi
+    # Before sleep is restored, so an `on` from an older script can't enable it afterwards.
+    drain_legacy_on || {
       echo failed
       exit 1
     }

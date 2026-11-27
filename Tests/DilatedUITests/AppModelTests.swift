@@ -193,7 +193,27 @@ import Testing
     let response = await model.control(ControlRequest(action: .start, duration: 60))
     #expect(!response.ok)
     #expect(response.code == "systemFailure")
+    #expect(response.id == nil)
+    #expect(model.engine.holds.isEmpty)
     #expect(model.message?.contains("Power management unavailable") == true)
+  }
+  @Test func assertionRefreshUsesMonotonicClockNotWallClock() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let counter = CountingAssertions()
+    var clock: TimeInterval = 1000
+    let model = AppModel(
+      endpoint: SocketEndpoint(stateDirectory: directory), power: { PowerState() },
+      assertions: counter, leavingClock: { clock })
+    defer { model.shutdown() }
+    model.start(duration: 3600)
+    let baseline = counter.calls
+    clock += 10
+    model.tick()
+    #expect(counter.calls == baseline)
+    clock += 10
+    model.tick()
+    #expect(counter.calls == baseline + 1)
   }
   @Test func partialSettingsKeepNewDefaults() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -363,5 +383,12 @@ import Testing
       domain: "Test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Power management unavailable"]
     )
   }
+  func releaseAll() {}
+}
+
+@MainActor private final class CountingAssertions: AssertionControlling {
+  var calls = 0
+  var activeTypes: Set<String> { [] }
+  func synchronize(holds: [Hold], now: Date) throws { calls += 1 }
   func releaseAll() {}
 }

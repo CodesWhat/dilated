@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Builds the sandboxed Mac App Store bundle: DILATED_CHANNEL=mas, bundle ID com.codeswhat.dilated.appstore,
 # no Sparkle, no CLI, no helper. Mirrors scripts/build-app.sh (app shell from packaging/automation-shell).
-# Usage: scripts/build-mas.sh --output-dir DIR [--adhoc]
-#   --adhoc  sign with DILATED_SIGN_IDENTITY=- and skip the .pkg (no certificates needed).
+# Usage: scripts/build-mas.sh --output-dir DIR [--adhoc] [--candidate]
+#   --adhoc      sign with DILATED_SIGN_IDENTITY=- and skip the .pkg (no certificates needed). An
+#                ad-hoc bundle can't be submitted, so it skips the source checks below.
+#   --candidate  a really signed build from a clean tree without a release tag (cannot be submitted).
+# A really signed build, like scripts/package-release.py, needs a clean tree (untracked files
+# included) with HEAD on the exact tag v<CFBundleShortVersionString>, or on the build-specific tag
+# mas/v<CFBundleShortVersionString>-build<CFBundleVersion> for a rebuild after a rejected build.
 # Otherwise set DILATED_SIGN_IDENTITY (Apple Distribution), DILATED_INSTALLER_IDENTITY (Mac Installer
 # Distribution), DILATED_MAS_PROFILE and DILATED_MAS_CONTROL_PROFILE (host/extension
 # Mac App Store .provisionprofile paths), and DILATED_TEAM_ID.
@@ -12,9 +17,11 @@ root="$PWD"
 bundle_id="com.codeswhat.dilated.appstore"
 output_dir=""
 adhoc=false
+candidate=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --adhoc) adhoc=true; shift ;;
+        --candidate) candidate=true; shift ;;
         --output-dir) output_dir="${2:?--output-dir needs a path}"; shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -33,6 +40,23 @@ if [[ "$sign_as" != "-" ]]; then
     : "${DILATED_TEAM_ID:?DILATED_TEAM_ID is required with a real identity}"
     test -f "$DILATED_MAS_PROFILE"
     test -f "$DILATED_MAS_CONTROL_PROFILE"
+fi
+if [[ "$sign_as" != "-" ]]; then
+    if [[ -n "$(git status --porcelain)" ]]; then
+        echo "Release source must be clean, including untracked files." >&2
+        exit 1
+    fi
+    if ! $candidate; then
+        version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' packaging/Version.plist)"
+        build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' packaging/Version.plist)"
+        head_sha="$(git rev-parse HEAD)"
+        tagged="$(git rev-parse --verify --quiet "refs/tags/v${version}^{commit}" || true)"
+        mas_tagged="$(git rev-parse --verify --quiet "refs/tags/mas/v${version}-build${build}^{commit}" || true)"
+        if [[ "$tagged" != "$head_sha" && "$mas_tagged" != "$head_sha" ]]; then
+            echo "HEAD must match the release tag v${version} or the build tag mas/v${version}-build${build} (use --candidate for an untagged build)." >&2
+            exit 1
+        fi
+    fi
 fi
 mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd -P)"
@@ -64,39 +88,15 @@ test -d "$shell_app"
 
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp "$shell_app/Contents/MacOS/DilatedApp" "$app/Contents/MacOS/DilatedApp"
-ditto "$shell_app/Contents/Resources/Metadata.appintents" "$app/Contents/Resources/Metadata.appintents"
-ditto "$shell_app/Contents/PlugIns" "$app/Contents/PlugIns"
+source scripts/build-lib.sh
+dilated_copy_shell_parts "$app" "$shell_app"
 # Start from the plist Xcode produced (it adds the DT* build keys) and layer the release metadata on it.
 cp "$shell_app/Contents/Info.plist" "$app/Contents/Info.plist"
-python3 - "$app/Contents/Info.plist" <<'PY'
-from pathlib import Path
-import plistlib
-import subprocess
-import sys
-destination = Path(sys.argv[1])
-info = plistlib.loads(destination.read_bytes())
-info.update(plistlib.loads(Path('packaging/Version.plist').read_bytes()))
-info['DilatedDisplayVersion'] = info['CFBundleShortVersionString']
-info['DilatedSourceRevision'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-destination.write_bytes(plistlib.dumps(info))
-extension = destination.parent / 'PlugIns/DilatedControls.appex/Contents/Info.plist'
-control_info = plistlib.loads(extension.read_bytes())
-for key in ('CFBundleShortVersionString', 'CFBundleVersion'):
-    control_info[key] = info[key]
-extension.write_bytes(plistlib.dumps(control_info))
-PY
-cp packaging/Dilated.icns "$app/Contents/Resources/Dilated.icns"
-cp packaging/Dilated.sdef "$app/Contents/Resources/Dilated.sdef"
-cp LICENSE "$app/Contents/Resources/LICENSE"
-cp docs/THIRD-PARTY.md "$app/Contents/Resources/THIRD-PARTY.md"
+python3 scripts/bundle-metadata.py stamp "$app/Contents/Info.plist" --display-version
+dilated_copy_static_resources "$app"
 python3 scripts/package-release.py --check-automation "$app"
 python3 scripts/controls-bundle.py "$app"
-ui_bundle="$bin_dir/Dilated_DilatedUI.bundle"
-test -d "$ui_bundle"
-ditto "$ui_bundle" "$app/Contents/Resources/$(basename "$ui_bundle")"
-python3 scripts/normalize-resource-bundle.py "$app/Contents/Resources/$(basename "$ui_bundle")"
-plutil -lint "$app/Contents/Resources/$(basename "$ui_bundle")/Contents/Info.plist"
+dilated_add_ui_bundle "$app" "$bin_dir"
 
 timestamp="--timestamp"
 if [[ "$sign_as" == "-" ]]; then timestamp="--timestamp=none"; fi
@@ -107,26 +107,10 @@ if [[ "$sign_as" != "-" ]]; then
     entitlements="$output_dir/Dilated-MAS.signing.entitlements"
     install -m 644 "$DILATED_MAS_CONTROL_PROFILE" "$app/Contents/PlugIns/DilatedControls.appex/Contents/embedded.provisionprofile"
     control_entitlements="$output_dir/DilatedControls-MAS.signing.entitlements"
-    python3 - "$root/packaging/mas/Dilated-MAS.entitlements" "$entitlements" "$DILATED_TEAM_ID" "$bundle_id" <<'PY'
-from pathlib import Path
-import plistlib
-import sys
-source, destination, team, bundle_id = sys.argv[1:]
-entitlements = plistlib.loads(Path(source).read_bytes())
-entitlements['com.apple.application-identifier'] = f'{team}.{bundle_id}'
-entitlements['com.apple.developer.team-identifier'] = team
-Path(destination).write_bytes(plistlib.dumps(entitlements))
-PY
-    python3 - "$root/packaging/controls/DilatedControls.entitlements" "$control_entitlements" "$DILATED_TEAM_ID" "$bundle_id.controls" <<'PY'
-from pathlib import Path
-import plistlib
-import sys
-source, destination, team, bundle_id = sys.argv[1:]
-entitlements = plistlib.loads(Path(source).read_bytes())
-entitlements['com.apple.application-identifier'] = f'{team}.{bundle_id}'
-entitlements['com.apple.developer.team-identifier'] = team
-Path(destination).write_bytes(plistlib.dumps(entitlements))
-PY
+    python3 scripts/bundle-metadata.py entitlements "$root/packaging/mas/Dilated-MAS.entitlements" \
+        "$entitlements" "$DILATED_TEAM_ID" "$bundle_id"
+    python3 scripts/bundle-metadata.py entitlements "$root/packaging/controls/DilatedControls.entitlements" \
+        "$control_entitlements" "$DILATED_TEAM_ID" "$bundle_id.controls"
 fi
 codesign --force "$timestamp" --entitlements "$control_entitlements" --sign "$sign_as" \
     "$app/Contents/PlugIns/DilatedControls.appex"

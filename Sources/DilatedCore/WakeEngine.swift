@@ -24,12 +24,40 @@ public struct PowerState: Codable, Equatable, Sendable {
     self.lowPowerMode = lowPowerMode
   }
 }
+/// A hold the user stopped, kept so a late renew can be told apart from a lost hold.
+public struct ReleasedHold: Codable, Equatable, Sendable {
+  public var id: UUID
+  public var at: Date
+  public init(id: UUID, at: Date) {
+    self.id = id
+    self.at = at
+  }
+}
 public struct EngineSnapshot: Codable, Sendable {
   public var holds: [Hold]
   public var automationPaused: Bool
-  public init(holds: [Hold] = [], automationPaused: Bool = false) {
+  /// Recently released holds (last 64, under a day old). Optional on the wire, so older files and
+  /// readers that don't know the key keep working.
+  public var released: [ReleasedHold]
+  public init(
+    holds: [Hold] = [], automationPaused: Bool = false, released: [ReleasedHold] = []
+  ) {
     self.holds = holds
     self.automationPaused = automationPaused
+    self.released = released
+  }
+  private enum CodingKeys: String, CodingKey { case holds, automationPaused, released }
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    holds = try c.decode([Hold].self, forKey: .holds)
+    automationPaused = try c.decode(Bool.self, forKey: .automationPaused)
+    released = try c.decodeIfPresent([ReleasedHold].self, forKey: .released) ?? []
+  }
+  public func encode(to encoder: Encoder) throws {
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    try c.encode(holds, forKey: .holds)
+    try c.encode(automationPaused, forKey: .automationPaused)
+    if !released.isEmpty { try c.encode(released, forKey: .released) }
   }
 }
 public enum WakeError: String, Error, Codable, Sendable, LocalizedError {
@@ -59,9 +87,14 @@ public struct UserReturnRestoration: Equatable, Sendable {
 public struct WakeEngine: Sendable {
   public private(set) var holds: [Hold] = []
   private var historyEvents: [HoldHistoryEvent] = []
+  /// Recently released holds, newest last. Carried in the snapshot so an app restart still reads a
+  /// released hold as released, not lost. Capped by count and age.
+  private var releasedHolds: [ReleasedHold] = []
+  static let releasedLimit = 64
+  public static let releasedMaxAge: TimeInterval = 24 * 3600
   public private(set) var automationPaused = false
   public private(set) var leavingPending = false
-  private var leavingIdleSince: Date?
+  private var leavingIdleSince: TimeInterval?
   public private(set) var userReturnRestoration: UserReturnRestoration?
   public private(set) var attention: String?
   public private(set) var power = PowerState()
@@ -73,7 +106,12 @@ public struct WakeEngine: Sendable {
       closedLid: holds.contains { $0.closedLid == true })
   }
   public var snapshot: EngineSnapshot {
-    EngineSnapshot(holds: holds, automationPaused: automationPaused)
+    EngineSnapshot(
+      holds: holds, automationPaused: automationPaused,
+      released: releasedHolds)
+  }
+  private static func prunedReleased(_ list: [ReleasedHold], now: Date) -> [ReleasedHold] {
+    Array(list.filter { now.timeIntervalSince($0.at) < releasedMaxAge }.suffix(releasedLimit))
   }
 
   public init(
@@ -84,6 +122,7 @@ public struct WakeEngine: Sendable {
     self.batteryFloorIgnoresAC = batteryFloorIgnoresAC
     self.power = power
     automationPaused = snapshot.automationPaused
+    releasedHolds = Self.prunedReleased(snapshot.released, now: now)
     holds = snapshot.holds.filter {
       guard let expiry = $0.expiry, expiry > now else { return false }
       return $0.source != .lease && $0.source != .runner && $0.source != .trigger
@@ -133,10 +172,27 @@ public struct WakeEngine: Sendable {
     if historyEvents.count > 1024 { historyEvents.removeFirst(historyEvents.count - 1024) }
   }
   public mutating func stop(id: UUID, reason: HoldEndReason = .stopped, now: Date = Date()) {
+    // A hold suspended for a user switch is still the user's to release: remember the release so
+    // a runner that refreshes after the user returns doesn't register a new hold.
+    let suspended = userReturnRestoration?.holds.contains { $0.id == id } == true
     userReturnRestoration?.holds.removeAll { $0.id == id }
-    guard let hold = holds.first(where: { $0.id == id }) else { return }
+    let hold = holds.first(where: { $0.id == id })
+    guard hold != nil || suspended else { return }
+    if reason == .stopped { recordReleased(ids: [id], at: now) }
+    guard let hold else { return }
     recordHistory(hold: hold, at: now, reason: reason)
     holds.removeAll { $0.id == id }
+  }
+  private mutating func recordReleased(ids: [UUID], at now: Date) {
+    for id in ids {
+      releasedHolds.removeAll { $0.id == id }
+      releasedHolds.append(ReleasedHold(id: id, at: now))
+    }
+    releasedHolds = Self.prunedReleased(releasedHolds, now: now)
+  }
+  /// True when this engine ended the hold because the user stopped it (not expiry or a restart).
+  public func wasReleased(id: UUID, now: Date = Date()) -> Bool {
+    releasedHolds.contains { $0.id == id && now.timeIntervalSince($0.at) < Self.releasedMaxAge }
   }
   public func releasableHold(id: UUID) -> Bool {
     holds.contains { $0.id == id } || userReturnRestoration?.holds.contains { $0.id == id } == true
@@ -149,6 +205,10 @@ public struct WakeEngine: Sendable {
   }
   public mutating func stopAll(reason: HoldEndReason = .stopped, now: Date = Date()) {
     cancelLeaving()
+    // Only a user stop is a release. Automatic reasons such as a user switch stay unrecorded.
+    if reason == .stopped {
+      recordReleased(ids: holds.map(\.id) + (userReturnRestoration?.holds.map(\.id) ?? []), at: now)
+    }
     for hold in holds { recordHistory(hold: hold, at: now, reason: reason) }
     holds.removeAll()
     automationPaused = true
@@ -237,20 +297,25 @@ public struct WakeEngine: Sendable {
     leavingPending = false
     leavingIdleSince = nil
   }
-  public mutating func leavingSleepReady(now: Date = Date()) -> Bool {
+  /// The 5s grace is measured on `uptime` (a monotonic clock) so a wall-clock change can't shorten or lengthen it.
+  public mutating func leavingSleepReady(
+    uptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+  ) -> Bool {
     guard leavingPending else { return false }
     guard holds.isEmpty else {
       leavingIdleSince = nil
       return false
     }
     guard let leavingIdleSince else {
-      self.leavingIdleSince = now
+      self.leavingIdleSince = uptime
       return false
     }
-    return now.timeIntervalSince(leavingIdleSince) >= 5
+    return uptime - leavingIdleSince >= 5
   }
-  public mutating func takeLeavingSleepRequest(now: Date = Date()) -> Bool {
-    guard leavingSleepReady(now: now) else { return false }
+  public mutating func takeLeavingSleepRequest(
+    uptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+  ) -> Bool {
+    guard leavingSleepReady(uptime: uptime) else { return false }
     cancelLeaving()
     return true
   }

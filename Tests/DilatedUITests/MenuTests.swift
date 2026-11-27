@@ -85,6 +85,29 @@ import Testing
     #expect(button.attributedTitle.string.isEmpty)
   }
 
+  @Test func refreshLeavesAnUnchangedStatusTitleAlone() throws {
+    _ = NSApplication.shared
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try Data(#"{"countdown":true}"#.utf8).write(
+      to: directory.appendingPathComponent("settings.json"))
+    let model = AppModel(endpoint: .init(stateDirectory: directory), power: { .init() })
+    defer { model.shutdown() }
+    model.start()
+    let controller = MenuBarController(model: model, openSettings: {})
+    defer { controller.stop() }
+    let button = try #require(controller.statusItem.button)
+    #expect(button.attributedTitle.string == " ∞")
+    // A marker survives a refresh only if the title wasn't rewritten.
+    button.attributedTitle = NSAttributedString(string: "marker")
+    controller.refresh()
+    #expect(button.attributedTitle.string == "marker")
+    model.settings.countdown = false
+    controller.refresh()
+    #expect(button.attributedTitle.string.isEmpty)
+  }
+
   @Test func menuUsesTheStatusItemAnchorAndRestoresQuickClickHandling() throws {
     _ = NSApplication.shared
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

@@ -54,13 +54,19 @@ struct OpenCodeAdapterTests {
     process.environment = ProcessInfo.processInfo.environment.merging([
       "DILATED_ADAPTER_LOG": output.path
     ]) { _, new in new }
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = pipe
+    // Capture output in a file, not a pipe: a descendant the plugin spawns can inherit a pipe and
+    // hold it open past the harness's exit, so EOF would never come.
+    let strayLog = directory.appendingPathComponent("stray.log")
+    FileManager.default.createFile(atPath: strayLog.path, contents: nil)
+    let strayHandle = try FileHandle(forWritingTo: strayLog)
+    defer { try? strayHandle.close() }
+    process.standardOutput = strayHandle
+    process.standardError = strayHandle
     try process.run()
-    process.waitUntilExit()
+    #expect(waitForExit(process), "The adapter harness did not exit.")
+    let stray = try Data(contentsOf: strayLog)
     #expect(process.terminationStatus == 0)
-    #expect(pipe.fileHandleForReading.readDataToEndOfFile().isEmpty)
+    #expect(stray.isEmpty)
     if missingCLI {
       #expect(!FileManager.default.fileExists(atPath: output.path))
       return

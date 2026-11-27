@@ -14,9 +14,23 @@ enum SetupProcess {
     var timedOut: Bool
   }
 
+  /// Cancelling the calling task terminates the child, so a cancelled setup doesn't wait out the
+  /// timeout. A child that was cancelled before it started never launches.
   static func run(
     _ executable: String, _ arguments: [String], home: String = NSHomeDirectory(),
     timeout: TimeInterval = 10
+  ) async -> Result? {
+    let handle = ProcessHandle()
+    return await withTaskCancellationHandler {
+      await launch(executable, arguments, home: home, timeout: timeout, handle: handle)
+    } onCancel: {
+      handle.cancel()
+    }
+  }
+
+  private static func launch(
+    _ executable: String, _ arguments: [String], home: String, timeout: TimeInterval,
+    handle: ProcessHandle
   ) async -> Result? {
     await withCheckedContinuation { (continuation: CheckedContinuation<Result?, Never>) in
       DispatchQueue.global(qos: .userInitiated).async {
@@ -28,7 +42,7 @@ enum SetupProcess {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = pipe
         process.standardError = pipe
-        do { try process.run() } catch {
+        guard handle.launch(process) else {
           continuation.resume(returning: nil)
           return
         }
@@ -47,6 +61,31 @@ enum SetupProcess {
             status: process.terminationStatus, output: String(decoding: data, as: UTF8.self),
             timedOut: flag.value))
       }
+    }
+  }
+
+  private final class ProcessHandle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+    private var cancelled = false
+
+    /// Checks for cancellation and starts the child under one lock, so `cancel()` either stops the
+    /// launch or finds a started process to terminate. False when nothing was launched.
+    func launch(_ process: Process) -> Bool {
+      lock.withLock {
+        if cancelled { return false }
+        do { try process.run() } catch { return false }
+        self.process = process
+        return true
+      }
+    }
+
+    func cancel() {
+      let target = lock.withLock { () -> Process? in
+        cancelled = true
+        return process
+      }
+      if target?.isRunning == true { target?.terminate() }
     }
   }
 
@@ -126,7 +165,8 @@ public struct LiveLaunchAgentControl: LaunchAgentControlling {
   }
 
   public func bootout(target: String) async {
-    _ = await SetupProcess.run(Self.launchctl, ["bootout", target])
+    // Committed cleanup: removal deletes the plist next, so a cancelled task must not skip this.
+    _ = await Task.detached { await SetupProcess.run(Self.launchctl, ["bootout", target]) }.value
   }
 
   public func isLoaded(target: String) async -> Bool {
@@ -138,7 +178,11 @@ public struct LivePowerScript: PowerScriptRunning {
   public init() {}
 
   public func beginRemoval(scriptPath: String) async throws -> Bool {
-    guard let result = await SetupProcess.run("/bin/bash", [scriptPath, "begin-removal"]) else {
+    // The script may wait out a legacy `on` that is queued on its lock (about 5s) before it restores.
+    guard
+      let result = await SetupProcess.run(
+        "/bin/bash", [scriptPath, "begin-removal"], timeout: 30)
+    else {
       throw ClosedLidSetupLiveError(message: "The script couldn't start.")
     }
     let word = result.output.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
@@ -167,10 +211,12 @@ extension ClosedLidSetup {
   /// The real thing. `allowAdminPrompt: false` makes the rule step fail instead of asking, for
   /// headless runs.
   public static func live(allowAdminPrompt: Bool = true) -> ClosedLidSetup {
-    ClosedLidSetup(
-      paths: .current(), assets: .bundled(), files: LiveSetupFileSystem(),
+    let paths = ClosedLidSetupPaths.current()
+    return ClosedLidSetup(
+      paths: paths, assets: .bundled(), files: LiveSetupFileSystem(),
       launchd: LiveLaunchAgentControl(), power: LivePowerScript(),
       rule: ClosedLidPermission(
+        seams: .live(lockFile: URL(fileURLWithPath: paths.sessionLockFile)),
         runner: allowAdminPrompt ? OsascriptAdminRunner() : RefusingAdminRunner()))
   }
 }

@@ -10,15 +10,24 @@ public struct ClosedLidSetupPaths: Equatable, Sendable {
   public var home: String
   public var uid: UInt32
   public var bundleID: String
+  /// The app's `DILATED_STATE_DIR`, when set. The session lock lives there, so setup has to follow.
+  public var stateDirectoryOverride: String?
 
-  public init(home: String, uid: UInt32, bundleID: String = Self.appStoreBundleID) {
+  public init(
+    home: String, uid: UInt32, bundleID: String = Self.appStoreBundleID,
+    stateDirectoryOverride: String? = nil
+  ) {
+    self.stateDirectoryOverride = stateDirectoryOverride
     self.home = home
     self.uid = uid
     self.bundleID = bundleID
   }
 
   public static func current() -> ClosedLidSetupPaths {
-    ClosedLidSetupPaths(home: NSHomeDirectory(), uid: getuid())
+    ClosedLidSetupPaths(
+      home: NSHomeDirectory(), uid: getuid(),
+      stateDirectoryOverride: ProcessInfo.processInfo.environment[
+        DilatedStateDirectory.environmentKey])
   }
 
   public var scriptsDirectory: String { "\(home)/Library/Application Scripts/\(bundleID)" }
@@ -40,6 +49,15 @@ public struct ClosedLidSetupPaths: Equatable, Sendable {
   public var stateDirectory: String {
     "\(home)/Library/Application Support/Dilated Closed-Lid Setup"
   }
+  /// The direct build's marker-store lock, which every closed-lid enable, restore and watchdog
+  /// revert holds. Setup runs unsandboxed as the user, so it reaches the same file the app does.
+  public var sessionLockFile: String {
+    DilatedStateDirectory.resolve(
+      environment: stateDirectoryOverride.map { [DilatedStateDirectory.environmentKey: $0] } ?? [:],
+      applicationSupport: URL(fileURLWithPath: "\(home)/Library/Application Support")
+    )
+    .appendingPathComponent(ClosedLidMarkerStore.lockFileName).path
+  }
   public var stateFile: String { "\(stateDirectory)/state.json" }
 }
 
@@ -48,7 +66,7 @@ public struct ClosedLidSetupAssets: Sendable {
   /// SHA-256 of `packaging/mas/dilated-power`. A test fails when the script changes without this
   /// being updated, so a stale value can't ship.
   public static let expectedScriptSHA256 =
-    "a8356705b0f1d23584fc273a1105f248c1155df14d49d851b7bccf8c86ba36c1"
+    "4483dcce2ac706a2e7d671f790e27f2a361ca624920f83b58154c500a2dc9953"
 
   public var script: Data
   public var plistTemplate: String

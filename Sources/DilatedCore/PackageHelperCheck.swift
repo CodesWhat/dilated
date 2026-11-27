@@ -7,6 +7,30 @@ public enum PackageHelperCheck {
   }
 
   public static func verifyHelperAbsent() async throws {
+    let job = try await probeHelperJob()
+    let process = try await BoundedProcess.run(
+      executable: URL(fileURLWithPath: "/usr/bin/pgrep"), arguments: ["-x", "dilated-helper"],
+      timeout: 3)
+    try validate(
+      jobStatus: job.status, jobError: job.detail, processStatus: process.status,
+      timedOut: job.timedOut || process.timedOut)
+  }
+
+  public enum JobState: Equatable, Sendable { case loaded, absent, unknown }
+
+  /// Whether launchd still has the retired helper's system job. Only a clean "could not find
+  /// service" answer counts as absent.
+  public static func helperJobState() async -> JobState {
+    guard let job = try? await probeHelperJob() else { return .unknown }
+    if job.timedOut { return .unknown }
+    if job.status == 0 { return .loaded }
+    return job.status == 113 && job.detail.contains("Could not find service") ? .absent : .unknown
+  }
+
+  /// One `launchctl print` of the retired helper's job, with stderr captured for the verdict.
+  private static func probeHelperJob() async throws -> (
+    status: Int32, timedOut: Bool, detail: String
+  ) {
     let errors = Pipe()
     defer {
       try? errors.fileHandleForReading.close()
@@ -19,36 +43,7 @@ public enum PackageHelperCheck {
     try errors.fileHandleForWriting.close()
     let detail = String(
       decoding: try errors.fileHandleForReading.read(upToCount: 8192) ?? Data(), as: UTF8.self)
-    let process = try await BoundedProcess.run(
-      executable: URL(fileURLWithPath: "/usr/bin/pgrep"), arguments: ["-x", "dilated-helper"],
-      timeout: 3)
-    try validate(
-      jobStatus: job.status, jobError: detail, processStatus: process.status,
-      timedOut: job.timedOut || process.timedOut)
-  }
-
-  public enum JobState: Equatable, Sendable { case loaded, absent, unknown }
-
-  /// Whether launchd still has the retired helper's system job. Only a clean "could not find
-  /// service" answer counts as absent.
-  public static func helperJobState() async -> JobState {
-    let errors = Pipe()
-    defer {
-      try? errors.fileHandleForReading.close()
-      try? errors.fileHandleForWriting.close()
-    }
-    guard
-      let job = try? await BoundedProcess.run(
-        executable: URL(fileURLWithPath: "/bin/launchctl"),
-        arguments: ["print", "system/com.codeswhat.dilated.helper"], timeout: 3,
-        standardError: errors.fileHandleForWriting)
-    else { return .unknown }
-    try? errors.fileHandleForWriting.close()
-    let detail = String(
-      decoding: (try? errors.fileHandleForReading.read(upToCount: 8192)) ?? Data(), as: UTF8.self)
-    if job.timedOut { return .unknown }
-    if job.status == 0 { return .loaded }
-    return job.status == 113 && detail.contains("Could not find service") ? .absent : .unknown
+    return (job.status, job.timedOut, detail)
   }
 
   static func verifyAppAbsent(executable: URL) async throws {

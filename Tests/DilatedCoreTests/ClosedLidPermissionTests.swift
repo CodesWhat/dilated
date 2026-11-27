@@ -336,8 +336,8 @@ struct ClosedLidPermissionTests {
     process.standardOutput = output
     process.standardError = output
     try process.run()
-    process.waitUntilExit()
     let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    #expect(waitForExit(process), "visudo did not exit.")
     #expect(process.terminationStatus == 0, "\(text)")
   }
 }

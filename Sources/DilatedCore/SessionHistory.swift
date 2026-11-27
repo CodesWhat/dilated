@@ -247,8 +247,7 @@ public struct HistoryStore: Sendable {
     return data
   }
   private func write(_ data: Data, to file: URL) throws {
-    try data.write(to: file, options: .atomic)
-    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    try PrivateFile.write(data, to: file)
   }
 }
 public struct HistoryError: LocalizedError {

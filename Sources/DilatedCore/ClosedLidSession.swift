@@ -17,6 +17,17 @@ public struct ClosedLidSessionMarker: Codable, Equatable, Sendable {
   }
 }
 
+/// The state directory the app, the CLI and setup all agree on. `DILATED_STATE_DIR` wins,
+/// otherwise it's `Dilated` under `applicationSupport`.
+public enum DilatedStateDirectory {
+  public static let environmentKey = "DILATED_STATE_DIR"
+
+  public static func resolve(environment: [String: String], applicationSupport: URL) -> URL {
+    environment[environmentKey].map { URL(fileURLWithPath: $0) }
+      ?? applicationSupport.appendingPathComponent("Dilated")
+  }
+}
+
 public struct ClosedLidMarkerStore: Sendable {
   public static let fileName = "closed-lid-session.json"
   public static let lockFileName = "closed-lid-session.lock"
@@ -54,7 +65,7 @@ public struct ClosedLidMarkerStore: Sendable {
   /// differ even if the wall clock stalls or jumps back.
   public func writeHeartbeat(generation: UUID, count: UInt64, at date: Date) {
     let line = "\(generation.uuidString) \(count) \(Int64(date.timeIntervalSince1970))\n"
-    try? Data(line.utf8).write(to: heartbeatFile, options: .atomic)
+    try? PrivateFile.write(Data(line.utf8), to: heartbeatFile)
   }
 
   public func readHeartbeat() -> String? {
@@ -66,10 +77,7 @@ public struct ClosedLidMarkerStore: Sendable {
 
   /// Atomic: readers see the old marker or the new one, never a partial file.
   public func write(_ marker: ClosedLidSessionMarker) throws {
-    try FileManager.default.createDirectory(
-      at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
-      attributes: [.posixPermissions: 0o700])
-    try Self.encoder.encode(marker).write(to: file, options: .atomic)
+    try PrivateFile.write(try Self.encoder.encode(marker), to: file)
   }
 
   /// Removes the marker only when it still belongs to `generation`.
