@@ -80,6 +80,15 @@ class ResourceBundleTests(unittest.TestCase):
             },
         )
 
+    def test_mas_build_flag_uses_the_mas_build_counter(self):
+        self.populate_flat()
+        result = subprocess.run([sys.executable, str(SCRIPT), str(self.bundle), '--mas-build'],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        info = plistlib.loads((self.bundle / 'Contents/Info.plist').read_bytes())
+        version = plistlib.loads((ROOT / 'packaging/Version.plist').read_bytes())
+        self.assertEqual(info['CFBundleVersion'], version['MASBundleVersion'])
+
     def test_idempotent(self):
         self.populate_flat()
         self.assertEqual(self.run_script().returncode, 0)

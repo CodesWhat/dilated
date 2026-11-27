@@ -96,7 +96,7 @@ python3 scripts/bundle-metadata.py stamp "$app/Contents/Info.plist" --display-ve
 dilated_copy_static_resources "$app"
 python3 scripts/package-release.py --check-automation "$app"
 python3 scripts/controls-bundle.py "$app"
-dilated_add_ui_bundle "$app" "$bin_dir"
+dilated_add_ui_bundle "$app" "$bin_dir" --mas-build
 
 timestamp="--timestamp"
 if [[ "$sign_as" == "-" ]]; then timestamp="--timestamp=none"; fi

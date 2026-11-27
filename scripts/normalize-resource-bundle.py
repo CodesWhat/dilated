@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def normalize(bundle: Path) -> None:
+def normalize(bundle: Path, mas_build: bool = False) -> None:
     if not bundle.is_dir():
         raise SystemExit(f'normalize-resource-bundle: not a directory: {bundle}')
     contents = bundle / 'Contents'
@@ -32,12 +32,15 @@ def normalize(bundle: Path) -> None:
         'CFBundlePackageType': 'BNDL',
         'CFBundleInfoDictionaryVersion': '6.0',
         'CFBundleShortVersionString': version['CFBundleShortVersionString'],
-        'CFBundleVersion': version['CFBundleVersion'],
+        'CFBundleVersion': version['MASBundleVersion'] if mas_build else version['CFBundleVersion'],
     }
     (contents / 'Info.plist').write_bytes(plistlib.dumps(info))
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 2:
-        raise SystemExit('usage: normalize-resource-bundle.py <bundle-path>')
-    normalize(Path(sys.argv[1]))
+    args = sys.argv[1:]
+    mas = '--mas-build' in args
+    args = [a for a in args if a != '--mas-build']
+    if len(args) != 1:
+        raise SystemExit('usage: normalize-resource-bundle.py <bundle-path> [--mas-build]')
+    normalize(Path(args[0]), mas)
