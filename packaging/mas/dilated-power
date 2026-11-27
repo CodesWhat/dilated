@@ -191,6 +191,7 @@ write_atomic() {
 
 have_lock=0
 have_guard=0
+owner_written=0
 guard_dir="$session_dir/lock.guard"
 # Unique to this run, written into the lock directory it takes. Release and steal compare against
 # it, so neither removes a lock that isn't the instance they looked at.
@@ -253,7 +254,9 @@ release_lock() {
     if take_guard; then
       current_owner=""
       { read -r current_owner <"$lock_dir/owner"; } 2>/dev/null || true
-      if [ "$current_owner" = "$lock_owner" ]; then
+      # A lock whose owner record was never written (the write failed) is still ours to clear.
+      if [ "$current_owner" = "$lock_owner" ] ||
+        { [ "$owner_written" -eq 0 ] && [ -z "$current_owner" ]; }; then
         step_hook release-checked
         /bin/rm -f "$lock_dir/owner"
         /bin/rmdir "$lock_dir" 2>/dev/null || true
@@ -307,6 +310,7 @@ take_lock() {
     release_lock
     return 1
   fi
+  owner_written=1
   # A late acquisition doesn't get past the cap either: the caller has stopped waiting, and the
   # work that follows could outlive the app's timeout.
   if [ -n "$limit" ] && [ $(($(clock) - started)) -ge "$limit" ]; then

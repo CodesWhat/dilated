@@ -66,7 +66,7 @@ public struct ClosedLidSetupAssets: Sendable {
   /// SHA-256 of `packaging/mas/dilated-power`. A test fails when the script changes without this
   /// being updated, so a stale value can't ship.
   public static let expectedScriptSHA256 =
-    "16c8845b44f51e62318a39952631e03c777e9aee8da912881f213a52cb9623dc"
+    "dcc1b978c0adf7c3b09fa7280c1ee9d6aae773ce83c1dd12de97630148a1ef4f"
 
   public var script: Data
   public var plistTemplate: String
