@@ -250,7 +250,9 @@ take_lock() {
     fi
     if [ $((now - modified)) -gt 60 ]; then
       steal_lock
-      continue
+      # A steal that found nothing to move (mkdir keeps failing with no lock.d) still costs a try,
+      # so callers without a deadline can't spin here forever.
+      [ "$modified" -eq 0 ] || continue
     fi
     tries=$((tries + 1))
     [ "$tries" -le "$max" ] || return 1
