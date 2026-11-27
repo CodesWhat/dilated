@@ -62,7 +62,7 @@ struct OpenCodeAdapterTests {
     // never closes its output, and a full pipe can't block the child while we wait.
     let drained = PipeDrain(pipe.fileHandleForReading)
     #expect(waitForExit(process), "The adapter harness did not exit.")
-    let stray = drained.finish()
+    let stray = try #require(drained.finish(), "Draining the adapter's output timed out.")
     #expect(process.terminationStatus == 0)
     #expect(stray.isEmpty)
     if missingCLI {
@@ -144,9 +144,9 @@ private final class PipeDrain: @unchecked Sendable {
     }
   }
 
-  /// Output collected so far once the reader reaches EOF, or after a short grace period.
-  func finish() -> Data {
-    _ = done.wait(timeout: .now() + 5)
+  /// The output once the reader reaches EOF, or nil when it didn't within a short grace period.
+  func finish() -> Data? {
+    guard done.wait(timeout: .now() + 5) == .success else { return nil }
     lock.lock()
     defer { lock.unlock() }
     return data
