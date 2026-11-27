@@ -10,15 +10,16 @@ import SwiftUI
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
       SettingsGroup(
-        eyebrow: "DRIVE ALIVE",
+        eyebrow: "KEEP DRIVES AWAKE",
         footer:
-          "Stop pauses Drive Alive until Resume automation. It doesn't wake a sleeping Mac or create an awake hold. A drive's own power settings may still take precedence."
+          "Stop pauses Keep Drives Awake until Resume automation. It doesn't wake a sleeping Mac or create an awake hold. A drive's own power settings may still take precedence."
       ) {
         SettingsRow(
-          title: "Enable Drive Alive",
+          title: "Enable Keep Drives Awake",
           detail: "Write a few bytes to the selected volumes, then remove the temporary file."
         ) {
-          Toggle("Enable Drive Alive", isOn: $model.settings.driveAlive.enabled).labelsHidden()
+          Toggle("Enable Keep Drives Awake", isOn: $model.settings.driveAlive.enabled)
+            .labelsHidden()
             .accessibilityHint(
               "Write a few bytes to the selected volumes, then remove the temporary file.")
         }
