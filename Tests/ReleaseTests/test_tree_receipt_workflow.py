@@ -4,7 +4,7 @@ import unittest
 
 
 CI = Path(__file__).resolve().parents[2] / ".github/workflows/ci.yml"
-SHA = "b85ebce168f649bcd2fddf2ff0d433fb38e30866"
+SHA = "684a6b931e7802f1985e2cb4f6ea0c95861988e3"
 
 
 def job_block(text, job):
