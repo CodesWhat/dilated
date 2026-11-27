@@ -767,6 +767,20 @@ struct ClosedLidSetupAssetTests {
       ClosedLidSetupPaths(home: "/Users/test", uid: 501).sessionLockFile
         == "/Users/test/Library/Application Support/Dilated/closed-lid-session.lock")
   }
+
+  @Test func theSessionLockFollowsTheAppsStateDirectoryOverride() {
+    let directory = "/tmp/dilated-state-override"
+    let paths = ClosedLidSetupPaths(
+      home: "/Users/test", uid: 501, stateDirectoryOverride: directory)
+    #expect(
+      paths.sessionLockFile
+        == ClosedLidMarkerStore(
+          directory: DilatedStateDirectory.resolve(
+            environment: ["DILATED_STATE_DIR": directory],
+            applicationSupport: URL(fileURLWithPath: "/Users/test/Library/Application Support"))
+        ).lockFile.path)
+    #expect(paths.sessionLockFile == "\(directory)/closed-lid-session.lock")
+  }
 }
 
 struct ClosedLidSetupLiveFileSystemTests {

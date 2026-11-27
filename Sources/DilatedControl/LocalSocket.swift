@@ -1,5 +1,6 @@
 import CryptoKit
 import Darwin
+import DilatedCore
 import Foundation
 
 public struct SocketEndpoint: Sendable {
@@ -55,12 +56,11 @@ public struct SocketEndpoint: Sendable {
   }
 
   public static var current: SocketEndpoint {
-    let configured = ProcessInfo.processInfo.environment["DILATED_STATE_DIR"]
-    let directory =
-      configured.map { URL(fileURLWithPath: $0) }
-      ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-      .appendingPathComponent("Dilated")
-    return SocketEndpoint(stateDirectory: directory)
+    SocketEndpoint(
+      stateDirectory: DilatedStateDirectory.resolve(
+        environment: ProcessInfo.processInfo.environment,
+        applicationSupport: FileManager.default.urls(
+          for: .applicationSupportDirectory, in: .userDomainMask)[0]))
   }
 }
 
