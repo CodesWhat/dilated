@@ -1,3 +1,3 @@
-Dilated 1.1.0 can restore your automation rules from the last good backup when they won't load, and remembers holds you stopped so dilated run doesn't restart them.
-It asks on the second launch whether to check for updates automatically, ends a download watch whose scan stalls, and removes its Claude Code, Codex and OpenCode hooks when you prepare to uninstall. Closed-lid removal and repair are safer when an older helper script is still running.
+Dilated 2.0.0 changes the AppleScript dictionary: commands use Dilated's own codes, and the closed display commands are now closed lid mode. Open your scripts, switch to the new command names and compile them again.
+Drive Alive is now called Keep Drives Awake. Closed-lid locking is sturdier when several helpers run at once, and the Mac App Store build gets its own build number.
 Closed-lid mode is still experimental. Its hardware recovery checks were not run for this release.

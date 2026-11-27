@@ -28,7 +28,7 @@ analytics.
 ## Release availability
 
 The checked-in page has no app download. The published site gets one from the
-release metadata for the stable 1.1.0 release (not a prerelease), with its unverified checks
+release metadata for the stable 2.0.0 release (not a prerelease), with its unverified checks
 listed. It doesn't claim that closed-lid hardware acceptance, installation, or
 upgrade checks are complete.
 The interactive timer is an illustration and doesn't change Mac power settings.

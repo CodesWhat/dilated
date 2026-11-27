@@ -12,11 +12,11 @@ ZIP, source tarball, sha256 files and `release-manifest.json`.
 The closed-lid hardware checks last passed on the maintainer's Mac with macOS 27.2
 for the 1.0.0-beta.9 build: `macOS27ClosedLid`, `appCrashRecovery`, `heartbeatExpiry`,
 `stopResume` and `sudoRuleIntegrity`. `macOS26ClosedLid` and `sparkleUpgrade`
-come from earlier betas. 1.0.1 and 1.1.0 changed the closed-lid path, and none of
-these checks have run on a 1.0.x or 1.1.0 build. The rest were never run:
+come from earlier betas. 1.0.1, 1.1.0 and 2.0.0 changed the closed-lid path, and none of
+these checks have run on a 1.0.x, 1.1.0 or 2.0.0 build. The rest were never run:
 `sudoRuleRevoked`, `guardTransitions`, `rebootRecovery`, `adminPromptCancelled`,
-`helperMigration`, `uninstallNormalSleep` and `nativeUI`. Versions 1.0.0, 1.0.1 and
-1.1.0 shipped with all of these checks waived by the owner, not passed (see
+`helperMigration`, `uninstallNormalSleep` and `nativeUI`. Versions 1.0.0, 1.0.1,
+1.1.0 and 2.0.0 shipped with all of these checks waived by the owner, not passed (see
 `ownerWaiver` in `docs/RELEASING.md`). They're listed in the cask caveats and
 `latest.json`. A signed or notarized build alone does not close them.
 
