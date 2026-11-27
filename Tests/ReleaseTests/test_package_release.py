@@ -258,7 +258,7 @@ class ReleaseGuardsTests(unittest.TestCase):
         (self.root / 'packaging').mkdir()
         metadata = {'DilatedDisplayVersion': '0.1.0-alpha.1', 'CFBundleShortVersionString': '0.1.0', 'CFBundleVersion': '1'}
         path = self.root / 'packaging/Version.plist'
-        for key, value in [('CFBundleShortVersionString', '0.2.0'), ('CFBundleVersion', '0'), ('DilatedDisplayVersion', '0.1.0-alpha.0')]:
+        for key, value in [('CFBundleShortVersionString', '0.2.0'), ('CFBundleVersion', '0'), ('MASBundleVersion', '0'), ('DilatedDisplayVersion', '0.1.0-alpha.0')]:
             with self.subTest(key=key):
                 with path.open('wb') as file:
                     plistlib.dump({**metadata, key: value}, file)
