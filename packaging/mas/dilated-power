@@ -218,9 +218,11 @@ clock() {
 # look and the removal, so the first would delete a fresh holder's lock. Under the guard nobody
 # else removes lock.d, so the instance that was checked is the instance that goes.
 # It is held for a few commands, so one older than 10 seconds belongs to a crashed process. Waits
-# about 3 seconds, and answers 1 when it can't get it.
+# up to $guard_budget tenths of a second (3 seconds unless a caller with a deadline lowered it),
+# and answers 1 when it can't get it.
+guard_budget=30
 take_guard() {
-  local tries=0 modified announced=0
+  local tries=0 modified announced=0 stale
   while ! (umask 077 && /bin/mkdir "$guard_dir" 2>/dev/null); do
     if [ "$announced" -eq 0 ]; then
       announced=1
@@ -228,11 +230,23 @@ take_guard() {
     fi
     if modified=$(/usr/bin/stat -f %m "$guard_dir" 2>/dev/null) &&
       [ $(($(clock) - modified)) -gt 10 ]; then
-      /bin/rmdir "$guard_dir" 2>/dev/null || true
+      step_hook guard-stale-seen
+      # Only the instance that was looked at may go. Another process can reclaim the same stale
+      # guard and take a fresh one before this point, so the guard is renamed to a name of its own
+      # first and judged again there. A fresh one goes back only if the name is still free, never
+      # over a newer guard, and is dropped otherwise.
+      stale="$guard_dir.stale.$$.$RANDOM"
+      if /bin/mv "$guard_dir" "$stale" 2>/dev/null; then
+        if modified=$(/usr/bin/stat -f %m "$stale" 2>/dev/null) &&
+          [ $(($(clock) - modified)) -le 10 ]; then
+          /bin/mv -n "$stale" "$guard_dir" 2>/dev/null || true
+        fi
+        /bin/rmdir "$stale" 2>/dev/null || true
+      fi
       continue
     fi
     tries=$((tries + 1))
-    [ "$tries" -le 30 ] || return 1
+    [ "$tries" -le "$guard_budget" ] || return 1
     /bin/sleep 0.1
   done
   have_guard=1
@@ -286,7 +300,7 @@ steal_lock() {
 # Waits up to $1 tenths of a second (default 5 seconds). $2, when given, also caps the wait in whole
 # wall-clock seconds: each retry spawns processes, so under load the tries alone can run long.
 take_lock() {
-  local tries=0 modified now max=${1:-50} limit=${2:-} started
+  local tries=0 modified now max=${1:-50} limit=${2:-} started left
   ensure_dir || return 1
   started=$(clock)
   while ! (umask 077 && /bin/mkdir "$lock_dir" 2>/dev/null); do
@@ -297,7 +311,17 @@ take_lock() {
     fi
     if [ $((now - modified)) -gt 60 ]; then
       step_hook before-steal
-      if steal_lock; then continue; fi
+      # The guard wait comes out of the same wall-clock cap as everything else here.
+      if [ -n "$limit" ]; then
+        left=$(((limit - (now - started)) * 10))
+        [ "$left" -ge 0 ] || left=0
+        [ "$left" -ge 30 ] || guard_budget=$left
+      fi
+      if steal_lock; then
+        guard_budget=30
+        continue
+      fi
+      guard_budget=30
     fi
     tries=$((tries + 1))
     [ "$tries" -le "$max" ] || return 1
@@ -307,6 +331,7 @@ take_lock() {
   # The owner record is part of acquisition: without it release can't match, and the lock would
   # block everyone until it goes stale.
   if ! printf '%s\n' "$lock_owner" >"$lock_dir/owner" 2>/dev/null; then
+    guard_budget=0
     release_lock
     return 1
   fi
@@ -314,6 +339,7 @@ take_lock() {
   # A late acquisition doesn't get past the cap either: the caller has stopped waiting, and the
   # work that follows could outlive the app's timeout.
   if [ -n "$limit" ] && [ $(($(clock) - started)) -ge "$limit" ]; then
+    guard_budget=0
     release_lock
     return 1
   fi
@@ -423,10 +449,6 @@ stored_sleep_disabled() {
 line_runs_this_script() {
   local prefix=${1% on [0-9]*} rest candidate
   [ "$prefix" != "$1" ] || return 1
-  case "$prefix" in
-    */"${self##*/}") ;;
-    *) return 1 ;;
-  esac
   rest=$prefix
   while [[ $rest == */* ]]; do
     candidate="/${rest#*/}"

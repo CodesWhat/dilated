@@ -1015,6 +1015,49 @@ struct MASChannelRepairScriptTests {
         atPath: box.sessionDirectory.appendingPathComponent("lock.d").path))
   }
 
+  @Test func aStaleGuardReclaimLeavesAGuardThatReplacedItAfterItWasJudged() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    let hook = try Self.hookScript(box)
+    FileManager.default.createFile(
+      atPath: hook.directory.appendingPathComponent("block.guard-stale-seen").path, contents: Data()
+    )
+    let lock = try Self.plantStaleLock(box, owner: "crashed-holder")
+    let guardDir = box.sessionDirectory.appendingPathComponent("lock.guard")
+    try FileManager.default.createDirectory(at: guardDir, withIntermediateDirectories: true)
+    try FileManager.default.setAttributes(
+      [.modificationDate: Date(timeIntervalSinceNow: -60)], ofItemAtPath: guardDir.path)
+    let stealer = try Self.start(box, ["on", String(child.processIdentifier)], hook: hook.script)
+    try Self.waitFor(hook.directory.appendingPathComponent("hit.guard-stale-seen"), "stealer")
+    // Another process reclaimed the stale guard and took a fresh one. The marker file makes a
+    // plain rmdir of it fail, and the mtime is now.
+    try FileManager.default.removeItem(at: guardDir)
+    try FileManager.default.createDirectory(at: guardDir, withIntermediateDirectories: true)
+    try "fresh".write(
+      to: guardDir.appendingPathComponent("holder"), atomically: true, encoding: .utf8)
+    FileManager.default.createFile(
+      atPath: hook.directory.appendingPathComponent("go.guard-stale-seen").path, contents: Data())
+    #expect(stealer.finish() == "busy")
+    #expect(FileManager.default.fileExists(atPath: guardDir.appendingPathComponent("holder").path))
+    #expect(Self.owner(of: lock) == "crashed-holder")
+    let leftovers = try FileManager.default.contentsOfDirectory(atPath: box.sessionDirectory.path)
+    #expect(!leftovers.contains { $0.hasPrefix("lock.guard.stale") })
+  }
+
+  @Test func anOnStaysInsideItsTimeoutWhenAStaleLockMeetsARecentlyAbandonedGuard() throws {
+    let box = try Sandbox()
+    let child = try box.spawnSleeper()
+    _ = try Self.plantStaleLock(box, owner: "crashed-holder")
+    let guardDir = box.sessionDirectory.appendingPathComponent("lock.guard")
+    try FileManager.default.createDirectory(at: guardDir, withIntermediateDirectories: true)
+    try FileManager.default.setAttributes(
+      [.modificationDate: Date(timeIntervalSinceNow: -5)], ofItemAtPath: guardDir.path)
+    let started = ContinuousClock.now
+    #expect(try box.run(["on", String(child.processIdentifier)]).out == "busy")
+    #expect(ContinuousClock.now - started < .seconds(3), "`on` ran past the app's timeout.")
+    #expect(box.sudoCalls.isEmpty)
+  }
+
   // MARK: Session identity
 
   @Test func newSessionsAreTaggedAndReadLive() throws {
@@ -1072,6 +1115,19 @@ struct MASChannelRepairScriptTests {
     let linkDirectory = box.home.appendingPathComponent("link dir")
     try FileManager.default.createDirectory(at: linkDirectory, withIntermediateDirectories: true)
     let link = linkDirectory.appendingPathComponent("dilated-power")
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: installed)
+    try Self.spawnStandIn(box, spelling: link)
+    Thread.sleep(forTimeInterval: 0.3)
+    let result = try box.run(script: installed, ["begin-removal"], timeout: 40)
+    #expect(result.out == "failed")
+  }
+
+  @Test func theDrainMatchesALegacyShellLaunchedThroughARenamedSymlink() throws {
+    let box = try Sandbox()
+    let installed = try Self.installedCopy(box)
+    let linkDirectory = box.home.appendingPathComponent("link dir")
+    try FileManager.default.createDirectory(at: linkDirectory, withIntermediateDirectories: true)
+    let link = linkDirectory.appendingPathComponent("power-link")
     try FileManager.default.createSymbolicLink(at: link, withDestinationURL: installed)
     try Self.spawnStandIn(box, spelling: link)
     Thread.sleep(forTimeInterval: 0.3)
